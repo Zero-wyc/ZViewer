@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Link2 } from 'lucide-react'
+import { Check, Link2, Trash2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { t } from '@/i18n'
@@ -9,11 +9,19 @@ import { validateModelUrl } from '../core/model-url'
 import type { Live2DLibraryEntry } from '../core/model-library'
 import type { Live2DModelKind } from '../types'
 
-// 模型来源选择：内置 / 服务端模型库 / 自定义地址，三段平铺。
+// 模型来源选择：本服模型（随包 + 服务端上传库）、自定义地址，两段平铺。
+//
+// 为什么把「内置模型」和「模型库」合成一段：从用户角度看，这两者都是"这个
+// 服务器上能选的角色"，区别只在于谁把文件放进来的（部署时随包 vs 有人上传）。
+// 分成两个列表会让人以为它们是两种东西，而实际上选哪个效果完全一样——协议里
+// 的 kind 仍然分成 builtin/room，那只是数据出处，不该漏到界面上。
 //
 // 不用 Tab：切 Tab 就要维护「当前 Tab」状态，而当前选中项可能来自任意一段
 // （比如统一模型是房主在别的面板里选的），同步逻辑只会带来闪烁。平铺之后
 // 用户一眼能看到全部可选的角色，点谁是谁。
+//
+// 上传与删除也在这里，而不是在设置面板里另开一段列表：那样同一个模型会在
+// 界面上出现两次（一次用来选、一次用来删），是两个入口在描述同一份数据。
 
 export interface ModelPickerValue {
   kind: Live2DModelKind
@@ -28,8 +36,11 @@ export interface Live2DModelPickerProps {
   /** 房主才能填自定义地址（外链会让每个人的浏览器都去拉第三方资源） */
   allowUrl: boolean
   disabled?: boolean
-  /** 紧凑模式（右键菜单）：不显示地址输入、空态文案更短 */
-  compact?: boolean
+  /** 上传入口：只有登录用户能传，不传这个 prop 就不显示按钮 */
+  upload?: { uploading: boolean; onUpload: (file: File) => void }
+  /** 当前用户有权删除的模型 id（服务端下发的 deletable）；为空则没有管理入口 */
+  removableIds?: string[]
+  onDeleteModel?: (modelId: string) => void
 }
 
 export function Live2DModelPicker({
@@ -39,52 +50,87 @@ export function Live2DModelPicker({
   onSelect,
   allowUrl,
   disabled = false,
-  compact = false,
+  upload,
+  removableIds,
+  onDeleteModel,
 }: Live2DModelPickerProps) {
+  // 管理态是纯本机的临时视图，不进任何 store：它只决定"能不能删"，与选了
+  // 哪个模型无关。
+  const [managing, setManaging] = useState(false)
+  const removable = new Set(removableIds ?? [])
+  const canManage = removable.size > 0 && Boolean(onDeleteModel)
+  const activeManaging = managing && canManage
+
+  const items: ChipItem[] = [
+    ...builtins.map((item) => ({
+      kind: 'builtin' as Live2DModelKind,
+      id: item.id,
+      label: item.label,
+      removable: false,
+    })),
+    ...libraryModels.map((item) => ({
+      kind: 'room' as Live2DModelKind,
+      id: item.id,
+      label: item.label,
+      removable: removable.has(item.id),
+    })),
+  ]
+
   return (
-    <div className={cn('flex flex-col', compact ? 'gap-2' : 'gap-3')}>
-      <Group label={t('内置模型')}>
-        {builtins.length > 0 ? (
+    <div className="flex flex-col gap-3">
+      <div>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <p className="text-[10px] uppercase tracking-wide opacity-55">
+            {t('本服模型')}
+          </p>
+          <div className="flex items-center gap-1">
+            {canManage && (
+              <ToolButton onClick={() => setManaging((prev) => !prev)}>
+                {activeManaging ? t('结束管理') : t('管理')}
+              </ToolButton>
+            )}
+            {upload && (
+              <UploadButton
+                uploading={upload.uploading}
+                onUpload={upload.onUpload}
+              />
+            )}
+          </div>
+        </div>
+
+        {items.length > 0 ? (
           <Chips
-            items={builtins.map((item) => ({
-              kind: 'builtin' as Live2DModelKind,
-              id: item.id,
-              label: item.label,
-            }))}
+            items={items}
             value={value}
             onSelect={onSelect}
             disabled={disabled}
+            managing={activeManaging}
+            onDelete={onDeleteModel}
           />
         ) : (
           <Hint>
-            {/* 不给「可以上传」的承诺：游客不能上传，房主也可能把上传入口
-                关掉（能不能传由设置面板里的模型库段落判断，这里只说现状）。 */}
-            {allowUrl
-              ? t('还没有内置模型，可以上传一个模型包，或填写下面的地址')
-              : t('还没有内置模型')}
+            {/* 只说现状，不给做不到的承诺：游客不能上传，能不能传由传不传
+                upload 这个 prop 决定（真的能传时按钮就在上面）。 */}
+            {upload
+              ? t('还没有可用的模型，上传一个模型包就能开始')
+              : t('还没有可用的模型，等房主或别人上传一个')}
           </Hint>
         )}
-      </Group>
 
-      {libraryModels.length > 0 && (
-        <Group label={t('模型库')}>
-          <Chips
-            items={libraryModels.map((item) => ({
-              kind: 'room' as Live2DModelKind,
-              id: item.id,
-              label: item.label,
-            }))}
-            value={value}
-            onSelect={onSelect}
-            disabled={disabled}
-          />
-        </Group>
-      )}
+        {activeManaging && (
+          <Hint>
+            {t('点模型右侧的删除按钮可以删掉它，正在使用的人会退回默认角色')}
+          </Hint>
+        )}
+      </div>
 
-      {!compact && allowUrl && (
-        <Group label={t('自定义模型地址')}>
+      {allowUrl && (
+        <div>
+          <p className="mb-1 text-[10px] uppercase tracking-wide opacity-55">
+            {t('自定义模型地址')}
+          </p>
           <UrlRow value={value} onSelect={onSelect} disabled={disabled} />
-        </Group>
+        </div>
       )}
     </div>
   )
@@ -148,31 +194,77 @@ function UrlRow({
   )
 }
 
-function Group({
-  label,
+function UploadButton({
+  uploading,
+  onUpload,
+}: {
+  uploading: boolean
+  onUpload: (file: File) => void
+}) {
+  // input 无法美化，藏起来由 label 触发；value 每次都要清空，否则同一个文件
+  // 连选两次不会触发 change。
+  return (
+    <label
+      className={cn(
+        'inline-flex cursor-pointer items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity',
+        uploading ? 'cursor-not-allowed opacity-55' : 'hover:opacity-80'
+      )}
+      style={{
+        background: 'var(--md-sys-color-surface)',
+        borderColor: 'var(--md-sys-color-outline-variant)',
+      }}
+    >
+      <Upload size={11} />
+      {uploading ? t('上传中…') : t('上传')}
+      <input
+        type="file"
+        accept=".zip,application/zip"
+        className="hidden"
+        disabled={uploading}
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          if (file) onUpload(file)
+        }}
+      />
+    </label>
+  )
+}
+
+function ToolButton({
+  onClick,
   children,
 }: {
-  label: string
+  onClick: () => void
   children: React.ReactNode
 }) {
   return (
-    <div>
-      <p className="mb-1 text-[10px] uppercase tracking-wide opacity-55">
-        {label}
-      </p>
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity hover:opacity-80"
+      style={{
+        background: 'var(--md-sys-color-surface)',
+        borderColor: 'var(--md-sys-color-outline-variant)',
+      }}
+    >
       {children}
-    </div>
+    </button>
   )
 }
 
 function Hint({ children }: { children: React.ReactNode }) {
-  return <p className="text-[11px] leading-relaxed opacity-60">{children}</p>
+  return (
+    <p className="mt-1 text-[11px] leading-relaxed opacity-60">{children}</p>
+  )
 }
 
 interface ChipItem {
   kind: Live2DModelKind
   id: string
   label: string
+  /** 这个条目在管理态下能不能删（只有服务端说 deletable 的才行） */
+  removable: boolean
 }
 
 function Chips({
@@ -180,24 +272,28 @@ function Chips({
   value,
   onSelect,
   disabled,
+  managing,
+  onDelete,
 }: {
   items: ChipItem[]
   value: ModelPickerValue
   onSelect: (kind: Live2DModelKind, modelId: string) => void
   disabled: boolean
+  managing: boolean
+  onDelete?: (modelId: string) => void
 }) {
   return (
     <div className="grid grid-cols-2 gap-1.5">
       {items.map((item) => {
         const active = value.kind === item.kind && value.id === item.id
-        return (
+        const deleting = managing && item.removable && Boolean(onDelete)
+        const chip = (
           <button
-            key={`${item.kind}:${item.id}`}
             type="button"
             disabled={disabled}
             onClick={() => onSelect(item.kind, item.id)}
             className={cn(
-              'flex items-center justify-between gap-1 rounded-lg border px-2 py-1.5 text-left text-[11px] transition-colors',
+              'flex min-w-0 flex-1 items-center justify-between gap-1 rounded-lg border px-2 py-1.5 text-left text-[11px] transition-colors',
               disabled ? 'cursor-not-allowed opacity-60' : 'hover:opacity-90'
             )}
             style={{
@@ -213,8 +309,35 @@ function Chips({
             }}
           >
             <span className="truncate">{item.label}</span>
-            {active && <Check size={12} className="shrink-0" />}
+            {active && !deleting && <Check size={12} className="shrink-0" />}
           </button>
+        )
+
+        if (!deleting) {
+          return <div key={`${item.kind}:${item.id}`}>{chip}</div>
+        }
+
+        return (
+          <div
+            key={`${item.kind}:${item.id}`}
+            className="flex min-w-0 items-stretch gap-1"
+          >
+            {chip}
+            <button
+              type="button"
+              onClick={() => onDelete?.(item.id)}
+              aria-label={t('删除该模型')}
+              title={t('删除该模型')}
+              className="shrink-0 rounded-lg border px-1.5 transition-opacity hover:opacity-80"
+              style={{
+                background: 'var(--md-sys-color-surface)',
+                borderColor: 'var(--md-sys-color-outline-variant)',
+                color: 'var(--md-sys-color-error)',
+              }}
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
         )
       })}
     </div>

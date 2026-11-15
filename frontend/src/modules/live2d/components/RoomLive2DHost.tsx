@@ -36,10 +36,10 @@ import {
 import { useLive2DPointer } from '../hooks/useLive2DPointer'
 import { useLive2DStore } from '../store/live2dStore'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
-import { Live2DAdvancedSettings } from './Live2DAdvancedSettings'
 import { Live2DContextMenu } from './Live2DContextMenu'
 import { Live2DDragLayer } from './Live2DDragLayer'
 import { Live2DFaceMonitor } from './Live2DFaceMonitor'
+import { Live2DSettingsModal } from './Live2DSettingsModal'
 
 // 房间悬浮层的宿主。
 //
@@ -49,7 +49,8 @@ import { Live2DFaceMonitor } from './Live2DFaceMonitor'
 //      同一个节点 appendChild 到 fullscreenElement 里（换 portal 目标会重建
 //      canvas，WebGL 上下文与纹理全部要重来）；
 //   3. **引擎生命周期**：卸载就销毁 Application，把 WebGL 上下文还回去；
-//   4. **入口**：右键角色呼出设置菜单；右下角另有一个常驻圆钮直通「高级设置」
+//   4. **入口**：右键角色呼出快捷菜单（表情/大小/动捕/拖拽/删除），换模型与
+//      房间设置统一走「角色设置」弹窗；右下角另有一个常驻圆钮直通后者
 //      （右键依赖包围盒命中，模型加载失败 / 命中漏判时它是唯一退路）。
 //   5. **拖拽模式**：菜单里开启后可把自己的角色拖到任意位置，偏移同步给
 //      全房间（各端看到的站位一致）。它会给角色套一层透明抓取层，所以只在
@@ -57,6 +58,29 @@ import { Live2DFaceMonitor } from './Live2DFaceMonitor'
 //
 // canvas 是 `pointer-events: none` 的，否则房间的拖拽、双击全屏、视频控件全被
 // 吃掉；所以「右键落在哪个角色上」只能由渲染器的包围盒判定（renderer.pick）。
+
+/**
+ * 模型的显示名。
+ *
+ * 三个来源的名字不在同一个结构里（内置清单、服务端库、自定义地址），而界面
+ * 上只需要一句"我现在用的是哪个"。查不到时退回 id：宁可显示一串标识，也别
+ * 显示空白让人以为没选模型。
+ */
+function labelOf(
+  kind: Live2DModelKind,
+  id: string,
+  builtins: Live2DModelEntry[],
+  libraryModels: Live2DLibraryEntry[]
+): string {
+  if (!id) return ''
+  if (kind === 'builtin') {
+    return builtins.find((item) => item.id === id)?.label || id
+  }
+  if (kind === 'room') {
+    return libraryModels.find((item) => item.id === id)?.label || id
+  }
+  return t('自定义模型地址')
+}
 
 export interface RoomLive2DHostProps {
   roomId: string
@@ -129,7 +153,31 @@ export function RoomLive2DHost({
   const [libraryModels, setLibraryModels] = useState<Live2DLibraryEntry[]>([])
   const [canUploadModels, setCanUploadModels] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // 模型名同时用在右键菜单（「当前模型」）和设置页（统一角色的只读展示），
+  // 算一次就够。必须包 useMemo：组件体里裸调外部函数会让 React Compiler
+  // 放弃保留整个组件的 memo（详见 eff 那段注释）。
+  const effLabel = useMemo(
+    () => labelOf(effKind, effModelId, builtins, libraryModels),
+    [effKind, effModelId, builtins, libraryModels]
+  )
+  const unifiedLabel = useMemo(
+    () =>
+      labelOf(
+        policy.unifiedKind ?? 'builtin',
+        policy.unifiedId ?? '',
+        builtins,
+        libraryModels
+      ),
+    [policy.unifiedKind, policy.unifiedId, builtins, libraryModels]
+  )
+  // 有权删的模型：设置页在「管理」态下给这些条目加删除按钮。服务端已经算好
+  // deletable（本人上传的 / 管理员看到的全部），前端不再自己推权限。
+  const removableIds = useMemo(
+    () => libraryModels.filter((item) => item.deletable).map((item) => item.id),
+    [libraryModels]
+  )
   // 拖拽模式：只有用户从菜单里主动开启时才存在。它会给自己的角色套一层
   // 透明的抓取层（挡住那块区域的其它点击），所以绝不能常驻。
   const [dragMode, setDragMode] = useState(false)
@@ -486,7 +534,7 @@ export function RoomLive2DHost({
     if (!renderer) return
     const onContextMenu = (event: MouseEvent) => {
       // 详细设置是模态的，此时右键角色没有意义（菜单会被蒙层盖住）
-      if (advancedOpen) return
+      if (settingsOpen) return
       // 菜单自己内部的右键（比如点在滑块上）不要重新定位
       if ((event.target as Element | null)?.closest?.('[data-live2d-menu]')) {
         return
@@ -499,7 +547,7 @@ export function RoomLive2DHost({
     }
     window.addEventListener('contextmenu', onContextMenu, true)
     return () => window.removeEventListener('contextmenu', onContextMenu, true)
-  }, [renderer, advancedOpen, openMenuAt])
+  }, [renderer, settingsOpen, openMenuAt])
 
   // ---- 8d. 拖拽模式 ----
   //
@@ -662,7 +710,7 @@ export function RoomLive2DHost({
     // 没有角色了，拖拽模式留着只会让下次选模型时突然冒出一个抓取层
     setDragMode(false)
     closeMenu()
-    setAdvancedOpen(false)
+    setSettingsOpen(false)
   }, [unifiedActive, setRemoved, closeMenu])
 
   // 表情不本地乐观应用：服务端会把同一条广播发回给自己，
@@ -674,31 +722,41 @@ export function RoomLive2DHost({
     [socket, roomId]
   )
 
-  // 上传：成功后立刻切到新模型——这是用户上传时唯一想做的事。
-  // 传进公共库的模型所有房间都能选，所以这里不关心 roomId（也不再需要它）。
-  const handleUpload = useCallback(
-    async (file: File) => {
-      if (uploading) return
+  // 上传本身只做一件事：把文件传进公共库（所有房间都能选），成功后返回新
+  // 模型的 id。**传完拿它干什么由调用方决定**——「我的角色」页是切到自己
+  // 身上，「房间设置」页是设为统一模型。以前写死成前者，于是房主开着统一
+  // 角色时两边都没有上传入口（我的角色页在统一时不渲染选择器）。
+  const doUpload = useCallback(
+    async (file: File): Promise<string> => {
+      if (uploading) return ''
       if (file.size > LIVE2D_UPLOAD_MAX_BYTES) {
         message.error(
           t('模型包不能超过 {{size}}MB', {
             size: LIVE2D_UPLOAD_MAX_BYTES >> 20,
           })
         )
-        return
+        return ''
       }
       setUploading(true)
       const result = await uploadLibraryModel(file)
       setUploading(false)
       if (!result.ok) {
         message.error(result.message)
-        return
+        return ''
       }
       message.success(result.message)
       refreshLibrary()
-      if (result.model) handleSelect('room', result.model.id)
+      return result.model?.id ?? ''
     },
-    [uploading, refreshLibrary, handleSelect]
+    [uploading, refreshLibrary]
+  )
+
+  const handleUpload = useCallback(
+    async (file: File) => {
+      const modelId = await doUpload(file)
+      if (modelId) handleSelect('room', modelId)
+    },
+    [doUpload, handleSelect]
   )
 
   const handleDeleteModel = useCallback(
@@ -754,17 +812,33 @@ export function RoomLive2DHost({
     [isHost, socket, roomId]
   )
 
-  const openAdvanced = useCallback(() => {
-    // 右下角按钮和菜单里的「高级设置」都会进来：两条路都得在这里重算挂载点，
-    // 否则从按钮直接打开（或全屏切换之后再打开）会把面板挂到全屏子树外面，
-    // 表现就是「点了没反应」。
+  /**
+   * 在「房间设置」里上传：房主点这个按钮的意图就是"用这个当统一模型"。
+   *
+   * 走 handlePolicy 而不是自己 emit，是为了和那三个开关共用同一条回执路径
+   * （失败会弹 message）；统一模型是一次完整写入——三个字段要么都对，要么
+   * 都不对，不能只改 id 留下旧的 kind。
+   */
+  const handleUploadUnified = useCallback(
+    async (file: File) => {
+      const modelId = await doUpload(file)
+      if (!modelId) return
+      handlePolicy({ unified: true, unifiedKind: 'room', unifiedId: modelId })
+    },
+    [doUpload, handlePolicy]
+  )
+
+  const openSettings = useCallback(() => {
+    // 右下角圆钮和右键菜单里的「角色设置」都会进来：两条路都得在这里重算
+    // 挂载点，否则从按钮直接打开（或全屏切换之后再打开）会把面板挂到全屏
+    // 子树外面，表现就是「点了没反应」。
     const fs = document.fullscreenElement
     setMenu((prev) => ({
       ...prev,
       open: false,
       root: fs instanceof HTMLElement ? fs : null,
     }))
-    setAdvancedOpen(true)
+    setSettingsOpen(true)
   }, [])
 
   // 自己一定在 visible 里：人一多，按 ord 排到第 7 位的人就再也不会被画出来，
@@ -778,15 +852,17 @@ export function RoomLive2DHost({
   const hiddenCount = peers.length - visible.length
   // 拖拽模式的两个前提：有自己的模型，且模型当前真的在画面上。房主统一角色
   // 时模型是房间定的，但位置仍然是每个成员自己的，所以照拖不误。
-  const dragActive = dragMode && Boolean(effModelId) && Boolean(mySid)
+  const dragActive =
+    canShowLayer && dragMode && Boolean(effModelId) && Boolean(mySid)
   // 入口**常驻**，不再「有模型就收起来」：
   //   - 模型加载失败时画面上只剩占位小方块，`renderer.pick` 打不中，右键就没
   //     任何反应——这正是用户最需要打开设置（换/删模型）的时候，收起来等于
   //     把人锁在外面；
   //   - 画布是 pointer-events:none，右键判定走包围盒，摄像头动捕在动、缩放
-  //     拉到很小、或者角色被别的浮层挡住时也会漏判，不能把入口押在命中上。
-
-  if (!canShowLayer) return null
+  //     拉到很小、或者角色被别的浮层挡住时也会漏判，不能把入口押在命中上；
+  //   - 房主关掉「对观众显示角色」时，观众这一层是空的，但入口照样要在：
+  //     整层消失的话，被关的最惨的那个人反而连"这是被关了"都没处看。
+  //     所以这里只条件渲染**画面**，圆钮与设置弹窗始终存在。
 
   return createPortal(
     <div
@@ -794,74 +870,81 @@ export function RoomLive2DHost({
       data-live2d-host=""
       style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 60 }}
     >
-      <div ref={setCanvasEl} style={{ position: 'absolute', inset: 0 }} />
+      {/* 房主关掉「对观众显示角色」时，只关画面，不关入口（见上面的说明）。
+          canvas 不挂载 → 引擎也不会加载，隐藏期间没有额外的显存开销。 */}
+      {canShowLayer && (
+        <div ref={setCanvasEl} style={{ position: 'absolute', inset: 0 }} />
+      )}
 
-      {visible.map((peer, index) => {
-        const failureReason = failed[peer.sid]
-        return (
-          <div
-            key={peer.sid}
-            ref={(el) => {
-              if (el) slotRefs.current.set(peer.sid, el)
-              else slotRefs.current.delete(peer.sid)
-            }}
-            style={{
-              position: 'absolute',
-              left: `${slotX(index, visible.length) * 100}%`,
-              bottom: 8,
-              transform: 'translateX(-50%)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            {failureReason && (
-              <div
-                title={t('模型加载失败：{{reason}}', { reason: failureReason })}
-                onContextMenu={(event) => {
-                  // 加载失败的占位卡是 DOM，直接自己收右键；否则这个角色
-                  // 就成了唯一没有入口的那一格。
-                  event.preventDefault()
-                  openMenuAt(event.clientX, event.clientY)
-                }}
-                style={{
-                  pointerEvents: 'auto',
-                  width: 44,
-                  height: 64,
-                  borderRadius: 10,
-                  border: '1px solid var(--md-sys-color-outline-variant)',
-                  background: 'var(--md-sys-color-surface-container)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 14,
-                  opacity: 0.85,
-                }}
-              >
-                {(peer.name || '?').slice(0, 1)}
-              </div>
-            )}
-            <span
+      {canShowLayer &&
+        visible.map((peer, index) => {
+          const failureReason = failed[peer.sid]
+          return (
+            <div
+              key={peer.sid}
+              ref={(el) => {
+                if (el) slotRefs.current.set(peer.sid, el)
+                else slotRefs.current.delete(peer.sid)
+              }}
               style={{
-                maxWidth: 96,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                padding: '1px 6px',
-                borderRadius: 6,
-                background: 'rgba(0,0,0,0.35)',
-                color: '#fff',
-                fontSize: 10,
+                position: 'absolute',
+                left: `${slotX(index, visible.length) * 100}%`,
+                bottom: 8,
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 4,
               }}
             >
-              {peer.name}
-            </span>
-          </div>
-        )
-      })}
+              {failureReason && (
+                <div
+                  title={t('模型加载失败：{{reason}}', {
+                    reason: failureReason,
+                  })}
+                  onContextMenu={(event) => {
+                    // 加载失败的占位卡是 DOM，直接自己收右键；否则这个角色
+                    // 就成了唯一没有入口的那一格。
+                    event.preventDefault()
+                    openMenuAt(event.clientX, event.clientY)
+                  }}
+                  style={{
+                    pointerEvents: 'auto',
+                    width: 44,
+                    height: 64,
+                    borderRadius: 10,
+                    border: '1px solid var(--md-sys-color-outline-variant)',
+                    background: 'var(--md-sys-color-surface-container)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 14,
+                    opacity: 0.85,
+                  }}
+                >
+                  {(peer.name || '?').slice(0, 1)}
+                </div>
+              )}
+              <span
+                style={{
+                  maxWidth: 96,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  padding: '1px 6px',
+                  borderRadius: 6,
+                  background: 'rgba(0,0,0,0.35)',
+                  color: '#fff',
+                  fontSize: 10,
+                }}
+              >
+                {peer.name}
+              </span>
+            </div>
+          )
+        })}
 
-      {hiddenCount > 0 && (
+      {canShowLayer && hiddenCount > 0 && (
         // 压在画面上的文字必须自己带底：这层浮在视频/网页上，继承来的
         // on-surface 是深色，浅色画面里等于看不见（与角色名标签同一处理）。
         <div
@@ -876,7 +959,7 @@ export function RoomLive2DHost({
           （h-12 w-12 glass-card 圆钮）：语音面板固定在 bottom-6 right-6
           （48px 高）并带 gap-3，所以这里抬到 84px = 24 + 48 + 12，
           两个圆钮才对齐成一条竖列而不是错位。 */}
-      {engineError && (
+      {canShowLayer && engineError && (
         // 挪到左下角：右下角是「角色设置 / 动捕监视窗」的竖列，引擎失败时
         // 监视窗仍然可能被打开（动捕与渲染是两条独立的链路），压在它下面
         // 等于把这条唯一的线索藏起来。
@@ -891,7 +974,7 @@ export function RoomLive2DHost({
 
       {/* 动捕监视窗 / 收起后的入口。与角色按钮同一列（bottom-6 语音 → 84
           角色设置 → 这里 144），展开时向上生长，不会盖住下面两个圆钮。 */}
-      {tracker && (
+      {canShowLayer && tracker && (
         <div
           className="absolute right-6 bottom-[144px]"
           style={{ pointerEvents: 'auto' }}
@@ -931,7 +1014,7 @@ export function RoomLive2DHost({
       >
         <button
           type="button"
-          onClick={openAdvanced}
+          onClick={openSettings}
           aria-label={t('角色设置')}
           title={t('角色设置')}
           className={cn(
@@ -966,11 +1049,8 @@ export function RoomLive2DHost({
         position={{ x: menu.x, y: menu.y }}
         onClose={closeMenu}
         container={menu.root}
-        builtins={builtins}
-        libraryModels={libraryModels}
+        modelLabel={effLabel}
         expressions={myExpressions}
-        myKind={myKind}
-        myModelId={myModelId}
         removed={removedNow}
         canRemove={!unifiedActive && !removedNow && Boolean(myModelId)}
         onRemove={handleRemove}
@@ -983,23 +1063,23 @@ export function RoomLive2DHost({
         canResetPosition={
           Math.abs(menu.offsetX) > 0.005 || Math.abs(menu.offsetY) > 0.005
         }
-        onSelect={handleSelect}
         onScale={setMyScale}
         onExpression={handleExpression}
         onToggleFaceTracking={toggleFaceTracking}
-        onOpenAdvanced={openAdvanced}
+        onOpenSettings={openSettings}
         onToggleDrag={toggleDragMode}
         onResetPosition={handleResetPosition}
       />
 
-      <Live2DAdvancedSettings
-        open={advancedOpen}
-        onClose={() => setAdvancedOpen(false)}
+      <Live2DSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
         container={menu.root}
         isHost={isHost}
         canUploadModels={canUploadModels}
         builtins={builtins}
         libraryModels={libraryModels}
+        removableIds={removableIds}
         expressions={myExpressions}
         selectedKind={myKind}
         selectedModelId={myModelId}
@@ -1008,6 +1088,8 @@ export function RoomLive2DHost({
         myScale={myScale}
         faceTracking={face}
         policy={policy}
+        unifiedLabel={unifiedLabel}
+        hiddenByHost={!canShowLayer}
         uploading={uploading}
         onSelect={handleSelect}
         onScale={setMyScale}
@@ -1016,6 +1098,7 @@ export function RoomLive2DHost({
         onRemove={handleRemove}
         onPolicy={handlePolicy}
         onUpload={handleUpload}
+        onUploadUnified={handleUploadUnified}
         onDeleteModel={handleDeleteModel}
       />
     </div>,

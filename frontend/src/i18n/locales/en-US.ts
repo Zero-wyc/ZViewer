@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2765 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2770 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,10 +965,11 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（95 条） =====
+  // ===== modules/live2d（100 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
+  '本服模型': 'Server models',
   '表情': 'Expression',
   '表情 {{index}}': 'Expression {{index}}',
   '不支持协议相对地址': 'Protocol-relative URLs are not supported',
@@ -976,21 +977,24 @@ const enUS: Record<string, string> = {
   '地址必须指向 model3.json': 'The URL must point to model3.json',
   '地址格式无效': 'Invalid URL format',
   '地址过长': 'URL is too long',
+  '点模型右侧的删除按钮可以删掉它，正在使用的人会退回默认角色': 'Use the delete button beside a model to remove it; anyone using it falls back to the default character',
   '动捕预览': 'Capture preview',
   '动捕中': 'Tracking',
   '对观众显示角色': 'Show characters to viewers',
+  '房间里还没有模型，先上传一个': 'This room has no models yet — upload one first',
   '房间设置': 'Room settings',
   '房间统一使用的模型已被删除': 'The room-wide model has been deleted',
+  '房主关闭了角色显示，你现在看不到任何角色；重新打开后你选的模型会立刻出现': 'The host turned off character display, so you can\'t see any characters right now. Your chosen model appears as soon as it\'s back on',
+  '房主统一了角色：模型由房主决定，大小、表情和动捕仍然是你自己的': 'The host set a room-wide character: the model comes from the host, while size, expression and face tracking are still yours',
   '房主已关闭成员动捕': 'The host turned off tracking for members',
   '房主已关闭角色显示': 'The host turned off character display',
-  '房主已统一角色，全房间使用同一个模型': 'The host picked one character for the whole room',
+  '更换': 'Change',
   '关闭动捕预览': 'Close preview',
   '关闭后成员的动捕开关会被禁用': 'Members cannot turn on camera tracking',
   '关闭后观众看不到任何角色，你自己仍然看得到': 'Viewers see no characters; you still do',
-  '还没有可用的模型，登录后可以上传，或等别人上传': 'No models available yet — sign in to upload one, or wait for someone else to',
+  '还没有可用的模型，等房主或别人上传一个': 'No models available yet — wait for the host or someone else to upload one',
   '还没有可用的模型，上传一个模型包就能开始': 'No models available yet — upload a model pack to get started',
-  '还没有内置模型': 'No built-in models yet',
-  '还没有内置模型，可以上传一个模型包，或填写下面的地址': 'No built-in models yet — upload a model pack, or enter a URL below',
+  '还没有选模型': 'No model selected',
   '画面只在本机处理，不会上传': 'Frames stay on this device and are never uploaded',
   '回到默认站位': 'Back to default spot',
   '回到原位': 'Reset position',
@@ -998,7 +1002,8 @@ const enUS: Record<string, string> = {
   '角色模型应用失败': 'Could not apply the character model',
   '角色设置': 'Character settings',
   '角色已删除，房间里所有人（包括你）都看不到它。在下面重新选一个模型即可恢复': 'Character deleted — nobody in the room (including you) can see it now. Pick a model below to bring it back',
-  '角色已删除，在上面选一个模型即可恢复': 'Character deleted — pick a model above to bring it back',
+  '角色已删除，在角色设置里选一个模型即可恢复': 'Your character is removed — pick a model in character settings to bring it back',
+  '结束管理': 'Stop managing',
   '仅支持 http/https 地址': 'Only http/https URLs are supported',
   '开启后角色会跟着你的头部转动': 'Once on, the character follows your head',
   '开启后可直接拖动角色调整位置': 'Drag the character to move it',
@@ -1007,13 +1012,12 @@ const enUS: Record<string, string> = {
   '没有找到可用的摄像头': 'No camera found',
   '眉': 'Brows',
   '模型包不能超过 {{size}}MB': 'Model pack must be under {{size}}MB',
+  '模型包是 zip，需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB；上传后所有房间都能选': 'The model pack is a zip containing model3.json (keep textures and motions inside), up to {{size}}MB; once uploaded it can be used in every room',
   '模型大小': 'Model size',
   '模型加载失败：{{reason}}': 'Could not load model: {{reason}}',
-  '模型库': 'Model library',
-  '模型库还是空的': 'The model library is empty',
   '模型已删除': 'Model deleted',
   '模型已上传': 'Model uploaded',
-  '内置模型': 'Built-in',
+  '模型由房主统一：{{name}}': 'Model set by the host: {{name}}',
   '你用的模型已被删除': 'The model you were using has been deleted',
   '你用的模型已被删除，已换成默认模型': 'The model you were using has been deleted — switched to the default',
   '请填写模型地址': 'Enter a model URL',
@@ -1026,7 +1030,6 @@ const enUS: Record<string, string> = {
   '删除角色': 'Delete character',
   '删除失败': 'Failed to delete',
   '上传': 'Upload',
-  '上传到服务端模型库，所有房间都能选': 'Upload to the server model library — every room can use it',
   '上传失败': 'Upload failed',
   '上传中…': 'Uploading…',
   '摄像头被其他程序占用': 'The camera is in use by another app',
@@ -1037,6 +1040,7 @@ const enUS: Record<string, string> = {
   '摄像头权限被拒绝': 'Camera permission denied',
   '所有人都会看到': 'Everyone will see it',
   '统一角色': 'Unified character',
+  '统一角色期间不能删除自己的角色': 'You can\'t remove your character while the host uses a room-wide one',
   '统一使用的模型': 'Shared model',
   '退出拖拽模式': 'Exit drag mode',
   '拖动角色调整位置': 'Drag the character to where you want it',
@@ -1044,12 +1048,14 @@ const enUS: Record<string, string> = {
   '歪头': 'Tilt',
   '完成': 'Done',
   '未检测到人脸': 'No face detected',
+  '未知模型': 'Unknown model',
   '我的角色': 'My character',
   '笑': 'Smile',
   '眼': 'Eyes',
   '应用地址': 'Apply URL',
   '允许成员开启摄像头动捕': 'Allow camera tracking for members',
-  '这些设置作用于整个房间，服务重启后恢复默认': 'These apply to the whole room and reset when the server restarts',
+  '这些设置对房间里所有人生效': 'These settings apply to everyone in the room',
+  '这些设置由房主决定，你只能看': 'The host controls these settings; you can only view them',
   '正在标定，请正对镜头': 'Calibrating…',
   '正在启动…': 'Starting…',
   '重新标定': 'Recalibrate',
@@ -1060,7 +1066,6 @@ const enUS: Record<string, string> = {
   'Cubism Core 已加载但未注册': 'Cubism Core loaded but not registered',
   'Live2D 引擎加载失败': 'Live2D engine failed to load',
   'Live2D 引擎加载失败：{{reason}}': 'Live2D engine failed to load: {{reason}}',
-  'zip 需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB': 'The zip must contain model3.json (textures and motions are kept), at most {{size}}MB',
 
   // ===== modules/mounts（60 条） =====
   '，用户：{{userName}}': ', user: {{userName}}',

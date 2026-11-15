@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { Camera, Trash2, Upload, Users } from 'lucide-react'
+import { Camera, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmModal, Modal } from '@/components/ui/Modal'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
-import { cn } from '@/lib/utils'
 import type { Live2DModelEntry } from '../core/model-catalog'
 import type { ModelExpressionEntry } from '../core/model-meta'
 import {
@@ -16,16 +15,21 @@ import {
 import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DModelPicker } from './Live2DModelPicker'
 
-// 详细设置。分两页：
-//   - 我的角色：每个人都能改，只影响自己看到的/别人看到的「我这一个」；
-//   - 房间设置：房主才能改，作用于全房间（统一角色、动捕许可、对观众可见）。
+// 角色设置：**唯一**的设置入口（右键菜单只留快捷动作，模型选择都指到这里）。
 //
-// 为什么用弹窗而不是继续挂在右键菜单里：模型清单、模型库、动捕状态这些
-// 东西展开后有两三百像素，贴在光标上会盖住画面且容易误触。
+// 分两页，两页对所有人可见——区别只在于能不能改：
+//   - 我的角色：每个人都能改，只影响「我这一个」；
+//   - 房间设置：房主可改，作用于全房间；成员只读，但能看到房间现在是什么规矩。
+//
+// 以前房间页签只给房主渲染，结果"为什么我不能换模型""为什么动捕开关是灰的"
+// 只能靠猜：限制发生了，但被限制的人看不到规则本身。只读展示比隐藏更省事。
+//
+// 为什么用弹窗而不是全塞进右键菜单：模型清单展开后有两三百像素，贴在光标上
+// 会盖住画面且容易误触。
 
 type Tab = 'me' | 'room'
 
-export interface Live2DAdvancedSettingsProps {
+export interface Live2DSettingsModalProps {
   open: boolean
   onClose: () => void
   /**
@@ -43,6 +47,8 @@ export interface Live2DAdvancedSettingsProps {
   canUploadModels: boolean
   builtins: Live2DModelEntry[]
   libraryModels: Live2DLibraryEntry[]
+  /** 我有权删除的模型 id（服务端下发的 deletable） */
+  removableIds: string[]
   expressions: ModelExpressionEntry[]
   /**
    * 我自己的选择（不受统一角色/删除影响）。
@@ -60,6 +66,15 @@ export interface Live2DAdvancedSettingsProps {
   myScale: number
   faceTracking: { on: boolean; busy: boolean; error: string }
   policy: Live2DPolicy
+  /** 统一角色当前用的模型显示名（解析不到时给 id） */
+  unifiedLabel: string
+  /**
+   * 房主关掉了「对观众显示角色」，此刻我看不到任何角色。
+   *
+   * 这一层被关掉时入口仍然保留（不然被关的人连状态都看不到），但只给一个
+   * 空设置面板等于让人以为功能坏了——必须有一句话解释「你看不到是因为什么」。
+   */
+  hiddenByHost: boolean
   uploading: boolean
   /* 我的角色 */
   onSelect: (kind: Live2DModelKind, modelId: string) => void
@@ -70,10 +85,17 @@ export interface Live2DAdvancedSettingsProps {
   /* 房间设置（房主） */
   onPolicy: (patch: Partial<Live2DPolicy>) => void
   onUpload: (file: File) => void
+  /**
+   * 在房间页上传：传完直接设为统一模型。
+   *
+   * 和 onUpload 分开是因为"传完干什么"不同——个人页是切到自己身上，房间页
+   * 是写进策略。两个回调共用同一段上传逻辑，只有落地动作不一样。
+   */
+  onUploadUnified: (file: File) => void
   onDeleteModel: (modelId: string) => void
 }
 
-export function Live2DAdvancedSettings({
+export function Live2DSettingsModal({
   open,
   onClose,
   container,
@@ -81,6 +103,7 @@ export function Live2DAdvancedSettings({
   canUploadModels,
   builtins,
   libraryModels,
+  removableIds,
   expressions,
   selectedKind,
   selectedModelId,
@@ -89,6 +112,8 @@ export function Live2DAdvancedSettings({
   myScale,
   faceTracking,
   policy,
+  unifiedLabel,
+  hiddenByHost,
   uploading,
   onSelect,
   onScale,
@@ -97,73 +122,24 @@ export function Live2DAdvancedSettings({
   onRemove,
   onPolicy,
   onUpload,
+  onUploadUnified,
   onDeleteModel,
-}: Live2DAdvancedSettingsProps) {
+}: Live2DSettingsModalProps) {
   const [tab, setTab] = useState<Tab>('me')
   const [pendingDelete, setPendingDelete] = useState<string>('')
 
-  // 观众没有房间页，也不该因为上次是房主就停在 'room'
-  const activeTab: Tab = isHost ? tab : 'me'
   const unified = policy.unified && Boolean(policy.unifiedId)
   const canUseFace = policy.allowFace
-
-  // 模型库是**服务端公共**的素材，不属于房间设置，所以放在「我的角色」页：
-  // 观众也要能传自己的、删自己传错的，不能只给房主开。不可上传且库为空时
-  // 整块不渲染，免得给游客看一个空壳。
-  const librarySection =
-    canUploadModels || libraryModels.length > 0 ? (
-      <Section label={t('模型库')}>
-        {canUploadModels && (
-          <>
-            <p className="mb-1.5 text-[10px] leading-snug opacity-50">
-              {t('上传到服务端模型库，所有房间都能选')}
-            </p>
-            <div className="mb-1.5 flex items-center gap-1.5">
-              <UploadButton uploading={uploading} onUpload={onUpload} />
-              <span className="text-[10px] opacity-45">
-                {t(
-                  'zip 需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB',
-                  {
-                    size: LIVE2D_UPLOAD_MAX_BYTES >> 20,
-                  }
-                )}
-              </span>
-            </div>
-          </>
-        )}
-        {libraryModels.length === 0 ? (
-          <p className="text-[11px] opacity-55">{t('模型库还是空的')}</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {libraryModels.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center gap-2 rounded-lg border px-2 py-1.5"
-                style={{
-                  borderColor: 'var(--md-sys-color-outline-variant)',
-                }}
-              >
-                <span className="min-w-0 flex-1 truncate text-[11px]">
-                  {item.label}
-                </span>
-                {item.deletable && (
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(item.id)}
-                    aria-label={t('删除该模型')}
-                    title={t('删除该模型')}
-                    className="shrink-0 rounded-md p-1 opacity-55 transition-opacity hover:opacity-100"
-                    style={{ color: 'var(--md-sys-color-error)' }}
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
-    ) : null
+  // 打开「统一角色」必须指定一个模型。优先级：当前统一模型 → 我选的那个 →
+  // 库里第一个。一个都没有时开关直接禁用——以前是点了发请求、被 `if (!id)`
+  // 静默挡回来，看着像开关坏了。
+  const fallbackModel: { kind: Live2DModelKind; id: string } | null =
+    builtins[0]
+      ? { kind: 'builtin', id: builtins[0].id }
+      : libraryModels[0]
+        ? { kind: 'room', id: libraryModels[0].id }
+        : null
+  const canUnify = Boolean(policy.unifiedId || selectedModelId || fallbackModel)
 
   return (
     <>
@@ -179,24 +155,40 @@ export function Live2DAdvancedSettings({
           </Button>
         }
       >
-        {isHost && (
-          <div className="mb-3 mt-1">
-            <SegmentedToggle
-              options={[
-                { value: 'me', label: t('我的角色') },
-                { value: 'room', label: t('房间设置') },
-              ]}
-              value={activeTab}
-              onChange={(value) => setTab(value as Tab)}
-            />
-          </div>
-        )}
+        <div className="mb-3 mt-1">
+          <SegmentedToggle
+            options={[
+              { value: 'me', label: t('我的角色') },
+              { value: 'room', label: t('房间设置') },
+            ]}
+            value={tab}
+            onChange={(value) => setTab(value as Tab)}
+          />
+        </div>
 
         <div className="max-h-[62vh] overflow-y-auto pr-1 hide-scrollbar">
-          {activeTab === 'me' ? (
+          {tab === 'me' ? (
             <div className="flex flex-col gap-4">
+              {hiddenByHost && (
+                <Note>
+                  {t(
+                    '房主关闭了角色显示，你现在看不到任何角色；重新打开后你选的模型会立刻出现'
+                  )}
+                </Note>
+              )}
               {unified ? (
-                <Note>{t('房主已统一角色，全房间使用同一个模型')}</Note>
+                <>
+                  <Note>
+                    {t(
+                      '房主统一了角色：模型由房主决定，大小、表情和动捕仍然是你自己的'
+                    )}
+                  </Note>
+                  <Section label={t('统一使用的模型')}>
+                    <p className="truncate text-xs opacity-80">
+                      {unifiedLabel || t('未知模型')}
+                    </p>
+                  </Section>
+                </>
               ) : (
                 <>
                   {removed && (
@@ -206,34 +198,34 @@ export function Live2DAdvancedSettings({
                       )}
                     </Note>
                   )}
-                  {/* 一个模型都没有时的唯一出口：不引导的话这里就是一块空面板，
-                      游客尤其无从下手（他们不能上传，只能等别人传）。 */}
-                  {builtins.length === 0 && libraryModels.length === 0 && (
-                    <Note>
-                      {canUploadModels
-                        ? t('还没有可用的模型，上传一个模型包就能开始')
-                        : t('还没有可用的模型，登录后可以上传，或等别人上传')}
-                    </Note>
-                  )}
-                  {/* 高亮用「我的选择」而不是「生效模型」：删除时生效模型是
-                      空串，用它当 value 会让选择器整片都不选中，看起来像"我从
-                      来没选过模型"——而实际上只是删掉了。 */}
                   <Live2DModelPicker
                     builtins={builtins}
                     libraryModels={libraryModels}
                     value={{ kind: selectedKind, id: selectedModelId }}
                     onSelect={onSelect}
-                    // 与后端同口径：kind=url 只开给房主（它会让房间里每个人的
-                    // 浏览器都去拉第三方资源）。这里以前传的是 canUploadModels
-                    // （任何登录用户），于是非房主能看到输入框、填了却被服务端
-                    // 拒绝，表现成「选了模型却没反应」。
+                    // 与后端同口径：kind=url 只开给房主（它会让房间里每个人
+                    // 的浏览器都去拉第三方资源）。
                     allowUrl={isHost}
+                    upload={
+                      canUploadModels ? { uploading, onUpload } : undefined
+                    }
+                    removableIds={removableIds}
+                    onDeleteModel={(modelId) => setPendingDelete(modelId)}
                   />
+                  {canUploadModels && (
+                    <p className="-mt-2 text-[10px] leading-snug opacity-45">
+                      {t(
+                        '模型包是 zip，需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB；上传后所有房间都能选',
+                        { size: LIVE2D_UPLOAD_MAX_BYTES >> 20 }
+                      )}
+                    </p>
+                  )}
                 </>
               )}
 
-              {librarySection}
-
+              {/* 大小是**个人**的：服务端名册按成员各存一份 scale，统一角色
+                  只统一模型。以前这里跟着统一一起禁用，等于房主定了个模型就
+                  顺带决定了别人屏幕上该多大——而每个人的画面尺寸根本不同。 */}
               <Section label={t('大小')}>
                 <Slider
                   min={0.5}
@@ -242,7 +234,6 @@ export function Live2DAdvancedSettings({
                   value={myScale}
                   onChange={onScale}
                   size="sm"
-                  disabled={unified}
                   valueFormatter={(value) => `${Math.round(value * 100)}%`}
                   aria-label={t('模型大小')}
                 />
@@ -258,7 +249,7 @@ export function Live2DAdvancedSettings({
                         onClick={() => onExpression(item.index)}
                         // 删除角色后服务端名册里没有我，动作会被直接丢掉：
                         // 能点却没有任何反应比置灰更容易被当成 bug
-                        disabled={removed}
+                        disabled={removed && !unified}
                         title={t('所有人都会看到')}
                         className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                         style={{
@@ -283,7 +274,7 @@ export function Live2DAdvancedSettings({
                       ? faceTracking.error
                       : !canUseFace
                         ? t('房主已关闭成员动捕')
-                        : removed
+                        : removed && !unified
                           ? t('重新选一个模型之后动捕才有作用')
                           : faceTracking.on
                             ? t('画面只在本机处理，不会上传')
@@ -292,9 +283,11 @@ export function Live2DAdvancedSettings({
                 </span>
                 <Switch
                   checked={faceTracking.on}
-                  // 删除角色后开动捕没有任何可驱动的对象（指针上报也跟着停了），
-                  // 让开关能点却毫无反应比直接置灰更让人怀疑坏了
-                  disabled={!canUseFace || removed || faceTracking.busy}
+                  // 删除角色后开动捕没有任何可驱动的对象（指针上报也跟着
+                  // 停了），让开关能点却毫无反应比直接置灰更让人怀疑坏了
+                  disabled={
+                    !canUseFace || (removed && !unified) || faceTracking.busy
+                  }
                   onChange={onToggleFaceTracking}
                   aria-label={t('摄像头动捕')}
                 />
@@ -304,26 +297,35 @@ export function Live2DAdvancedSettings({
                   以前那一对按钮就是紊乱的源头：删除后模型选择器仍然可选，
                   点任意一个模型都会恢复，所以"恢复"的正确入口一直是列表本身，
                   而不是一个只在特定状态下才出现的按钮。 */}
-              {!removed && (
-                <div>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    icon={<Trash2 size={13} />}
-                    onClick={onRemove}
-                    disabled={!canRemove}
-                  >
-                    {t('删除角色')}
-                  </Button>
-                  <p className="mt-1 text-[10px] leading-snug opacity-45">
-                    {t('删除后房间里所有人（包括你）都看不到你的角色')}
+              {!removed &&
+                (unified ? (
+                  <p className="text-[10px] leading-snug opacity-45">
+                    {t('统一角色期间不能删除自己的角色')}
                   </p>
-                </div>
-              )}
+                ) : (
+                  <div>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      icon={<Trash2 size={13} />}
+                      onClick={onRemove}
+                      disabled={!canRemove}
+                    >
+                      {t('删除角色')}
+                    </Button>
+                    <p className="mt-1 text-[10px] leading-snug opacity-45">
+                      {t('删除后房间里所有人（包括你）都看不到你的角色')}
+                    </p>
+                  </div>
+                ))}
             </div>
           ) : (
             <div className="flex flex-col gap-4">
-              <Note>{t('这些设置作用于整个房间，服务重启后恢复默认')}</Note>
+              <Note>
+                {isHost
+                  ? t('这些设置对房间里所有人生效')
+                  : t('这些设置由房主决定，你只能看')}
+              </Note>
 
               <Row
                 icon={<Users size={14} />}
@@ -332,6 +334,7 @@ export function Live2DAdvancedSettings({
               >
                 <Switch
                   checked={policy.showToViewers}
+                  disabled={!isHost}
                   onChange={(event) =>
                     onPolicy({ showToViewers: event.target.checked })
                   }
@@ -346,6 +349,7 @@ export function Live2DAdvancedSettings({
               >
                 <Switch
                   checked={policy.allowFace}
+                  disabled={!isHost}
                   onChange={(event) =>
                     onPolicy({ allowFace: event.target.checked })
                   }
@@ -355,22 +359,31 @@ export function Live2DAdvancedSettings({
 
               <Row
                 label={t('统一角色')}
-                hint={t('全房间都显示同一个模型，成员不能再自己换')}
+                hint={
+                  canUnify
+                    ? t('全房间都显示同一个模型，成员不能再自己换')
+                    : t('房间里还没有模型，先上传一个')
+                }
               >
                 <Switch
                   checked={policy.unified}
+                  disabled={!isHost || !canUnify}
                   onChange={(event) => {
-                    // 打开时必须给一个模型：拿当前统一模型，退而用我自己的
+                    // 打开时必须给一个模型：拿当前统一模型，退而用**我自己的
+                    // 选择**（不是生效模型——隐藏时它是空串、统一时它本来就
+                    // 是统一模型，两种都不该作为"统一哪个"的来源）
                     const next = event.target.checked
                     if (!next) {
                       onPolicy({ unified: false })
                       return
                     }
-                    // 打开时必须给一个模型：拿当前统一模型，退而用**我自己的
-                    // 选择**（不是生效模型——隐藏时它是空串、统一时它本来就
-                    // 是统一模型，两种都不该作为"统一哪个"的来源）
-                    const kind = policy.unifiedKind ?? selectedKind
-                    const id = policy.unifiedId ?? selectedModelId
+                    const kind =
+                      policy.unifiedKind ??
+                      (selectedModelId
+                        ? selectedKind
+                        : (fallbackModel?.kind ?? 'builtin'))
+                    const id =
+                      policy.unifiedId ?? selectedModelId ?? fallbackModel?.id
                     if (!id) return
                     onPolicy({
                       unified: true,
@@ -404,7 +417,21 @@ export function Live2DAdvancedSettings({
                         unifiedId: modelId,
                       })
                     }
-                    allowUrl
+                    allowUrl={isHost}
+                    disabled={!isHost}
+                    // 统一角色期间「我的角色」页不渲染选择器，上传与删除只能
+                    // 在这里做：传完直接设为统一模型，否则传了也不知道去哪选。
+                    upload={
+                      canUploadModels && isHost
+                        ? { uploading, onUpload: onUploadUnified }
+                        : undefined
+                    }
+                    removableIds={isHost ? removableIds : undefined}
+                    onDeleteModel={
+                      isHost
+                        ? (modelId) => setPendingDelete(modelId)
+                        : undefined
+                    }
                   />
                 </div>
               )}
@@ -432,43 +459,6 @@ export function Live2DAdvancedSettings({
         </p>
       </ConfirmModal>
     </>
-  )
-}
-
-function UploadButton({
-  uploading,
-  onUpload,
-}: {
-  uploading: boolean
-  onUpload: (file: File) => void
-}) {
-  // input 无法美化，藏起来由按钮触发；value 每次都要清空，否则同一个文件
-  // 连选两次不会触发 change。
-  return (
-    <label
-      className={cn(
-        'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] transition-opacity',
-        uploading ? 'cursor-not-allowed opacity-55' : 'hover:opacity-80'
-      )}
-      style={{
-        background: 'var(--md-sys-color-surface)',
-        borderColor: 'var(--md-sys-color-outline-variant)',
-      }}
-    >
-      <Upload size={13} />
-      {uploading ? t('上传中…') : t('上传')}
-      <input
-        type="file"
-        accept=".zip,application/zip"
-        className="hidden"
-        disabled={uploading}
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ''
-          if (file) onUpload(file)
-        }}
-      />
-    </label>
   )
 }
 

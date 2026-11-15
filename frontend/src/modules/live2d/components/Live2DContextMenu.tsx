@@ -4,16 +4,18 @@ import { Move, RotateCcw, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
-import type { Live2DModelEntry } from '../core/model-catalog'
 import type { ModelExpressionEntry } from '../core/model-meta'
-import type { Live2DLibraryEntry } from '../core/model-library'
-import type { Live2DModelKind } from '../types'
-import { Live2DModelPicker } from './Live2DModelPicker'
 
-// 右键角色弹出的快捷菜单。
+// 右键角色弹出的**快捷菜单**。
+//
+// 它只放"看片时想顺手改一下"的东西：表情、大小、动捕开关、拖拽位置。
+// 模型选择不在里面——那是一个带清单、上传、删除、自定义地址的面板，贴在光标
+// 上会盖掉半屏画面，而且和设置弹窗里的同一份功能重复投影（以前两边各有一份，
+// 状态参数要在两处搬三十多个，改一处忘一处就是 bug）。
 //
 // 为什么是右键而不是一个常驻按钮：这套设置只跟「我自己的角色」有关，而角色
-// 本身就在画面里——对着它右键是最短的路径，也不必为它长期占一块界面。
+// 本身就在画面里——对着它右键是最短的路径。右下角另有常驻圆钮兜底（模型加载
+// 失败、命中漏判时右键打不中），两者都指向同一个「角色设置」。
 //
 // 位置与视觉沿用房间页的玻璃语言（glass-strong + --md-sys-color-*），与
 // 视频统计菜单同一套写法：portal 到 body、fixed 定位、按视口夹紧。
@@ -26,18 +28,16 @@ export interface Live2DContextMenuProps {
   /** 光标位置（视口坐标） */
   position: { x: number; y: number }
   onClose: () => void
-  /** 挂载容器（原生全屏时要进全屏子树，见 Live2DAdvancedSettings 的说明） */
+  /** 挂载容器（原生全屏时要进全屏子树，见 Live2DSettingsModal 的说明） */
   container?: HTMLElement | null
-  builtins: Live2DModelEntry[]
-  libraryModels: Live2DLibraryEntry[]
+  /** 当前生效模型的显示名（统一角色时是房间定的那个） */
+  modelLabel: string
   expressions: ModelExpressionEntry[]
-  myKind: Live2DModelKind
-  myModelId: string
   myScale: number
   faceTracking: { on: boolean; busy: boolean; error: string }
   /** 房主是否允许成员开动捕 */
   allowFace: boolean
-  /** 房主已统一角色：选模型这一段换成说明 */
+  /** 房主已统一角色：模型换不了，这里只说明一句 */
   unified: boolean
   /**
    * 我已删除自己的角色。
@@ -55,30 +55,27 @@ export interface Live2DContextMenuProps {
   dragMode: boolean
   /** 已经挪过位置，才显示「回到原位」 */
   canResetPosition: boolean
-  onSelect: (kind: Live2DModelKind, modelId: string) => void
   onScale: (scale: number) => void
   onExpression: (index: number) => void
   onToggleFaceTracking: () => void
-  onOpenAdvanced: () => void
+  /** 进「角色设置」（换模型、上传、房间策略都在那一处） */
+  onOpenSettings: () => void
   onToggleDrag: () => void
   onResetPosition: () => void
   onRemove: () => void
 }
 
-const MENU_WIDTH = 272
+const MENU_WIDTH = 264
 /** 估算高度只用于「别超出视口下沿」；实际高度由内容决定并可滚动。 */
-const MENU_HEIGHT_GUESS = 500
+const MENU_HEIGHT_GUESS = 380
 
 export function Live2DContextMenu({
   open,
   position,
   onClose,
   container,
-  builtins,
-  libraryModels,
+  modelLabel,
   expressions,
-  myKind,
-  myModelId,
   myScale,
   faceTracking,
   allowFace,
@@ -88,11 +85,10 @@ export function Live2DContextMenu({
   canDrag,
   dragMode,
   canResetPosition,
-  onSelect,
   onScale,
   onExpression,
   onToggleFaceTracking,
-  onOpenAdvanced,
+  onOpenSettings,
   onToggleDrag,
   onResetPosition,
   onRemove,
@@ -167,21 +163,59 @@ export function Live2DContextMenu({
         </button>
       </div>
 
-      {unified ? (
-        <p className="mb-2 text-[11px] leading-relaxed opacity-60">
-          {t('房主已统一角色，全房间使用同一个模型')}
-        </p>
-      ) : (
-        <div className="mb-2">
-          <Live2DModelPicker
-            builtins={builtins}
-            libraryModels={libraryModels}
-            value={{ kind: myKind, id: myModelId }}
-            onSelect={onSelect}
-            allowUrl={false}
-            compact
-          />
-        </div>
+      {/* 当前模型只显示名字 + 一个入口：选模型需要清单、上传、删除，属于
+          设置面板的活。把"我现在是什么"留在菜单里，是为了改表情/大小时
+          知道自己改的是哪个角色。 */}
+      <div className="mb-2 flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-[11px] opacity-70">
+          {unified
+            ? t('模型由房主统一：{{name}}', {
+                name: modelLabel || t('未知模型'),
+              })
+            : modelLabel || t('还没有选模型')}
+        </span>
+        {!unified && (
+          // 用小的文字按钮而不是 MenuAction：后者是 flex-1 的（底部那一排
+          // 平分宽度），放在这一行会把模型名挤成一半。
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity hover:opacity-80"
+            style={{
+              background: 'var(--md-sys-color-surface)',
+              borderColor: 'var(--md-sys-color-outline-variant)',
+            }}
+          >
+            {t('更换')}
+          </button>
+        )}
+      </div>
+
+      {expressions.length > 0 && (
+        <>
+          <Divider />
+          <p className="mb-1 text-[10px] uppercase tracking-wide opacity-55">
+            {t('表情')}
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {expressions.map((item) => (
+              <button
+                key={item.index}
+                type="button"
+                onClick={() => onExpression(item.index)}
+                disabled={removed && !unified}
+                title={t('所有人都会看到')}
+                className="max-w-full truncate rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  background: 'var(--md-sys-color-surface)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                {item.name || t('表情 {{index}}', { index: item.index + 1 })}
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       <Divider />
@@ -198,35 +232,8 @@ export function Live2DContextMenu({
         showValue={false}
         onChange={onScale}
         size="sm"
-        disabled={unified}
         aria-label={t('模型大小')}
       />
-
-      {expressions.length > 0 && (
-        <>
-          <Divider />
-          <p className="mb-1 text-[10px] uppercase tracking-wide opacity-55">
-            {t('表情')}
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {expressions.map((item) => (
-              <button
-                key={item.index}
-                type="button"
-                onClick={() => onExpression(item.index)}
-                title={t('所有人都会看到')}
-                className="max-w-full truncate rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity hover:opacity-80"
-                style={{
-                  background: 'var(--md-sys-color-surface)',
-                  borderColor: 'var(--md-sys-color-outline-variant)',
-                }}
-              >
-                {item.name || t('表情 {{index}}', { index: item.index + 1 })}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
 
       <Divider />
 
@@ -236,14 +243,16 @@ export function Live2DContextMenu({
           <span className="truncate text-[10px] opacity-50">
             {faceTracking.busy
               ? t('正在启动…')
-              : allowFace
-                ? t('画面只在本机处理，不会上传')
-                : t('房主已关闭成员动捕')}
+              : !allowFace
+                ? t('房主已关闭成员动捕')
+                : faceTracking.on
+                  ? t('画面只在本机处理，不会上传')
+                  : t('开启后角色会跟着你的头部转动')}
           </span>
         </span>
         <Switch
           checked={faceTracking.on}
-          disabled={!allowFace || faceTracking.busy}
+          disabled={!allowFace || faceTracking.busy || (removed && !unified)}
           onChange={onToggleFaceTracking}
           aria-label={t('摄像头动捕')}
         />
@@ -284,11 +293,11 @@ export function Live2DContextMenu({
       <Divider />
 
       <div className="flex items-center gap-1">
-        <MenuAction onClick={onOpenAdvanced} icon={<Settings2 size={13} />}>
-          {t('高级设置')}
+        <MenuAction onClick={onOpenSettings} icon={<Settings2 size={13} />}>
+          {t('角色设置')}
         </MenuAction>
         {/* 只有「删除」一个方向：删除后画面上没有角色，右键也打不到它；
-            想再要有角色就从上面的模型列表里重新选一个（选中即恢复）。 */}
+            想再要有角色就从设置里的模型列表重新选一个（选中即恢复）。 */}
         {canRemove && (
           <MenuAction
             onClick={onRemove}
@@ -302,7 +311,7 @@ export function Live2DContextMenu({
       </div>
       {removed && (
         <p className="mt-1.5 text-[10px] leading-snug opacity-50">
-          {t('角色已删除，在上面选一个模型即可恢复')}
+          {t('角色已删除，在角色设置里选一个模型即可恢复')}
         </p>
       )}
     </div>,
