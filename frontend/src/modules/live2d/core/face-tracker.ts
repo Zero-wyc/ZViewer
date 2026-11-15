@@ -47,6 +47,12 @@ const BLEND_SMOOTH_ALPHA = 0.55
 const ROLL_SMOOTH_ALPHA = 0.4
 /** 多久没检测到人脸就放弃接管（交回鼠标）。 */
 const FACE_LOST_MS = 1200
+/** detectForVideo 连续抛错多少次（≈0.5s）就触发降级重建。 */
+const DETECT_FAIL_LIMIT = 8
+/** 曾经见过脸之后持续丢脸多久，才认定是 GPU graph 半死并降级（区别于低头看键盘）。 */
+const NO_FACE_DEGRADE_MS = 8000
+/** 两次重建之间的最小间隔，防止反复重建来回抖动。 */
+const REBUILD_COOLDOWN_MS = 30000
 
 export type FaceTrackerStatus = 'starting' | 'tracking' | 'no-face'
 
@@ -112,6 +118,16 @@ export class FaceTracker {
   /** 最近一帧的关键点，只给监视窗画轮廓用（不参与上行） */
   private lastLandmarks: readonly FaceLandmark[] | null = null
   private onStatus?: (status: FaceTrackerStatus) => void
+  /** 当前 landmarker 用的委托。GPU 创建成功 ≠ 运行时能用，降级时要记住从哪退。 */
+  private delegate: 'GPU' | 'CPU' = 'GPU'
+  /** detectForVideo 连续抛错的次数（成功一帧即清零） */
+  private detectFailures = 0
+  /** GPU 模式下是否已经降级过 CPU（只降一次，避免反复重建抖动） */
+  private gpuRetried = false
+  /** 是否正在重建 landmarker（防并发） */
+  private rebuilding = false
+  /** 上次重建完成的时间戳（Date.now 口径，用于冷却） */
+  private lastRebuildAt = 0
 
   // erasableSyntaxOnly：不能用参数属性，状态回调显式赋值
   private constructor(onStatus?: (status: FaceTrackerStatus) => void) {
@@ -243,19 +259,12 @@ export class FaceTracker {
     try {
       const vision = await import('@mediapipe/tasks-vision')
       const fileset = await vision.FilesetResolver.forVisionTasks(WASM_BASE)
-      const build = (delegate: 'GPU' | 'CPU') =>
-        vision.FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: MODEL_URL, delegate },
-          runningMode: 'VIDEO',
-          numFaces: 1,
-          // 嘴型/眨眼要靠 blendshape 分数：关掉它就只能拿到关键点，
-          // 而关键点算张嘴幅度非常不稳（嘴唇厚度因人而异）。
-          outputFaceBlendshapes: true,
-        })
       try {
-        this.landmarker = await build('GPU')
+        this.landmarker = await this.buildLandmarker(vision, fileset, 'GPU')
+        this.delegate = 'GPU'
       } catch {
-        this.landmarker = await build('CPU')
+        this.landmarker = await this.buildLandmarker(vision, fileset, 'CPU')
+        this.delegate = 'CPU'
       }
     } catch (err) {
       this.stop()
@@ -265,6 +274,61 @@ export class FaceTracker {
 
     this.onStatus?.('starting')
     this.loop()
+  }
+
+  /** 构建指定委托的 FaceLandmarker（prepare 与降级重建共用同一份参数）。 */
+  private buildLandmarker(
+    vision: typeof import('@mediapipe/tasks-vision'),
+    fileset: Awaited<
+      ReturnType<typeof vision.FilesetResolver.forVisionTasks>
+    >,
+    delegate: 'GPU' | 'CPU',
+  ) {
+    return vision.FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      // 嘴型/眨眼要靠 blendshape 分数：关掉它就只能拿到关键点，
+      // 而关键点算张嘴幅度非常不稳（嘴唇厚度因人而异）。
+      outputFaceBlendshapes: true,
+    })
+  }
+
+  /**
+   * 检测失效后的自愈：关掉半死的 landmarker，换个委托重建。
+   *
+   * 策略：GPU 失效（抛错或恒为空结果）→ 降级 CPU，只降一次；CPU 也失效
+   * 就重建 CPU（重建本身能恢复多数 context 类故障）。30s 冷却防止
+   * 反复重建在坏设备上抖成雪崩。视频流和离屏 video 原样保留，重建完
+   * 不需要重新标定——标定基线（neutral）与人脸检测器无关。
+   */
+  private async rebuildLandmarker(): Promise<void> {
+    if (this.rebuilding || this.stopped) return
+    if (Date.now() - this.lastRebuildAt < REBUILD_COOLDOWN_MS) {
+      this.detectFailures = 0
+      return
+    }
+    this.rebuilding = true
+    // 重建一律退到 CPU：CPU 委托没有 WebGL context 依赖，是最稳的兜底。
+    const from = this.delegate
+    const to: 'GPU' | 'CPU' = 'CPU'
+    if (from === 'GPU') this.gpuRetried = true
+    console.warn(`[live2d] 人脸检测失效，重建检测器（${from} → ${to}）`)
+    try {
+      const vision = await import('@mediapipe/tasks-vision')
+      const fileset = await vision.FilesetResolver.forVisionTasks(WASM_BASE)
+      const next = await this.buildLandmarker(vision, fileset, to)
+      this.landmarker?.close()
+      this.landmarker = next
+      this.delegate = to
+      this.detectFailures = 0
+      this.lastRebuildAt = Date.now()
+      console.warn(`[live2d] 人脸检测器已重建（${to} 委托）`)
+    } catch (err) {
+      console.warn('[live2d] 人脸检测器重建失败', err)
+    } finally {
+      this.rebuilding = false
+    }
   }
 
   private loop = (): void => {
@@ -284,9 +348,21 @@ export class FaceTracker {
     let result: FaceLandmarkerResult
     try {
       result = this.landmarker.detectForVideo(video, timestamp)
-    } catch {
+    } catch (err) {
+      // GPU 委托的经典故障形态：创建成功、能跑几秒，随后 WebGL context 失效，
+      // detectForVideo 开始每帧抛错。不计数不降级的话，用户就卡死在
+      // 「画面正常但永远未检测到人脸」。连续失败到阈值就重建（GPU → CPU）。
+      this.detectFailures += 1
+      if (this.detectFailures === 1) {
+        console.warn('[live2d] 人脸检测开始抛错', err)
+      }
+      if (this.detectFailures >= DETECT_FAIL_LIMIT) {
+        void this.rebuildLandmarker()
+      }
       return
     }
+    // 一帧成功就清零失败计数
+    this.detectFailures = 0
     const marks = result.faceLandmarks?.[0] as FaceLandmark[] | undefined
     const metrics = marks ? faceMetrics(marks) : null
     // 有脸但比例不可信（侧到只剩半张脸）时也不更新关键点：监视窗宁可停在
@@ -295,6 +371,16 @@ export class FaceTracker {
       // 短暂丢失（低头看键盘）不该立刻把模型打回鼠标控制
       if (this.lastSeenAt && Date.now() - this.lastSeenAt >= FACE_LOST_MS) {
         this.onStatus?.('no-face')
+      }
+      // 另一种 GPU 失效形态：不抛错，但结果恒为空（graph 半死）。
+      // 曾经见过脸、丢脸超过阈值，且还没降级过 → 重建到 CPU 试一次。
+      if (
+        this.delegate === 'GPU' &&
+        !this.gpuRetried &&
+        this.lastSeenAt &&
+        Date.now() - this.lastSeenAt >= NO_FACE_DEGRADE_MS
+      ) {
+        void this.rebuildLandmarker()
       }
       return
     }
