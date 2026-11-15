@@ -37,6 +37,20 @@ const LIVE_RETRY_INTERVAL_MS = 10000
  */
 const LIVE_DIRECT_FAIL_LIMIT = 2
 
+/**
+ * 直播延迟追帧（引擎层实现，见 attachLiveHandlers 里的 startLatencyChaser）。
+ *
+ * 延迟上限：超过才追——追帧会前跳播放位置、短暂打断解码，因此把阈值放得
+ * 足够高，只在「抖动已造成延迟明显累积」时出手。
+ */
+const LIVE_LATENCY_CHASE_MAX_S = 8
+/** 追帧目标：追到这个缓冲深度为止，保留抗抖动的缓冲余量。 */
+const LIVE_LATENCY_CHASE_TARGET_S = 5
+/** 两次追帧之间的最小间隔。 */
+const LIVE_LATENCY_CHASE_COOLDOWN_MS = 10_000
+/** 刚发生过卡顿（waiting）时暂不追帧，等缓冲稳定。 */
+const LIVE_LATENCY_STALL_GUARD_MS = 8_000
+
 /** 直播模式 flv.js 配置（原 screen-sharing FlvPlayer 的行为对等迁移）。 */
 function buildLiveConfig(): Record<string, unknown> {
   return {
@@ -47,10 +61,12 @@ function buildLiveConfig(): Record<string, unknown> {
     autoCleanupSourceBuffer: true,
     autoCleanupMaxBackwardDuration: 8,
     autoCleanupMinBackwardDuration: 4,
-    // 直播延迟追赶：缓冲超过阈值时自动追帧（flv.js 运行时支持，类型定义缺失）
-    liveBufferLatencyChasing: true,
-    liveBufferLatencyMaxLatency: 1.5,
-    liveBufferLatencyTargetLatency: 0.5,
+    // 注意：不要在这里传 liveBufferLatencyChasing / MaxLatency / TargetLatency。
+    // 这组配置是 bilibili/flv.js master 分支的实现，npm 发布的 flv.js@1.6.2
+    // 里根本没有这几个键（实测源码 grep 为 0），传了也是静默 no-op——
+    // 延迟追帧由本引擎自己实现（见 attachLiveHandlers 的 startLatencyChaser），
+    // 阈值选得比原配置保守：追帧会打断解码，目标是「延迟不无限累积」
+    // 而不是「贴着直播边缘看」。
   }
 }
 
@@ -171,6 +187,10 @@ function attachLiveHandlers(
   let retryCount = 0
   let retryTimer: ReturnType<typeof setTimeout> | null = null
   let disposed = false
+  // 延迟追帧状态：最近一次卡顿时间 / 最近一次追帧时间
+  let lastStallAt = 0
+  let lastChaseAt = 0
+  let chaseTimer: ReturnType<typeof setInterval> | null = null
 
   const clearRetryTimer = () => {
     if (retryTimer !== null) {
@@ -246,9 +266,43 @@ function attachLiveHandlers(
     scheduleRetry('stream', 'ended')
   })
 
+  // 延迟追帧：网络抖动（CDN 顿一下、CLI 代理重连）会让播放位置永久落后——
+  // 卡顿期间 currentTime 冻结、缓冲却在继续增长，延迟每抖一次涨一截且
+  // 再也不会自己缩回去。npm flv.js@1.6.2 不支持 liveBufferLatencyChasing
+  // （那组配置是静默 no-op），只能在这里自己追：
+  // - 延迟超过 LIVE_LATENCY_CHASE_MAX_S 才追（追帧 = 前跳 = 打断解码，
+  //   不能频繁触发）；
+  // - 追到 LIVE_LATENCY_CHASE_TARGET_S，保留抗抖缓冲；
+  // - 冷却 + 卡顿保护，避免追帧与卡顿互相放大。
+  const onVideoWaiting = () => {
+    lastStallAt = performance.now()
+  }
+  video.addEventListener('waiting', onVideoWaiting)
+  chaseTimer = setInterval(() => {
+    if (disposed || video.paused || video.readyState < 3) return
+    if (!video.buffered.length) return
+    const now = performance.now()
+    if (now - lastChaseAt < LIVE_LATENCY_CHASE_COOLDOWN_MS) return
+    if (now - lastStallAt < LIVE_LATENCY_STALL_GUARD_MS) return
+    const latency = video.buffered.end(video.buffered.length - 1) - video.currentTime
+    if (latency <= LIVE_LATENCY_CHASE_MAX_S) return
+    const target = video.buffered.end(video.buffered.length - 1) - LIVE_LATENCY_CHASE_TARGET_S
+    if (target <= video.currentTime) return
+    lastChaseAt = now
+    console.log(
+      `[flv-engine] live latency ${latency.toFixed(1)}s > ${LIVE_LATENCY_CHASE_MAX_S}s, chasing to ~${LIVE_LATENCY_CHASE_TARGET_S}s`
+    )
+    video.currentTime = target
+  }, 1000)
+
   return () => {
     disposed = true
     clearRetryTimer()
+    if (chaseTimer !== null) {
+      clearInterval(chaseTimer)
+      chaseTimer = null
+    }
     video.removeEventListener('loadedmetadata', handleReady)
+    video.removeEventListener('waiting', onVideoWaiting)
   }
 }
