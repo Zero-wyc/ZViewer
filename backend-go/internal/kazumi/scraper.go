@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/antchfx/htmlquery"
 	"github.com/antchfx/xpath"
@@ -385,6 +386,45 @@ func originOf(rawURL string) string {
 	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host)
 }
 
+// mediaURLFromQuery 从跳板地址的 query 里提取真实媒体地址。
+//
+// 很多站的「解码器跳板」（如 giriGiriLove 的 addons/aplyer/atom.php）会把
+// 真实地址原样（percent-encoded）放在 url/data/vkey 之类的参数里，播放器
+// 页面只是加载它；这里直接认出来，省一次页面抓取与播放器逆向。
+func mediaURLFromQuery(jumpURL, base string) (*resolvedVideo, bool) {
+	parsed, err := url.Parse(jumpURL)
+	if err != nil {
+		return nil, false
+	}
+	for _, value := range parsed.Query() {
+		if len(value) == 0 {
+			continue
+		}
+		candidate := strings.TrimSpace(value[0])
+		// 参数可能被双层编码（%25xx）与单层编码混用，各试一次。
+		for _, decoded := range []string{
+			candidate,
+			firstNonEmpty(decodeQueryOnce(candidate), candidate),
+		} {
+			format := anisubs.DetectMediaFormat(decoded)
+			if format == anisubs.FormatUnknown {
+				continue
+			}
+			return &resolvedVideo{URL: absoluteURL(decoded, base), Format: string(format)}, true
+		}
+	}
+	return nil, false
+}
+
+// decodeQueryOnce 解一层 percent-encoding；失败返回空串。
+func decodeQueryOnce(value string) string {
+	decoded, err := url.QueryUnescape(value)
+	if err != nil {
+		return ""
+	}
+	return decoded
+}
+
 // ---------------------------------------------------------------------------
 // 播放地址解析
 // ---------------------------------------------------------------------------
@@ -416,8 +456,11 @@ var playerConfigPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)player\([^{]*\{[^}]*url\s*:\s*["'](https?://[^"']+)["']`),
 }
 
-// jsUnescapePattern 匹配 `%uXXXX` 形式的转义。
-var jsUnescapePattern = regexp.MustCompile(`%u([0-9A-Fa-f]{4})`)
+// jsUnescapePattern 匹配 JS unescape 认识的两种转义：`%uXXXX` 与 `%XX`。
+// 很多苹果 CMS 站（7sefun/LMM 等）的 encrypt=2 地址是 base64 解出来的
+// **百分号编码**（`%68%74%74%70...`），只认 `%uXXXX` 会把整个地址原样放行，
+// 因缺 http:// 前缀被判无效，播放解析直接失败。
+var jsUnescapePattern = regexp.MustCompile(`%u([0-9A-Fa-f]{4})|%([0-9A-Fa-f]{2})`)
 
 // findMediaURL 在页面里找第一个可用的视频地址。
 func findMediaURL(markup string) string {
@@ -528,15 +571,41 @@ func resolveIframeVideoURL(ctx context.Context, iframeURL, referer, userAgent st
 	return resolveIframeVideoURL(ctx, nested, iframeURL, userAgent, depth+1)
 }
 
-// decodeJSUnescape 还原 `%uXXXX` 转义。
+// decodeJSUnescape 按 JS `unescape` 语义还原转义。
+//
+// 与 unescape 的一致点：`%uXXXX` → 码点 XXXX，`%XX` → Latin-1 单字节 XX，
+// 其余原样保留。实现走字节流而不是字符串流：解码结果要拼进 URL，%XX 按
+// 原始字节保留（UTF-8 百分号编码序列不会被二次编码破坏），%uXXXX 按 rune
+// 写回。非法 hex 保持原样，容忍 Node「尽力解码」的产物。
 func decodeJSUnescape(value string) string {
-	return jsUnescapePattern.ReplaceAllStringFunc(value, func(token string) string {
-		code, err := strconv.ParseUint(token[2:], 16, 32)
-		if err != nil {
-			return token
+	matches := jsUnescapePattern.FindAllStringSubmatchIndex(value, -1)
+	if matches == nil {
+		return value
+	}
+	out := make([]byte, 0, len(value))
+	cursor := 0
+	for _, m := range matches {
+		out = append(out, value[cursor:m[0]]...)
+		cursor = m[1]
+		hex := value[m[0]+1 : m[1]]
+		if m[2] >= 0 {
+			hex = value[m[0]+2 : m[1]]
 		}
-		return string(rune(code))
-	})
+		code, err := strconv.ParseUint(hex, 16, 32)
+		if err != nil {
+			out = append(out, value[m[0]:m[1]]...)
+			continue
+		}
+		if m[2] >= 0 {
+			// %uXXXX：unicode 码点。
+			out = utf8.AppendRune(out, rune(code))
+			continue
+		}
+		// %XX：Latin-1 单字节。
+		out = append(out, byte(code))
+	}
+	out = append(out, value[cursor:]...)
+	return string(out)
 }
 
 // resolvePlayerAaaa 解析苹果 CMS 播放页内嵌的 player_aaaa 配置。
@@ -567,25 +636,51 @@ func resolvePlayerAaaa(markup string) string {
 		encrypt = value
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(rawURL)
-	if err != nil {
-		// Node 的 Buffer.from(x, 'base64') 对非法输入是「尽力解码」，
-		// 解出空串；这里按同样语义降级。
-		decoded = nil
+	// 百分号编码（%68%74... / %2F）在各站真实出现，且会破坏 base64 解码：
+	// 先按 JS unescape 语义归一，明文 https:// 不含 % 不受影响。
+	unescaped := decodeJSUnescape(rawURL)
+	if looksLikeMediaHTTP(unescaped) {
+		return unescaped
 	}
+
+	// Node 的 Buffer.from(x, 'base64') 对非法输入是「尽力解码」，
+	// 这里对 padding 不齐的输入也尽力补齐后解一次。
+	tryBase64 := func(value string) []byte {
+		decoded, err := base64.StdEncoding.DecodeString(value)
+		if err == nil {
+			return decoded
+		}
+		if rest := len(value) % 4; rest == 2 || rest == 3 {
+			if padded, err := base64.StdEncoding.DecodeString(value + strings.Repeat("=", 4-rest)); err == nil {
+				return padded
+			}
+		}
+		return nil
+	}
+
 	switch encrypt {
 	case 1:
-		text := string(decoded)
-		if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") {
+		// 1=base64；部分站会偷懒直接存 percent-encoded 原文（上面已兜住）。
+		text := string(tryBase64(unescaped))
+		if looksLikeMediaHTTP(text) {
 			return text
 		}
 	case 2:
-		text := decodeJSUnescape(string(decoded))
-		if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") {
-			return text
+		// 2=unescape(base64)；个别站（mgnacg）存的是 URL-encoded 的 base64，
+		// unescape 归一后才能解出真字节。
+		if text := string(tryBase64(unescaped)); looksLikeMediaHTTP(decodeJSUnescape(text)) {
+			return decodeJSUnescape(text)
+		}
+		if text := string(tryBase64(rawURL)); looksLikeMediaHTTP(decodeJSUnescape(text)) {
+			return decodeJSUnescape(text)
 		}
 	}
 	return ""
+}
+
+// looksLikeMediaHTTP 判断解出的地址是不是可直接取用的 http(s) 媒体/播放地址。
+func looksLikeMediaHTTP(value string) bool {
+	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
 }
 
 // resolvedVideo 是播放地址解析结果。
@@ -598,6 +693,23 @@ type resolvedVideo struct {
 //
 // 回退链：直接正则匹配 → player_aaaa 配置 → 播放器配置 url 字段 → iframe 嵌套递归。
 func resolveVideoURL(ctx context.Context, episodeURL string, rule *Rule) (*resolvedVideo, error) {
+	return resolveVideoURLDepth(ctx, episodeURL, rule, 0)
+}
+
+// playPageRedirectDepth 允许跟随的「播放器跳板页」层数。
+// 很多 CMS 站的 player_aaaa 解出的不是媒体地址，而是自家播放器跳板
+// （如 7sefun → lmm85.com/play/...、moonci → next.xifanacg.com/...），
+// 跳板页里才是真正的 m3u8；再深一层就是需要私有播放器 JS 的 token 型，
+// 跟了也解不出来，所以限两层。
+const playPageRedirectDepth = 2
+
+func resolveVideoURLDepth(ctx context.Context, episodeURL string, rule *Rule, depth int) (*resolvedVideo, error) {
+	// 剧集地址本身就是跳板（giriGiriLove 的 atom.php?url=...mp4 直接作为
+	// episodeUrl 下发），真实媒体地址就在它的 query 里。
+	if decoded, ok := mediaURLFromQuery(episodeURL, originOf(episodeURL)); ok {
+		return decoded, nil
+	}
+
 	markup, err := fetchHTML(ctx, episodeURL, rule.UserAgent, firstNonEmpty(rule.Referer, rule.BaseURL))
 	if err != nil {
 		return nil, err
@@ -609,15 +721,34 @@ func resolveVideoURL(ctx context.Context, episodeURL string, rule *Rule) (*resol
 		return &resolvedVideo{URL: absolute, Format: string(anisubs.DetectMediaFormat(absolute))}
 	}
 
+	// 命中的地址若仍不是媒体文件而是跳板播放页，递归再解析一层。
+	follow := func(rawURL string) *resolvedVideo {
+		resolved := resolve(rawURL)
+		if resolved.Format != string(anisubs.FormatUnknown) || depth >= playPageRedirectDepth {
+			return resolved
+		}
+		// 跳板地址自身的 query 里常直接带着真实媒体地址
+		// （giriGiriLove 的 atom.php?url=https%3A%2F%2F...01.mp4 这种），
+		// 不用再抓一遍页面。
+		if nested, ok := mediaURLFromQuery(resolved.URL, base); ok {
+			return nested
+		}
+		parsed, err := resolveVideoURLDepth(ctx, resolved.URL, rule, depth+1)
+		if err != nil || parsed == nil {
+			return resolved
+		}
+		return parsed
+	}
+
 	if direct := findMediaURL(markup); direct != "" {
-		return resolve(direct), nil
+		return follow(direct), nil
 	}
 	if aaaa := resolvePlayerAaaa(markup); aaaa != "" {
-		return resolve(aaaa), nil
+		return follow(aaaa), nil
 	}
 	for _, pattern := range playerConfigPatterns {
 		if match := pattern.FindStringSubmatch(markup); match != nil && len(match) > 1 {
-			return resolve(match[1]), nil
+			return follow(match[1]), nil
 		}
 	}
 

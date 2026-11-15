@@ -10,23 +10,23 @@ const desktop = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const directory = path.join(desktop, '.runtime', 'tools', 'zviewer-cli');
 const source = path.join(directory, 'source');
 const repository = 'https://github.com/Zero-wyc/ZViewerCLI';
-const commit = '101659b01a3a9248cea8b32c7eb18b6f76d842f1';
+const commit = '9599bbef8f041e0755f6c815b16d28d3e2cf72be';
 const toolchain = 'go1.26.9';
 const executable = 'zviewer-cli-windows-amd64.exe';
-const binarySha256 = '2a58c9518829c754719e9b0903baf37ea3f95d0e548075df9710b73d0fca78db';
+const binarySha256 = '95e296692e1e7815de9b9a62035284537881b046da116c7daa9abccb356a56d1';
 if (patchInfo().sha256 !== '9e5bba199baca8f84b8d0e88855e528abdbf937bf50ff301fe33c50d9effc92b') throw new Error('Local CLI patch checksum mismatch');
-// Upstream dist still reports v0.1.0. Build the pinned v0.2.1 source instead.
+// Upstream dist reports v5.2.1. Build the pinned v5.2.1 source instead.
 const sources = {
   'bilibili.go':'5b48735196e6eed996dee0142543540385ce85d3',
-  'config.go':'1812b64a955d24e840b81c071a6d9eeeebfee814',
-  'main.go':'8db19e5343756538868c0642fb6253cc1191212f',
+  'config.go':'cfe996a8fa764eb4ff6ab211473293b99253f3f6',
+  'main.go':'7960ea0f6d4342ac305081218a3413c64db7e6e8',
   'mp4box.go':'b4bbebac15d8cc36d54a0f677627b719c3afcf9c',
-  'page.go':'e3053962f31f91f2dd063e2a6c596ec133a60e62',
+  'page.go':'d854f908b727bf63276591c97a7df04072c6aa28',
   'resolver.go':'ebcb72f1dd52bdde930ce1e42eaf4a29804ffdb2',
-  'server.go':'800cc23d6e6252e246991e53852fab8f8224f2da',
-  'socket.go':'33cb3ca33cfb9b3fc1f2d01c7c0d01d1136bf8c5',
+  'server.go':'fc89c934c7f828c67c45c83b995fa58d20ad8899',
+  'socket.go':'194eff3402e9526782bdd177e327a19cd466a09e',
   'speedlog.go':'75132ec2e56768802dd0a27d7a59ab89ce5f9786',
-  'state.go':'ec9c080dfab3ec4eb862479b742b6b7d57bd4292',
+  'state.go':'3e45d5808e4ca08505835db46e4fb4f282f1d28e',
   'wbi.go':'567d2c653ed46bcf6efc2e4c03e16cf2af2bcdb6',
   'go.mod':'bc4d7a6a54b0b7f9ab61e5626f2b2ff0508ec585',
   'go.sum':'a78d22816163f19fbc5a170f678de9602a73a349',
@@ -93,8 +93,8 @@ for(let i=0;i<licenses.length;i++) {
   notices.push(entry.name+'\n'+'='.repeat(entry.name.length)+'\n'+bytes.toString('utf8'));
 }
 fs.writeFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt'),notices.join('\n\n'));
-fs.writeFileSync(path.join(directory,'provenance.json'),JSON.stringify({repository,commit,version:'0.2.1',toolchain,platform:'windows-amd64',source:'Built from pinned upstream source with local settings security and optional desktop embedded theme patches',patch:patchInfo(),files:[{file:executable,sha256:binarySha256},{file:'LICENSE',sha256:hash(fs.readFileSync(license))},{file:'THIRD-PARTY-NOTICES.txt',sha256:hash(fs.readFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt')))}],sourceBlobs:sources},null,2)+'\n');
-console.log('Source-built ZViewerCLI v0.2.1 verified ('+commit+', '+toolchain+')');
+fs.writeFileSync(path.join(directory,'provenance.json'),JSON.stringify({repository,commit,version:'5.2.1',toolchain,platform:'windows-amd64',source:'Built from pinned upstream source with local settings security and optional desktop embedded theme patches',patch:patchInfo(),files:[{file:executable,sha256:binarySha256},{file:'LICENSE',sha256:hash(fs.readFileSync(license))},{file:'THIRD-PARTY-NOTICES.txt',sha256:hash(fs.readFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt')))}],sourceBlobs:sources},null,2)+'\n');
+console.log('Source-built ZViewerCLI v5.2.1 verified ('+commit+', '+toolchain+')');
 // --publish：把受管构建同步到 frontend/public，作为全项目唯一事实源（网页下载、
 // 单文件运行包与桌面端 runtime/ 都取这一份）。不同步的话桌面包用的是网页里那份
 // 官方 release 二进制，不含桌面嵌入式主题与本地配置接口的来源保护。

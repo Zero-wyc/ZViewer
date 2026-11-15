@@ -385,9 +385,18 @@ func TestResolvePlayerAaaa(t *testing.T) {
 	if got := resolvePlayerAaaa(`<script>player_aaaa = {"url":"` + escaped + `","encrypt":2} </script>`); got != "https://cdn.example.com/b.m3u8" {
 		t.Errorf("encrypt=2 解出 %q", got)
 	}
-	// encrypt=0（明文）交给外层正则，这里不重复处理。
-	if got := resolvePlayerAaaa(`<script>player_aaaa = {"url":"https://cdn.example.com/c.m3u8","encrypt":0} </script>`); got != "" {
-		t.Errorf("encrypt=0 不该在这里解出，得到 %q", got)
+	// encrypt=0（明文）：player_aaaa.url 是最权威的地址，明文直接返回
+	// （此前只靠外层正则再扫一遍页面，页面改版时反而丢地址）。
+	if got := resolvePlayerAaaa(`<script>player_aaaa = {"url":"https://cdn.example.com/c.m3u8","encrypt":0} </script>`); got != "https://cdn.example.com/c.m3u8" {
+		t.Errorf("encrypt=0 应直接解出明文地址，得到 %q", got)
+	}
+	// encrypt=1 但内容其实是 percent-encoded 明文（moonci 形态）。
+	if got := resolvePlayerAaaa(`<script>player_aaaa = {"url":"https%3A%2F%2Fcdn.example.com%2Fd.m3u8","encrypt":1} </script>`); got != "https://cdn.example.com/d.m3u8" {
+		t.Errorf("encrypt=1 percent-encoded 明文应解出 %q，得到 %q", "https://cdn.example.com/d.m3u8", got)
+	}
+	// encrypt=2 且内容是 URL-encoded 的 base64（mgnacg 形态）。
+	if got := resolvePlayerAaaa(`<script>player_aaaa = {"url":"` + "aHR0cHM6Ly9jZG4uZXhhbXBsZS5jb20vYWIvZS5tM3U4" + `","encrypt":2} </script>`); got != "https://cdn.example.com/ab/e.m3u8" {
+		t.Errorf("encrypt=2 URL-encoded base64 应解出，得到 %q", got)
 	}
 	if got := resolvePlayerAaaa(`<script>player_aaaa = 坏了 </script>`); got != "" {
 		t.Errorf("非法配置应返回空，得到 %q", got)

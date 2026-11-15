@@ -66,8 +66,12 @@ func (p *ruleProvider) Search(ctx context.Context, keyword string) ([]SearchResu
 		seen := make(map[string]bool, len(items))
 		results := make([]SearchResult, 0, len(items))
 		for _, item := range items {
-			// 详情地址归一化：裸 id 按 baseURL 补全（对齐上游 normalizeEpisodeUrl）。
-			src := normalizeEpisodeURL(p.rule.BaseURL, item.Src)
+			// API 模式：source 保留 searchApiConfig.sourcePath 提取的**原值**
+			// （chapterApiConfig 的 @source 与 episodePage 的 @source 都引用它）。
+			// 此前统一 normalizeEpisodeURL 会把裸 id（如 123）扩写成详情页 URL，
+			// 再原样塞进 chapterApiConfig.request.body 的 @source——Supabase RPC
+			// 这类接口收到 URL 必然 400（sorani/xfdmnext 全军覆没的根因）。
+			src := item.Src
 			if src == "" || seen[src] {
 				continue
 			}
@@ -141,7 +145,9 @@ func (p *ruleProvider) Episodes(ctx context.Context, identifier string) ([]Episo
 	subjectURL := normalizeEpisodeURL(p.rule.BaseURL, identifier)
 
 	if usesAPIChapters(p.rule) {
-		roads, err := APIChapters(ctx, p.rule, subjectURL)
+		// API 选集的 @source 必须与搜索时下发的原值一致（见 Search 的说明），
+		// 不能用归一化后的详情页 URL。
+		roads, err := APIChapters(ctx, p.rule, identifier)
 		if err != nil {
 			return nil, err
 		}
