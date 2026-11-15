@@ -26,6 +26,7 @@ import {
   type VoiceDescription,
 } from '../lib/protocol'
 import { detectTransportProtocol } from '../lib/transport'
+import { publishMicAnalyser } from '../lib/mic-level'
 import type {
   UseVoiceChatOptions,
   VoiceChatController,
@@ -476,6 +477,9 @@ export function useSfuVoice({
     micGainRef.current = null
     monitorGainRef.current = null
     localAnalyserRef.current = null
+    // 采集没了就没有可用的电平：发出去的是 null，不是"静音"——Live2D 语音
+    // 口型据此停手，不然声音停了嘴还在动。
+    publishMicAnalyser(null)
     localStreamRef.current?.getTracks().forEach((track) => track.stop())
     localStreamRef.current = null
     if (monitorAudioRef.current) {
@@ -539,6 +543,9 @@ export function useSfuVoice({
     localAnalyserRef.current = analyser
     const track = produceDest.stream.getAudioTracks()[0]
     track.enabled = micEnabledRef.current
+    // 默认是静音的：静音时不发布电平，否则角色会一边"闭麦"一边按嘴型说话，
+    // 等于把「我正在说话」这件事告诉全房间。
+    publishMicAnalyser(track.enabled ? analyser : null)
     return track
   }, [])
 
@@ -715,6 +722,8 @@ export function useSfuVoice({
     track.enabled = !track.enabled
     setMicEnabled(track.enabled)
     micEnabledRef.current = track.enabled
+    // 静音即停止发布电平（见 lib/mic-level 的说明）
+    publishMicAnalyser(track.enabled ? localAnalyserRef.current : null)
   }, [voiceMutedIds])
 
   const toggleMonitor = useCallback(() => {

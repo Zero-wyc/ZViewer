@@ -21,6 +21,7 @@ import { message } from '@/components/ui/message'
 import { t } from '@/i18n'
 import { VoiceEndpoint } from './endpoint'
 import { PiikSignal, type SignalStatus } from './signal'
+import { publishMicAnalyser } from '@/modules/voice-chat/lib/mic-level'
 import {
   publicationOwner,
   type PiikServerMessage,
@@ -154,6 +155,8 @@ export function usePiikVoice({
     micGainRef.current = null
     monitorGainRef.current = null
     localAnalyserRef.current = null
+    // 采集没了就没有可用的电平：Live2D 语音口型据此停手（见 lib/mic-level）
+    publishMicAnalyser(null)
   }, [])
 
   /** 采一条带增益与反送通路的麦克风流。 */
@@ -191,6 +194,8 @@ export function usePiikVoice({
     localAnalyserRef.current = analyser
     const track = produceDest.stream.getAudioTracks()[0]
     track.enabled = micEnabledRef.current
+    // 默认静音：静音时不发布电平，否则角色会一边闭麦一边按嘴型说话
+    publishMicAnalyser(track.enabled ? analyser : null)
     return track
   }, [])
 
@@ -433,6 +438,8 @@ export function usePiikVoice({
     track.enabled = !track.enabled
     micEnabledRef.current = track.enabled
     setMicEnabled(track.enabled)
+    // 静音即停止发布电平（见 lib/mic-level 的说明）
+    publishMicAnalyser(track.enabled ? localAnalyserRef.current : null)
   }, [])
 
   const toggleMonitor = useCallback(() => {

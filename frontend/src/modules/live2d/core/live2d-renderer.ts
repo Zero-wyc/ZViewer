@@ -541,6 +541,13 @@ export class Live2DRenderer {
         faceAlpha
       )
       entry.currentEyes = smooth(entry.currentEyes, entry.targetEyes, faceAlpha)
+      // 语音嘴型单独平滑：它不跟动捕那组一起被接管，但要和嘴一样连续，
+      // 否则 15Hz 的响度读数会变成一开一合的"打点"。
+      entry.currentVoiceMouth = smooth(
+        entry.currentVoiceMouth,
+        entry.targetVoiceMouth,
+        faceAlpha
+      )
       entry.currentForm = smooth(entry.currentForm, entry.targetForm, faceAlpha)
       entry.currentBrow = smooth(entry.currentBrow, entry.targetBrow, faceAlpha)
       // 歪头是慢动作（颈椎有惯性），用更慢的系数才自然
@@ -593,8 +600,16 @@ export class Live2DRenderer {
     }
     loaded.model.internalModel.on('beforeModelUpdate', () => {
       const entry = getEntry(sid)
-      if (!entry || !isFaceFresh(entry)) return
-      setIf(ids.mouth, entry.currentMouth)
+      if (!entry) return
+      // 两条通路共用嘴这个参数，但**不能互相顶替**：
+      //   - 动捕新鲜 → 整脸接管（嘴/眼/表情/歪头全写）；
+      //   - 只有语音新鲜 → 只写嘴，其余留给引擎自己的眨眼与小动作。
+      // 以前只按 faceAt 判定，语音如果借用面部通路，模型在整段说话里都不眨眼。
+      const faceFresh = isFaceFresh(entry)
+      const voiceFresh = isVoiceFresh(entry)
+      if (!faceFresh && !voiceFresh) return
+      setIf(ids.mouth, faceFresh ? entry.currentMouth : entry.currentVoiceMouth)
+      if (!faceFresh) return
       setIf(ids.eyeL, entry.currentEyes)
       setIf(ids.eyeR, entry.currentEyes)
       // 协议里是 0~1 编码，Cubism 的嘴形/眉毛是 -1~1，中位 0
@@ -691,6 +706,11 @@ function resolutionForViewport(): number {
 /** 面部数据是否还新鲜（超过 TTL 就认为对方不再动捕）。 */
 function isFaceFresh(entry: SceneEntry): boolean {
   return entry.faceAt > 0 && Date.now() - entry.faceAt < LIVE2D_FACE_TTL_MS
+}
+
+/** 语音嘴型的有效期与动捕同一把尺：都是 15Hz 上报 + 短 TTL 释放。 */
+function isVoiceFresh(entry: SceneEntry): boolean {
+  return entry.voiceAt > 0 && Date.now() - entry.voiceAt < LIVE2D_FACE_TTL_MS
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

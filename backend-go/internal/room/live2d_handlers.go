@@ -169,15 +169,17 @@ func live2dRows(list []live2dMember) [][]any {
 	return out
 }
 
-// live2dStateRow 是合并下行的**紧凑**行：[sid, x, y, ar]，
-// 只有对方当前正在动捕时才追加 [m, e, p0, p1, p2]。
+// live2dStateRow 是合并下行的**紧凑**行：[sid, x, y, ar]，后面按需追加：
+//   - 动捕（首选）：一路追加到 9 项 [m, e, p0, p1, p2]；
+//   - 语音口型：只追加 1 项 [m]，行长 5。
 //
 // 可变长度是刻意的：客户端收到 m/e/p 就会接管模型的嘴、眼、表情与歪头，
 // 所以「没有面部数据」必须能和「嘴闭着、眼全睁、中性表情」区分开——否则
 // 整个房间的角色都不再眨眼、也不再有自己的小表情。
 //
-// 三项姿态（嘴形/眉毛/歪头）跟在 m/e 后面而不是新开一类行：它们与 m/e 同源
-// （同一帧检测结果）、同频率、同寿命，拆成两行只会多一条可能的乱序路径。
+// 行长因此有三种含义，客户端按长度分派（见 useLive2DSync）：
+// 4 = 只有视线；5 = 语音张嘴；10 = 整脸动捕。动捕同时新鲜时只发整脸：
+// 摄像头测出来的嘴比麦克风响度准，而且那时人就在镜头前，没有理由退化。
 func live2dStateRow(m live2dMember, now time.Time) []any {
 	row := []any{m.SocketID, roundTo(m.X, 3), roundTo(m.Y, 3), roundTo(m.AR, 2)}
 	if !m.faceAt.IsZero() && now.Sub(m.faceAt) < live2dFaceTTL {
@@ -185,6 +187,10 @@ func live2dStateRow(m live2dMember, now time.Time) []any {
 			roundTo(m.Mouth, 2), roundTo(m.Eyes, 2),
 			roundTo(m.Form, 2), roundTo(m.Brow, 2), roundTo(m.Roll, 2),
 		)
+		return row
+	}
+	if !m.voiceAt.IsZero() && now.Sub(m.voiceAt) < live2dFaceTTL {
+		row = append(row, roundTo(m.VoiceMouth, 2))
 	}
 	return row
 }
@@ -318,11 +324,32 @@ func (s *Service) handleLive2DState(sc *sio.Socket, args []json.RawMessage) {
 	if payload.AR != nil {
 		ar = *payload.AR
 	}
+	// 语音帧不能同时喂给面部通道：Mouth 一进面部通道就会刷新 faceAt，
+	// 「只张嘴」立刻变成「睁眼/表情/歪头也归动捕管」，客户端接管后模型在
+	// 说话期间再也不眨眼。两个通道必须严格互斥。
+	voiceMouth := live2dVoiceMouth(payload)
+	faceMouth := payload.Mouth
+	if voiceMouth != nil {
+		faceMouth = nil
+	}
 	s.Live2DUpdateState(payload.RoomID, sc.ID, live2dStateUpdate{
 		X: *payload.X, Y: *payload.Y, AR: ar,
-		Mouth: payload.Mouth, Eyes: payload.Eyes,
+		Mouth: faceMouth, Eyes: payload.Eyes,
 		Pose: payload.Pose,
+		// 判定放在这里而不是 store 里：payload 的字段在场与否本来就是
+		// 「这一帧带了什么」的唯一依据。
+		VoiceMouth: voiceMouth,
 	}, time.Now())
+}
+
+// live2dVoiceMouth 判定这一帧是不是「语音口型」：只给 m，不给 e/p。
+//
+// 反过来（只给 e 不给 m）不合法也不存在：客户端要么整脸一起发，要么只发嘴。
+func live2dVoiceMouth(p live2dStatePayload) *float64 {
+	if p.Mouth == nil || p.Eyes != nil || len(p.Pose) == live2dPoseLen {
+		return nil
+	}
+	return p.Mouth
 }
 
 // handleLive2DDrag 处理「我把自己的角色拖到了别处」。

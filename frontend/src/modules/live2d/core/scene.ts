@@ -47,6 +47,17 @@ export interface SceneEntry {
    */
   faceAt: number
 
+  // ---- 语音口型 ----
+  // 只驱动嘴。与动捕的分工是硬的：动捕新鲜时这两个量完全不参与渲染，
+  // 因为摄像头测出来的嘴比麦克风响度准，而且那时人就在镜头前。
+  //
+  // 为什么不能塞进 currentMouth/targetMouth：那一族带 faceAt，写进去就等于
+  // 声明"他的眼和表情也归动捕管"，模型在整个说话期间都不会眨眼。
+  currentVoiceMouth: number
+  targetVoiceMouth: number
+  /** 最近一次收到语音嘴型的时刻；0 = 这个人没开语音口型 */
+  voiceAt: number
+
   // ---- 拖拽偏移 ----
   // 和视线一样分「目标 / 当前」：网络的台阶要磨成连续运动。唯一的例外是
   // 本机拖拽——那时目标与当前一起写，否则拖起来会有一帧的延迟感。
@@ -103,6 +114,9 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
     // 新条目先不接管面部参数：等这一路真的来了一帧动捕数据再说。
     // 否则"刚从快照里看到别人张着嘴"会让我们凭空替他张嘴。
     faceAt: 0,
+    currentVoiceMouth: 0,
+    targetVoiceMouth: 0,
+    voiceAt: 0,
     targetDragX: peer.dragX,
     targetDragY: peer.dragY,
     currentDragX: peer.dragX,
@@ -177,6 +191,24 @@ export function setFace(
 /** 姿态是否由动捕接管（数据新鲜）。渲染器与「是否需要平滑」共用同一判据。 */
 export function isFaceActive(entry: SceneEntry, ttlMs: number): boolean {
   return entry.faceAt > 0 && Date.now() - entry.faceAt < ttlMs
+}
+
+/**
+ * 写入**语音口型**（只有嘴）。本机与远端共用。
+ *
+ * 刻意不走 setFace：那条路会给 faceAt 打时间戳，等于把眼/表情/歪头也交给
+ * 上报方接管。语音没有这些东西的对应物，接管之后模型在整段说话里都不眨眼。
+ */
+export function setVoiceMouth(sid: string, mouth: number): void {
+  const entry = entries.get(sid)
+  if (!entry) return
+  if (Number.isFinite(mouth)) entry.targetVoiceMouth = clamp01(mouth)
+  entry.voiceAt = Date.now()
+}
+
+/** 语音嘴型是否仍然新鲜（超时就把嘴还给引擎，否则静音后嘴会一直张着）。 */
+export function isVoiceActive(entry: SceneEntry, ttlMs: number): boolean {
+  return entry.voiceAt > 0 && Date.now() - entry.voiceAt < ttlMs
 }
 
 function clamp01(v: number): number {

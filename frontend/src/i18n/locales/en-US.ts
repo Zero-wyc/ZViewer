@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2773 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2777 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -967,7 +967,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（101 条） =====
+  // ===== modules/live2d（105 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -980,6 +980,7 @@ const enUS: Record<string, string> = {
   '地址格式无效': 'Invalid URL format',
   '地址过长': 'URL is too long',
   '点模型右侧的删除按钮可以删掉它，正在使用的人会退回默认角色': 'Use the delete button beside a model to remove it; anyone using it falls back to the default character',
+  '动捕开着时以动捕为准': 'Face tracking takes over while it is on',
   '动捕预览': 'Capture preview',
   '动捕中': 'Tracking',
   '对观众显示角色': 'Show characters to viewers',
@@ -1000,6 +1001,7 @@ const enUS: Record<string, string> = {
   '画面只在本机处理，不会上传': 'Frames stay on this device and are never uploaded',
   '回到默认站位': 'Back to default spot',
   '回到原位': 'Reset position',
+  '加入语音后说话会动嘴，不需要摄像头': 'Once you join voice, your character moves its mouth as you speak — no camera needed',
   '加载超时': 'Load timed out',
   '角色模型应用失败': 'Could not apply the character model',
   '角色设置': 'Character settings',
@@ -1056,6 +1058,7 @@ const enUS: Record<string, string> = {
   '笑': 'Smile',
   '眼': 'Eyes',
   '应用地址': 'Apply URL',
+  '语音口型': 'Voice lip sync',
   '允许成员开启摄像头动捕': 'Allow camera tracking for members',
   '这些设置对房间里所有人生效': 'These settings apply to everyone in the room',
   '这些设置由房主决定，你只能看': 'The host controls these settings; you can only view them',
@@ -1063,6 +1066,7 @@ const enUS: Record<string, string> = {
   '正在启动…': 'Starting…',
   '重新标定': 'Recalibrate',
   '重新选一个模型之后动捕才有作用': 'Face tracking only works once you pick a model again',
+  '重新选一个模型之后口型才有作用': 'Pick a model again for lip sync to have something to move',
   '自定义模型地址': 'Custom model URL',
   '嘴': 'Mouth',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',

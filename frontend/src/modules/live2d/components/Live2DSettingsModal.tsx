@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, Trash2, Users } from 'lucide-react'
+import { Camera, Mic, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmModal, Modal } from '@/components/ui/Modal'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
@@ -65,6 +65,8 @@ export interface Live2DSettingsModalProps {
   canRemove: boolean
   myScale: number
   faceTracking: { on: boolean; busy: boolean; error: string }
+  /** 语音口型：说话时用麦克风响度推动嘴型（本机偏好） */
+  voiceLipSync: boolean
   policy: Live2DPolicy
   /** 统一角色当前用的模型显示名（解析不到时给 id） */
   unifiedLabel: string
@@ -81,6 +83,7 @@ export interface Live2DSettingsModalProps {
   onScale: (scale: number) => void
   onExpression: (index: number) => void
   onToggleFaceTracking: () => void
+  onToggleVoiceLipSync: () => void
   onRemove: () => void
   /* 房间设置（房主） */
   onPolicy: (patch: Partial<Live2DPolicy>) => void
@@ -111,6 +114,7 @@ export function Live2DSettingsModal({
   canRemove,
   myScale,
   faceTracking,
+  voiceLipSync,
   policy,
   unifiedLabel,
   hiddenByHost,
@@ -119,6 +123,7 @@ export function Live2DSettingsModal({
   onScale,
   onExpression,
   onToggleFaceTracking,
+  onToggleVoiceLipSync,
   onRemove,
   onPolicy,
   onUpload,
@@ -290,6 +295,30 @@ export function Live2DSettingsModal({
                   }
                   onChange={onToggleFaceTracking}
                   aria-label={t('摄像头动捕')}
+                />
+              </div>
+
+              {/* 语音口型：不需要摄像头也能有嘴型。刻意**不做**成房间策略——
+                  它读的是本机麦克风电平（不上传音频），只影响"我的嘴怎么动"，
+                  和房主管不管摄像头没有关系。 */}
+              <div className="flex items-center gap-2">
+                <Mic size={14} className="shrink-0 opacity-70" aria-hidden />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs">{t('语音口型')}</span>
+                  <span className="block text-[10px] leading-snug opacity-50">
+                    {removed && !unified
+                      ? t('重新选一个模型之后口型才有作用')
+                      : faceTracking.on
+                        ? t('动捕开着时以动捕为准')
+                        : t('加入语音后说话会动嘴，不需要摄像头')}
+                  </span>
+                </span>
+                <Switch
+                  checked={voiceLipSync}
+                  // 和动捕开关同一个理由：删除角色后没有可驱动的对象
+                  disabled={removed && !unified}
+                  onChange={onToggleVoiceLipSync}
+                  aria-label={t('语音口型')}
                 />
               </div>
 

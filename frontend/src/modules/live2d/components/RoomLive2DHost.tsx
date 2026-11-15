@@ -107,6 +107,8 @@ export function RoomLive2DHost({
   const setMyModel = useLive2DStore((s) => s.setMyModel)
   const setMyScale = useLive2DStore((s) => s.setMyScale)
   const setRemoved = useLive2DStore((s) => s.setRemoved)
+  const voiceLipSync = useLive2DStore((s) => s.voiceLipSync)
+  const setVoiceLipSync = useLive2DStore((s) => s.setVoiceLipSync)
 
   // 房主统一角色时，显示的模型不再是「我选的」而是房间定的；我自己的选择
   // 仍然留在 store 里，关掉统一角色就自动回来。
@@ -510,6 +512,10 @@ export function RoomLive2DHost({
     else void startFaceTracking()
   }, [face.on, face.busy, stopFaceTracking, startFaceTracking])
 
+  const toggleVoiceLipSync = useCallback(() => {
+    setVoiceLipSync(!voiceLipSync)
+  }, [setVoiceLipSync, voiceLipSync])
+
   // 房主关掉「允许成员动捕」时立刻停：不能只是把按钮变灰，摄像头得真的关。
   // 放进 setTimeout 是为了不在 effect 里同步 setState（react-hooks 会判级联渲染）。
   useEffect(() => {
@@ -714,6 +720,9 @@ export function RoomLive2DHost({
     sid: mySid,
     active: canShowLayer && Boolean(effModelId),
     tracker,
+    // 语音口型是本机偏好：只影响"我的嘴怎么动"，不需要房间级开关
+    // （房主那边的 allowFace 管的是摄像头，麦克风电平不出本机）。
+    lipSync: voiceLipSync,
   })
 
   // ---- 10. 动作 ----
@@ -1127,6 +1136,7 @@ export function RoomLive2DHost({
         canRemove={!unifiedActive && !removedNow && Boolean(myModelId)}
         myScale={myScale}
         faceTracking={face}
+        voiceLipSync={voiceLipSync}
         policy={policy}
         unifiedLabel={unifiedLabel}
         hiddenByHost={!canShowLayer}
@@ -1135,6 +1145,7 @@ export function RoomLive2DHost({
         onScale={setMyScale}
         onExpression={handleExpression}
         onToggleFaceTracking={toggleFaceTracking}
+        onToggleVoiceLipSync={toggleVoiceLipSync}
         onRemove={handleRemove}
         onPolicy={handlePolicy}
         onUpload={handleUpload}

@@ -134,6 +134,18 @@ type live2dMember struct {
 	// faceAt 是最近一次收到面部数据的时刻，只用于判断「要不要继续转发 m/e/p」。
 	faceAt time.Time
 
+	// VoiceMouth / voiceAt 是**语音口型**：只驱动嘴，不动眼、表情和歪头。
+	//
+	// 为什么不复用 Mouth/faceAt：
+	//   - 语义上语音只对应"张嘴幅度"，没有睁眼/挑眉的对应物。走面部通路就等于
+	//     声称"他的眼睛和眉毛也归动捕管"，客户端一旦接管，整个说话期间模型
+	//     都不再眨眼，比不动捕还假；
+	//   - 下行形状也不同：面部是 m+e+p 五项一起发，语音只发 m 一项，客户端
+	//     按行长度区分三种状态（纯视线 / 语音张嘴 / 整脸动捕）。老客户端读到
+	//     长度 5 的行会当作"没有面部数据"直接忽略，既不跳也不闪。
+	VoiceMouth float64
+	voiceAt    time.Time
+
 	// DragX/DragY 是相对「槽位基准位置」的拖拽偏移（视口宽/高的比例，
 	// 正数向右/向下）。
 	//
@@ -370,6 +382,13 @@ type live2dStateUpdate struct {
 	Mouth, Eyes *float64
 	// Pose 是 [嘴形, 眉毛, 歪头]，0~1 编码。长度不等于 3 时整条忽略。
 	Pose []float64
+	// VoiceMouth 是「只有嘴型」的上报（语音口型）。
+	//
+	// 与 Mouth 分开而不是复用：Mouth 一出现就意味着"整脸归动捕管"，而语音
+	// 只该动嘴。客户端两者互斥发送（动捕优先），服务端只负责按各自的通道
+	// 记录与转发，不做优先级判断——优先级在客户端算得比这里准（它知道
+	// 摄像头此刻到底有没有检测到脸）。
+	VoiceMouth *float64
 }
 
 // UpdateState 写入指针位置（和面部姿态），返回 false 表示被丢弃（不在房 / 超出频率）。
@@ -404,6 +423,10 @@ func (st *live2dStore) UpdateState(roomID, socketID string, u live2dStateUpdate,
 		m.Form = clampFloat(u.Pose[0], 0, 1)
 		m.Brow = clampFloat(u.Pose[1], 0, 1)
 		m.Roll = clampFloat(u.Pose[2], 0, 1)
+	}
+	if u.VoiceMouth != nil {
+		m.VoiceMouth = clampFloat(*u.VoiceMouth, 0, 1)
+		m.voiceAt = now
 	}
 	if u.Mouth != nil || u.Eyes != nil || len(u.Pose) == live2dPoseLen {
 		m.faceAt = now

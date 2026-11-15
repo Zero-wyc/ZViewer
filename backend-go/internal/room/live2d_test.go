@@ -857,3 +857,75 @@ func TestLive2DModelRemoved(t *testing.T) {
 		t.Fatal("关闭统一角色要广播给房间")
 	}
 }
+
+// 10c) 语音口型：只带 m 的上报走**独立通道**——不刷 faceAt、下行行长度 5。
+//
+// 这条通道存在的唯一理由是"不能接管眼睛"：如果语音复用面部通道，客户端收到
+// m/e 就会连眼一起接管，模型在整个说话期间都不眨眼。所以这里既有"值进对了
+// 字段"，也有"另一个字段没被碰"两半断言。
+func TestLive2DVoiceMouth(t *testing.T) {
+	env := newTestEnv(t)
+	env.hub.members["ROOM_V"] = []string{"s1"}
+	env.svc.Live2DSet("ROOM_V", live2dMember{
+		SocketID: "s1", Name: "Alice", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+	env.svc.FlushLive2D()
+
+	// 越界值要被钳制，而且不能顺手写进 Mouth
+	loud := 1.7
+	env.svc.Live2DUpdateState("ROOM_V", "s1", live2dStateUpdate{
+		X: 0.5, Y: 0.5, AR: 1.7, VoiceMouth: &loud,
+	}, time.Now())
+
+	m := env.svc.Live2DSnapshot("ROOM_V")[0]
+	if m.VoiceMouth != 1 {
+		t.Fatalf("语音嘴型未钳制：%v", m.VoiceMouth)
+	}
+	if !m.faceAt.IsZero() {
+		t.Fatal("语音帧不能刷新 faceAt：那等于宣称眼/表情也归动捕管")
+	}
+	if m.Mouth != 0 {
+		t.Fatalf("语音帧不该写面部通道的 Mouth：%v", m.Mouth)
+	}
+
+	// 行形状：三种状态靠长度区分，客户端按 4/5/9 分派
+	now := time.Now()
+	voiceOnly := live2dMember{SocketID: "s1", AR: 1.7, VoiceMouth: 0.4, voiceAt: now}
+	if row := live2dStateRow(voiceOnly, now); len(row) != 5 || row[4] != 0.4 {
+		t.Fatalf("语音口型行应为 5 项且第 5 项是嘴型：%v", row)
+	}
+
+	// 过期后回到「只有视线」
+	stale := live2dMember{SocketID: "s1", AR: 1.7, VoiceMouth: 0.4, voiceAt: now.Add(-2 * time.Second)}
+	if row := live2dStateRow(stale, now); len(row) != 4 {
+		t.Fatalf("语音过期后应只发 4 项：%v", row)
+	}
+
+	// 动捕同时新鲜时只发整脸：摄像头测出来的嘴比响度推测准
+	both := live2dMember{
+		SocketID: "s1", AR: 1.7,
+		Mouth: 0.3, Eyes: 0.9, Form: 0.5, Brow: 0.5, Roll: 0.5, faceAt: now,
+		VoiceMouth: 0.8, voiceAt: now,
+	}
+	row := live2dStateRow(both, now)
+	if len(row) != 9 {
+		t.Fatalf("动捕新鲜时应发整脸 9 项：%v", row)
+	}
+	if row[4] != 0.3 {
+		t.Fatalf("嘴应取动捕值而不是语音值：%v", row[4])
+	}
+
+	// payload 判定：只有 m 才算语音；带 e 或带完整姿态的都是整脸动捕
+	mouth, eyes := 0.5, 1.0
+	if live2dVoiceMouth(live2dStatePayload{Mouth: &mouth}) == nil {
+		t.Fatal("只带 m 应判为语音口型")
+	}
+	if live2dVoiceMouth(live2dStatePayload{Mouth: &mouth, Eyes: &eyes}) != nil {
+		t.Fatal("带 e 的是整脸动捕，不能算语音")
+	}
+	if live2dVoiceMouth(live2dStatePayload{
+		Mouth: &mouth, Pose: []float64{0.5, 0.5, 0.5},
+	}) != nil {
+		t.Fatal("带姿态的是整脸动捕，不能算语音")
+	}
+}

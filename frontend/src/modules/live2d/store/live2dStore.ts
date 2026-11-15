@@ -28,6 +28,14 @@ interface Live2DStoreState {
    * 也该继续高亮"上次用的那个"。
    */
   removed: boolean
+  /**
+   * 语音口型：说话时用麦克风响度推动嘴型（不开摄像头也有口型）。
+   *
+   * 为什么默认开：这是「一起看片」场景里最自然的在场感——语音本来就开着，
+   * 说话时角色跟着张嘴不需要任何额外动作。它只读本机麦克风、不上传音频，
+   * 且静音时不生效（见 voice-chat/lib/mic-level），所以默认开不会构成意外。
+   */
+  voiceLipSync: boolean
   /** 名册：低频变化（加入/离开/换模型），高频指针不写这里 */
   peers: Live2DPeer[]
   /** 房间策略：房主设，低频，跟着快照/广播进来 */
@@ -36,6 +44,7 @@ interface Live2DStoreState {
   setMyModel: (kind: Live2DModelKind, modelId: string) => void
   setMyScale: (scale: number) => void
   setRemoved: (removed: boolean) => void
+  setVoiceLipSync: (enabled: boolean) => void
   setPeers: (peers: Live2DPeer[]) => void
   setPolicy: (policy: Live2DPolicy) => void
   reset: () => void
@@ -46,6 +55,7 @@ const DEFAULTS = {
   myModelId: '',
   myScale: 1,
   removed: false,
+  voiceLipSync: true,
 }
 
 export const useLive2DStore = create<Live2DStoreState>()(
@@ -59,6 +69,7 @@ export const useLive2DStore = create<Live2DStoreState>()(
         set({ myKind, myModelId, removed: false }),
       setMyScale: (myScale) => set({ myScale }),
       setRemoved: (removed) => set({ removed }),
+      setVoiceLipSync: (voiceLipSync) => set({ voiceLipSync }),
       setPeers: (peers) => set({ peers }),
       setPolicy: (policy) => set({ policy }),
       reset: () =>
@@ -66,12 +77,13 @@ export const useLive2DStore = create<Live2DStoreState>()(
     }),
     {
       name: 'zviewer.live2d.v1',
-      version: 4,
+      version: 5,
       // v1 里有个「整个悬浮层开关」enabled，现在改成「右键角色 → 设置」，
       // 不再有全局开关（有开关却没有入口会把用户锁在外面）。
       // v2 的 hidden 是个布尔；v3 的 hidden 是带 roomId 的记录——两种都不
       // 迁移成 removed：它们表达的是"临时藏起来"，而删除是用户的明确动作，
       // 把旧的隐藏状态升级成"删除了角色"会让老用户升级后角色凭空消失。
+      // v5 新增 voiceLipSync：老数据里没有这个键，按默认开启补齐。
       migrate: (persisted) => {
         const old = (persisted ?? {}) as Partial<Live2DStoreState>
         return {
@@ -79,6 +91,7 @@ export const useLive2DStore = create<Live2DStoreState>()(
           myModelId: old.myModelId ?? DEFAULTS.myModelId,
           myScale: old.myScale ?? DEFAULTS.myScale,
           removed: false,
+          voiceLipSync: old.voiceLipSync ?? DEFAULTS.voiceLipSync,
         }
       },
       // 只持久化本机偏好：名册与策略是房间状态，写进 localStorage 只会让
@@ -88,6 +101,7 @@ export const useLive2DStore = create<Live2DStoreState>()(
         myModelId: state.myModelId,
         myScale: state.myScale,
         removed: state.removed,
+        voiceLipSync: state.voiceLipSync,
       }),
     }
   )
