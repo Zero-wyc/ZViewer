@@ -8,6 +8,7 @@
     "[useVideoSource] A media request during playback seems to have an expired access token; refreshing and reloading at the current position",
     "[useVideoSource] Viewer-side resolution failed:",
     "[useVideoSource] Failed to restore the video source:",
+    "[useVideoSource] live route=CLI but no local CLI is available (or this is an HLS live stream), using the server relay instead",
     "[useVideoSource] Failed to reload the video source:",
     "[useViewerStateSync] Buffered download failed:",
     "[useViewerStateSync] Buffered download cancelled",

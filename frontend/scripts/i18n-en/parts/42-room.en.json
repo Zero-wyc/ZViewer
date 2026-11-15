@@ -1,5 +1,6 @@
 {
   "items": [
+    "Use the saved OpenList mount",
     "Use the saved WebDAV mount",
     "Video URL, BV id, or live room link",
     "Failed to load the video",
@@ -29,6 +30,7 @@
     "Screen share",
     "Drag movie cards to reorder playback",
     "Without signing in you can only resolve low quality or previews",
+    "No local CLI detected: this device will use the server relay. It takes effect automatically once the ZViewer CLI starts",
     "Off",
     "Not connected to a room",
     "Untitled room",
@@ -81,7 +83,7 @@
     "Reached the end of the movie list",
     "Enabled but no local CLI detected, falling back to the server MP4 direct link; start the local proxy for high quality",
     "Quality switched",
-    "Switched to direct: media no longer goes through the server",
+    "Switched to the CLI route; each device pulls the stream with its own local CLI",
     "Switched back to relaying: viewers now stream through this server",
     "Movie list cleared",
     "Appointed {{value}} as moderator",
@@ -117,8 +119,6 @@
     "Allow",
     "Online ({{length}})",
     "Online viewers ({{length}})",
-    "Online users",
-    "Pause request",
-    "The pause request timed out; the host did not respond"
+    "Online users"
   ]
 }

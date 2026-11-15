@@ -109,9 +109,10 @@ export async function addBilibiliMovie(
     acceptQuality: resolvedMovie.acceptQuality,
     pages: resolvedMovie.pages,
     currentPage: resolvedMovie.currentPage ?? 1,
-    // 直播默认走服务器中转（沿用既有行为）：直播 CDN 的 CORS/防盗链策略
-    // 随房间与边缘节点而异，默认中转最稳；房主可在影片卡片的「B站解析设置」
-    // 里切成直链，让观众各自从 CDN 拉流、省下服务器出口带宽。
+    // 直播默认走服务器中转（沿用既有行为）：直播 CDN 有防盗链，只有「本机
+    // 有 ZViewer CLI」时才能不经服务器，而房主无法替观众保证这一点。
+    // 房主可在影片卡片的「B站解析设置」里切成 CLI 线路：各端用自己的 CLI
+    // 直连 CDN、省下服务器出口带宽，没有 CLI 的一端自动退回中转。
     ...(isLive ? { serverProxy: true } : {}),
   })
   // 对齐预览与正式播放的解析语义，消除引擎翻转：

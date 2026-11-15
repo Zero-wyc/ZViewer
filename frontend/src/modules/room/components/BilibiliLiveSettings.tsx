@@ -1,20 +1,28 @@
 /**
  * B站直播「解析设置」（影片卡片内，仅直播间影片显示）。
  *
- * 与点播的 BilibiliParseSettings 同款折叠交互，但只有一个选项：播放线路。
+ * 与点播的 BilibiliParseSettings 同款折叠交互，只有一个选项：播放线路。
  *
- * - 直链：浏览器直接拉 B站 直播 CDN，服务器出口带宽归零。直播是「每个观众
- *   各拉一条流」，中转意味着服务器出口 = 观众数 × 码率，人一多就是硬瓶颈。
- * - 中转：媒体流经服务器转发（后端注入 Referer/Origin），兼容性最好。
+ * - CLI：媒体流由**每台设备自己的** ZViewer CLI 直连 B站 CDN，服务器出口
+ *   带宽归零。直播是「每个观众各拉一条流」，中转意味着服务器出口 =
+ *   观众数 × 码率，人一多就是硬瓶颈。
+ *   B站 直播 CDN 有防盗链（Referer/Origin 必须是 live.bilibili.com），
+ *   浏览器直连必被拒——所以「不经服务器」这条线路只能由 CLI 实现。
+ * - 中转：媒体流经服务器转发（后端注入 Referer/Origin），兼容性最好，
+ *   不要求任何本地程序。
  *
  * 线路属于播放源属性而非本机偏好，写回 movie.serverProxy 并随房间状态广播，
  * 保证全房间看的是同一条线路（解析与鉴权都用房主身份，线路也应该一致）。
  * 房主可切换；观众只读，显示房主当前选择。
+ *
+ * 注意 `serverProxy` 是历史字段名：false 现在表示「CLI 线路」，不再表示
+ * 「浏览器直连」——后者在这条链路上已被证伪，见上。
  */
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Settings2, Signal } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { useRoomStore } from '@/store/roomStore'
+import { useCliAgentStore } from '@/store/cliAgentStore'
 import { cn } from '@/lib/utils'
 import { t } from '@/i18n'
 
@@ -40,6 +48,9 @@ export function BilibiliLiveSettings({
   const currentMovieId = useRoomStore((s) => s.currentMovieId)
   const updateMovie = useRoomStore((s) => s.updateMovie)
   const triggerReloadBilibili = useRoomStore((s) => s.triggerReloadBilibili)
+  // CLI 代理按账号归属注册，agents 非空即表示本机（或旧版无归属的）CLI
+  // 已连上服务器。播放层用的也是同一份数据，这里不另做判断。
+  const cliReady = useCliAgentStore((s) => s.agents.length > 0)
 
   const serverProxy = movie?.serverProxy === true
 
@@ -54,7 +65,7 @@ export function BilibiliLiveSettings({
   if (!movie) return null
 
   // serverProxy 缺省为 false：直播新建时显式写入 true（沿用既有中转行为），
-  // 因此这里 false 仅表示房主主动选了「直链」。
+  // 因此这里 false 仅表示房主主动选了「CLI」。
   const disabled = !isHost || saving
 
   const applyRoute = async (next: boolean) => {
@@ -66,11 +77,17 @@ export function BilibiliLiveSettings({
     pendingRouteRef.current = next
     try {
       await updateMovie(roomId, movieId, { serverProxy: next })
-      message.success(
-        next
-          ? t('已切回服务器中转，观众将经本服务器拉流')
-          : t('已切换为直链，媒体流不再经服务器转发')
-      )
+      if (!next && !cliReady) {
+        message.warning(
+          t('本机未检测到 CLI，将退回服务器中转；启动 ZViewer CLI 后自动生效')
+        )
+      } else {
+        message.success(
+          next
+            ? t('已切回服务器中转，观众将经本服务器拉流')
+            : t('已切换为 CLI 线路，媒体流由各端本地 CLI 直连')
+        )
+      }
     } catch (err) {
       pendingRouteRef.current = null
       console.error('[BilibiliLiveSettings] update route error:', err)
@@ -94,9 +111,7 @@ export function BilibiliLiveSettings({
           {t('B站解析设置')}
         </span>
         <span className="flex items-center gap-1">
-          <span className="text-[9px]">
-            {serverProxy ? t('中转') : t('直链')}
-          </span>
+          <span className="text-[9px]">{serverProxy ? t('中转') : 'CLI'}</span>
           <ChevronDown
             className={cn(
               'h-3 w-3 transition-transform',
@@ -151,7 +166,7 @@ export function BilibiliLiveSettings({
                 className="text-[9px] font-medium"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                {serverProxy ? t('中转') : t('直链')}
+                {serverProxy ? t('中转') : 'CLI'}
               </span>
             </div>
 
@@ -167,7 +182,7 @@ export function BilibiliLiveSettings({
                     : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
                 )}
               >
-                {t('直链')}
+                CLI
               </button>
               <button
                 type="button"
@@ -192,9 +207,13 @@ export function BilibiliLiveSettings({
                 ? t('播放线路由房主统一设置')
                 : serverProxy
                   ? t('媒体流经本服务器转发；观众越多，服务器出口带宽占用越大')
-                  : t(
-                      '浏览器直连 B站 CDN，不占服务器带宽；部分节点会拒绝直连，失败后需手动切回中转'
-                    )}
+                  : cliReady
+                    ? t(
+                        '媒体流由各端本地 ZViewer CLI 直连 B站，服务器不转发；未开 CLI 的一端会自动退回中转'
+                      )
+                    : t(
+                        '未检测到本地 CLI：本机将退回服务器中转。启动 ZViewer CLI 后自动生效'
+                      )}
             </div>
           </div>
         </div>

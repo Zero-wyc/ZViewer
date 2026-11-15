@@ -51,8 +51,10 @@ function canPlayNativeHls(video: HTMLVideoElement): boolean {
  * 直链语义是源站直传、服务器零媒体流量；源站 CORS/防盗链不可直连时由
  * hls.js fatal error 直接向用户抛错，不静默转中转。
  *
- * liveDirect（直播线路=直链）：m3u8 与全部分片都直连 CDN。B站 直播 CDN
- * 回显 CORS，浏览器可自取，服务器出口带宽归零。
+ * liveDirect（直播线路=CLI）：URL 应已由上游包装成本机 CLI 代理。
+ * 走到本引擎的直播源若仍是裸 CDN 地址，说明没有可用 CLI（HLS 直播的
+ * 相对分片无法逐条代理），由 url-proxy 退回服务器中转——浏览器直连
+ * B站 直播 CDN 有防盗链，必然失败。
  */
 function createProxyLoader(
   sourceUrl: string,
@@ -91,7 +93,7 @@ function createProxyLoader(
           buildHlsProxyRequest(manifestBaseUrl, proxySource)
         )
       } else if (noProxyFallback || liveDirect) {
-        // 直链模式 / 直播直连线路：子清单、分片、密钥一律源站直连。
+        // 直链模式 / 直播 CLI 线路（URL 已是本机代理）：子清单、分片、密钥一律原样。
         // context.url 保持 originalUrl，manifestBaseUrl 与之一致，
         // hls.js 基于原始 URL 解析 m3u8 相对路径分片，无拼接错误。
         context.url = transportUrl(originalUrl)
@@ -198,7 +200,7 @@ export const hlsEngine: PlayerEngine = {
     resetVideoElement(video)
 
     const noProxyFallback = source.noProxyFallback === true
-    // 直播线路=直链：m3u8 与分片直接由浏览器拉取（B站 直播 CDN 回显 CORS）
+    // 直播线路=CLI：正常情况下 URL 已是本机 CLI 代理地址
     const liveDirect = source.isLive === true && source.liveDirect === true
     // 统一代理策略：直链模式（noProxyFallback）跳过混合内容代理分支，
     // 保持源站直传语义（服务器零媒体流量）
@@ -278,11 +280,11 @@ export const hlsEngine: PlayerEngine = {
           /* ignore */
         }
         if (liveDirect) {
-          // 直播直链：不回退服务器中转（线路由用户显式选择），
-          // 失败直接提示可操作动作——切回中转即可恢复。
+          // 直播 CLI 线路：不回退服务器中转（线路由用户显式选择），
+          // 失败直接提示可操作动作——检查 CLI 或切回中转。
           const reason = err instanceof Error ? err.message : String(err)
           throw new Error(
-            `${t('直播直链连接失败，请在影片卡片中切换为服务器中转')}（${reason}）`,
+            `${t('直播连线失败：请确认本地 ZViewer CLI 正在运行，或在影片卡片切换为服务器中转')}（${reason}）`,
             { cause: err }
           )
         }

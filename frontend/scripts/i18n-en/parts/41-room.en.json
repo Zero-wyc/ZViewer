@@ -1,5 +1,6 @@
 {
   "items": [
+    "Once viewers join, each connection shows up here",
     "Viewer limit",
     "The viewer limit must be between 1 and 100",
     "Viewer quality",
@@ -50,7 +51,6 @@
     "Browse server files",
     "Implementation actually in use",
     "Direct (browser-to-browser)",
-    "The browser pulls from Bilibili's CDN directly, using no server bandwidth. Some CDN nodes refuse direct connections; switch back to Relay manually if it fails.",
     "Browser transcoding",
     "Browser transcoding engine",
     "Browse files",
@@ -61,6 +61,7 @@
     "No permission to delete movies",
     "Media is relayed by this server; more viewers means more outbound bandwidth",
     "Media is relayed by the server, which bypasses hotlink protection",
+    "Media streams are pulled by each device’s own ZViewer CLI straight from Bilibili; the server relays nothing. A device without the CLI falls back to the relay automatically",
     "WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.",
     "Average per frame — higher means more CPU",
     "Password (optional)",
@@ -118,7 +119,6 @@
     "Live bitrate",
     "Use the local ZViewer CLI for premium high quality",
     "Use the saved {{name}} mount",
-    "Use the saved FTP mount",
-    "Use the saved OpenList mount"
+    "Use the saved FTP mount"
   ]
 }

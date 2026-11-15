@@ -9,6 +9,7 @@
     "[useVideoSource] 播放期媒体请求疑似 access token 过期，自动刷新并重载当前进度",
     "[useVideoSource] 观众本地解析失败:",
     "[useVideoSource] 恢复视频源失败:",
+    "[useVideoSource] 直播线路=CLI 但本地 CLI 不可用（或为 HLS 直播），改走服务器中转",
     "[useVideoSource] 重载视频源失败:",
     "[useViewerStateSync] 缓冲下载失败:",
     "[useViewerStateSync] 缓冲下载已取消",

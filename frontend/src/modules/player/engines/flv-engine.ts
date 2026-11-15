@@ -9,8 +9,10 @@
  *   屏幕共享 FlvPlayer（ArtPlayer 壳）与本引擎共用同一条拉流路径，
  *   不再各自持有一份 flv.js 实例管理。
  *
- * 直播「直链」线路（source.liveDirect）是硬约束：只拉 CDN 原地址，
- * 连续失败即判失败并提示用户手动切回中转，绝不静默改走服务器代理。
+ * 直播「CLI」线路（source.liveDirect）：URL 已经由上游包装成
+ * `127.0.0.1:9333/proxy?url=...&ref=live`，媒体流由本机 CLI 直连 CDN。
+ * 它是硬约束：连续失败即判失败并提示用户检查 CLI 或切回中转，
+ * 绝不静默改走服务器代理（那样服务器带宽照样被打满，线路选择形同虚设）。
  *
  * cleanup 完整卸载 flv 实例（pause → unload → detach → destroy）。
  */
@@ -29,9 +31,9 @@ import { t } from '@/i18n'
 const LIVE_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000]
 const LIVE_RETRY_INTERVAL_MS = 10000
 /**
- * 直播直链的失败判定阈值：连续这么多次 ERROR 后不再重连。
- * 直连被 CDN 拒绝（CORS / 边缘节点策略）是确定性失败，重试没有意义，
- * 继续静默重连只会让画面一直黑着，不如尽早提示用户切回中转。
+ * 直播 CLI 线路的失败判定阈值：连续这么多次 ERROR 后不再重连。
+ * CLI 未启动/未连接是确定性失败，重试没有意义，继续静默重连只会让画面
+ * 一直黑着，不如尽早提示用户检查 CLI 或切回中转。
  */
 const LIVE_DIRECT_FAIL_LIMIT = 2
 
@@ -66,7 +68,7 @@ export const flvEngine: PlayerEngine = {
     resetVideoElement(video)
 
     const isLive = source.isLive === true
-    // 直播线路=直链：拿到的就是 CDN 原地址，引擎只认这一条，不准备代理后路。
+    // 直播线路=CLI：URL 已是本机 CLI 代理，引擎只认这一条，不准备代理后路。
     const liveDirect = isLive && source.liveDirect === true
     const targetUrl = resolveProxyUrl(
       source.url,
@@ -87,7 +89,7 @@ export const flvEngine: PlayerEngine = {
 
     let destroyed = false
     let disposeLive: (() => void) | null = null
-    // 直链判定失败时提前结束 attach：onFatal 让这里的 Promise 立即 reject，
+    // CLI 线路判定失败时提前结束 attach：onFatal 让这里的 Promise 立即 reject，
     // 不必干等 metadata 的 30s 超时（否则用户对着黑屏不知发生了什么）。
     let rejectAttach: ((err: Error) => void) | null = null
     const fatalAttach = new Promise<never>((_, reject) => {
@@ -127,11 +129,13 @@ export const flvEngine: PlayerEngine = {
       await Promise.race([waitForMetadata(video), fatalAttach])
     } catch (err) {
       destroy()
-      // 直播直链：浏览器连不上这个 CDN 节点，直链语义不允许改走代理，
-      // 直接给出可操作指引（切回中转由用户决定）。
+      // 直播 CLI 线路连不上本机代理（未启动 / 端口被占 / 直播流被 CDN 拒），
+      // CLI 语义不允许改走服务器代理，直接给出可操作指引。
       if (liveDirect) {
         const reason = err instanceof Error ? err.message : String(err)
-        const hint = t('直播直链连接失败，请在影片卡片中切换为服务器中转')
+        const hint = t(
+          '直播连线失败：请确认本地 ZViewer CLI 正在运行，或在影片卡片切换为服务器中转'
+        )
         throw reason.includes(hint)
           ? err
           : new Error(`${hint}（${reason}）`, { cause: err })
@@ -147,7 +151,7 @@ export const flvEngine: PlayerEngine = {
  * 直播模式事件接线：flv.js 实例事件 → FlvRuntimeEvents 出口 + 内部重连。
  *
  * - ERROR / LOADING_COMPLETE：指数退避重连，随后低频等待推流恢复；
- * - 直链线路连续 ERROR 达到阈值：判定失败，停止重连并上报 onExhausted
+ * - CLI 线路连续 ERROR 达到阈值：判定失败，停止重连并上报 onExhausted
  *   （不换代理地址，线路选择权在用户手里）；
  * - MEDIA_INFO / loadedmetadata：重连成功计数复位 + onReady；
  * - STATISTICS_INFO：原始网络层统计转发（fps 由消费方计算）。
@@ -160,7 +164,7 @@ function attachLiveHandlers(
   events: FlvRuntimeEvents,
   options: {
     liveDirect: boolean
-    /** 直链判定失败：让 attach 立即失败（不等待 metadata 超时） */
+    /** CLI 线路判定失败：让 attach 立即失败（不等待 metadata 超时） */
     onFatal?: (message: string) => void
   }
 ): () => void {
@@ -178,17 +182,19 @@ function attachLiveHandlers(
   const scheduleRetry = (errorType: string, errorDetail: string) => {
     if (disposed || retryTimer !== null) return
 
-    // 直链线路：网络错误连续达到阈值即判失败。主播下播（LOADING_COMPLETE）
+    // CLI 线路：网络错误连续达到阈值即判失败。主播下播（LOADING_COMPLETE）
     // 不在此列——那不是线路问题，继续低频等待推流恢复即可。
     if (
       options.liveDirect &&
       errorType !== 'stream' &&
       retryCount >= LIVE_DIRECT_FAIL_LIMIT
     ) {
-      console.warn('[flv-engine] 直播直链连接失败，停止重连（不自动中转）')
+      console.warn('[flv-engine] 直播 CLI 线路连接失败，停止重连（不自动中转）')
       disposed = true
       clearRetryTimer()
-      const hint = t('直播直链连接失败，请在影片卡片中切换为服务器中转')
+      const hint = t(
+        '直播连线失败：请确认本地 ZViewer CLI 正在运行，或在影片卡片切换为服务器中转'
+      )
       events.onExhausted?.(hint)
       options.onFatal?.(hint)
       return

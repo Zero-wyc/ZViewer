@@ -607,7 +607,7 @@ export function useWatchTogether({
           bufferMode:
             resolved.format === 'dash' &&
             getBilibiliParseOptions(movie.id).bufferMode === true,
-          // 直播标记与线路随重新解析结果更新：线路切换（直链 ↔ 中转）走的就是
+          // 直播标记与线路随重新解析结果更新：线路切换（CLI ↔ 中转）走的就是
           // 这条重载路径，只沿用旧 state 会让引擎继续用旧线路拉到超时。
           isLive: resolved.isLive === true,
           liveDirect: resolved.liveDirect === true,
@@ -1133,7 +1133,7 @@ export function useWatchTogether({
         noProxyFallback: r.noProxyFallback ?? false,
         // 直播源：观众端据此跳过进度校正/seek，各自贴近直播边缘播放
         isLive: r.isLive === true,
-        // 直播线路：直链=观众各自拉 CDN（省服务器带宽），中转=经服务器转发
+        // 直播线路：CLI=各端本地 CLI 拉 CDN（省服务器带宽），中转=经服务器转发
         liveDirect: r.liveDirect === true,
       })
 

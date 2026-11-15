@@ -255,8 +255,9 @@ export interface ResolvedMediaRoute {
  * @param format 源格式（'mp4' / 'dash' / 'm4s' / 'm3u8' / 'flv' 等），影响 B站 URL 代理决策
  * @param options noProxyFallback：挂载直链模式——跳过混合内容代理分支，
  *   保持源站直传语义（浏览器升级失败由引擎直接抛错提示，不静默转代理）
- * @param options.liveDirect：直播线路选「直链」——B站 直播流直接由浏览器拉取，
- *   不经服务器中转；直连失败由引擎报错提示用户手动切换线路，不自动回退
+ * @param options.liveDirect：直播线路选「CLI」——媒体流应经本机 CLI 直连 CDN。
+ *   正常情况下 URL 已在上游包装成 127.0.0.1 代理；这里只负责「万一没包」
+ *   时退回服务器中转（浏览器直连 B站 直播 CDN 有防盗链，必然失败）
  */
 export function resolveMediaRoute(
   url: string,
@@ -294,13 +295,16 @@ export function resolveMediaRoute(
   const hasHeaders = !!(headers && Object.keys(headers).length > 0)
   const isBili = isBilibiliMediaUrl(url)
 
-  // 直播直连（影片级「线路=直链」）：B站 直播 CDN 回显 CORS、且不校验 Referer
-  // （实测 d1--cn-gotcha 系列对空 Referer / 任意 Referer 均 206/200，只拦非
-  // 浏览器 UA），浏览器可自行拉流，服务器出口带宽归零。
-  // allowFallback=false：直链是硬约束——直连失败由引擎报错并提示用户手动
-  // 切回中转，绝不静默改走代理（否则「直链」名不副实，带宽照样压在服务器上）。
+  // 直播线路「CLI」：媒体流由本机 CLI 直连 CDN，URL 在上游已经包成
+  // 127.0.0.1 代理（见 useVideoSource#toPlayerSource），会在上面的
+  // isCliProxyUrl 分支直接放行。能走到这里说明本机没有 CLI——B站 直播 CDN
+  // 有防盗链（Referer/Origin 必须是 live.bilibili.com），浏览器直连必 403，
+  // 所以退回服务器中转，绝不再尝试直连。
   if (isBili && options?.liveDirect === true) {
-    return { url, allowFallback: false }
+    console.warn('[url-proxy] 直播 CLI 线路但 URL 未包装，退回服务器中转:', {
+      url: url.slice(0, 80),
+    })
+    return { url: buildProxyUrl(url), allowFallback: false }
   }
 
   // 带防盗链 headers：浏览器无法设置 forbidden header，必须走服务器代理

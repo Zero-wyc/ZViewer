@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2749 条。
+ * 当前共 2753 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -1901,7 +1901,7 @@ const zhCN: Record<string, string> = {
   '状态恢复失败': '状态恢复失败',
   'B站 URL 已过期，请等待房主重新解析': 'B站 URL 已过期，请等待房主重新解析',
 
-  // ===== modules/player（99 条） =====
+  // ===== modules/player（100 条） =====
   '  缓冲范围: {{buffered}}\n': '  缓冲范围: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js 错误: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] 总大小: video={{value}}MB, ',
@@ -1917,7 +1917,7 @@ const zhCN: Record<string, string> = {
   '[direct-engine] 直连失败，回退到服务器代理:': '[direct-engine] 直连失败，回退到服务器代理:',
   '[direct-engine] 直链模式：直连失败，不回退服务器代理:': '[direct-engine] 直链模式：直连失败，不回退服务器代理:',
   '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:': '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:',
-  '[flv-engine] 直播直链连接失败，停止重连（不自动中转）': '[flv-engine] 直播直链连接失败，停止重连（不自动中转）',
+  '[flv-engine] 直播 CLI 线路连接失败，停止重连（不自动中转）': '[flv-engine] 直播 CLI 线路连接失败，停止重连（不自动中转）',
   '[hls-ad-filter] 剔除 {{size}}/{{length}} 个疑似广告分片 (base={{baseHost}})': '[hls-ad-filter] 剔除 {{size}}/{{length}} 个疑似广告分片 (base={{baseHost}})',
   '[mpd-builder] 二次扫描失败: status={{status}}': '[mpd-builder] 二次扫描失败: status={{status}}',
   '[mpd-builder] 二次扫描异常:': '[mpd-builder] 二次扫描异常:',
@@ -1935,6 +1935,7 @@ const zhCN: Record<string, string> = {
   '[playsvideo-subtitles] 解析 worker 出错，回退主线程:': '[playsvideo-subtitles] 解析 worker 出错，回退主线程:',
   '[playsvideo-subtitles] 解析 worker 创建失败，回退主线程解析:': '[playsvideo-subtitles] 解析 worker 创建失败，回退主线程解析:',
   '[playsvideo-subtitles] worker 解析失败:': '[playsvideo-subtitles] worker 解析失败:',
+  '[url-proxy] 直播 CLI 线路但 URL 未包装，退回服务器中转:': '[url-proxy] 直播 CLI 线路但 URL 未包装，退回服务器中转:',
   '[url-proxy] 走服务器代理(headers):': '[url-proxy] 走服务器代理(headers):',
   '[url-proxy] https 页面下的 http 跨域源（源站不支持 TLS，配置期已探测），走服务器代理:': '[url-proxy] https 页面下的 http 跨域源（源站不支持 TLS，配置期已探测），走服务器代理:',
   '[usePlayerSource] 媒体请求鉴权失效，token 已刷新，重试 attach': '[usePlayerSource] 媒体请求鉴权失效，token 已刷新，重试 attach',
@@ -1981,7 +1982,7 @@ const zhCN: Record<string, string> = {
   '需换用 Edge/Chrome': '需换用 Edge/Chrome',
   '引擎已清理': '引擎已清理',
   '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）': '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）',
-  '直播直链连接失败，请在影片卡片中切换为服务器中转': '直播直链连接失败，请在影片卡片中切换为服务器中转',
+  '直播连线失败：请确认本地 ZViewer CLI 正在运行，或在影片卡片切换为服务器中转': '直播连线失败：请确认本地 ZViewer CLI 正在运行，或在影片卡片切换为服务器中转',
   '直连失败且回退代理仍失败：{{value}}': '直连失败且回退代理仍失败：{{value}}',
   '直链播放失败': '直链播放失败',
   '直链播放失败：{{reason}}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），': '直链播放失败：{{reason}}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），',
@@ -2002,7 +2003,7 @@ const zhCN: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁',
   'seek 失败': 'seek 失败',
 
-  // ===== modules/room（444 条） =====
+  // ===== modules/room（446 条） =====
   ' 等 {{length}} 位观众': ' 等 {{length}} 位观众',
   '），是否允许？': '），是否允许？',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析',
@@ -2028,6 +2029,7 @@ const zhCN: Record<string, string> = {
   '本次会话 · HTTP': '本次会话 · HTTP',
   '本地 Cookie（延迟更低，画质由你的账号决定）': '本地 Cookie（延迟更低，画质由你的账号决定）',
   '本地代理加载失败': '本地代理加载失败',
+  '本机未检测到 CLI，将退回服务器中转；启动 ZViewer CLI 后自动生效': '本机未检测到 CLI，将退回服务器中转；启动 ZViewer CLI 后自动生效',
   '哔哩哔哩登录二维码': '哔哩哔哩登录二维码',
   '编码 CPU 受限': '编码 CPU 受限',
   '编码格式': '编码格式',
@@ -2173,7 +2175,6 @@ const zhCN: Record<string, string> = {
   '浏览服务器文件': '浏览服务器文件',
   '浏览器实际启用的实现': '浏览器实际启用的实现',
   '浏览器直连': '浏览器直连',
-  '浏览器直连 B站 CDN，不占服务器带宽；部分节点会拒绝直连，失败后需手动切回中转': '浏览器直连 B站 CDN，不占服务器带宽；部分节点会拒绝直连，失败后需手动切回中转',
   '浏览器转码': '浏览器转码',
   '浏览器转码引擎': '浏览器转码引擎',
   '浏览文件': '浏览文件',
@@ -2184,6 +2185,7 @@ const zhCN: Record<string, string> = {
   '没有影片删除权限': '没有影片删除权限',
   '媒体流经本服务器转发；观众越多，服务器出口带宽占用越大': '媒体流经本服务器转发；观众越多，服务器出口带宽占用越大',
   '媒体流经服务器转发，可绕过防盗链限制': '媒体流经服务器转发，可绕过防盗链限制',
+  '媒体流由各端本地 ZViewer CLI 直连 B站，服务器不转发；未开 CLI 的一端会自动退回中转': '媒体流由各端本地 ZViewer CLI 直连 B站，服务器不转发；未开 CLI 的一端会自动退回中转',
   '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。': '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。',
   '每帧平均，越高越吃 CPU': '每帧平均，越高越吃 CPU',
   '密码（可选）': '密码（可选）',
@@ -2272,6 +2274,7 @@ const zhCN: Record<string, string> = {
   '投屏': '投屏',
   '拖拽影片卡片可调整播放顺序': '拖拽影片卡片可调整播放顺序',
   '未登录时只能解析低画质或试看片段': '未登录时只能解析低画质或试看片段',
+  '未检测到本地 CLI：本机将退回服务器中转。启动 ZViewer CLI 后自动生效': '未检测到本地 CLI：本机将退回服务器中转。启动 ZViewer CLI 后自动生效',
   '未开启': '未开启',
   '未连接到房间': '未连接到房间',
   '未命名房间': '未命名房间',
@@ -2324,7 +2327,7 @@ const zhCN: Record<string, string> = {
   '已连播到影片列表末尾': '已连播到影片列表末尾',
   '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质': '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质',
   '已切换清晰度': '已切换清晰度',
-  '已切换为直链，媒体流不再经服务器转发': '已切换为直链，媒体流不再经服务器转发',
+  '已切换为 CLI 线路，媒体流由各端本地 CLI 直连': '已切换为 CLI 线路，媒体流由各端本地 CLI 直连',
   '已切回服务器中转，观众将经本服务器拉流': '已切回服务器中转，观众将经本服务器拉流',
   '已清空影片列表': '已清空影片列表',
   '已任命 {{value}} 为房管': '已任命 {{value}} 为房管',
@@ -2769,7 +2772,7 @@ const zhCN: Record<string, string> = {
   'PGS RLE 图像不完整': 'PGS RLE 图像不完整',
   'PGS RLE 行长度无效': 'PGS RLE 行长度无效',
 
-  // ===== modules/sync-playback（23 条） =====
+  // ===== modules/sync-playback（24 条） =====
   '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:': '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:',
   '[seek-service] forceReload 也失败:': '[seek-service] forceReload 也失败:',
   '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:': '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:',
@@ -2778,6 +2781,7 @@ const zhCN: Record<string, string> = {
   '[useVideoSource] 播放期媒体请求疑似 access token 过期，自动刷新并重载当前进度': '[useVideoSource] 播放期媒体请求疑似 access token 过期，自动刷新并重载当前进度',
   '[useVideoSource] 观众本地解析失败:': '[useVideoSource] 观众本地解析失败:',
   '[useVideoSource] 恢复视频源失败:': '[useVideoSource] 恢复视频源失败:',
+  '[useVideoSource] 直播线路=CLI 但本地 CLI 不可用（或为 HLS 直播），改走服务器中转': '[useVideoSource] 直播线路=CLI 但本地 CLI 不可用（或为 HLS 直播），改走服务器中转',
   '[useVideoSource] 重载视频源失败:': '[useVideoSource] 重载视频源失败:',
   '[useViewerStateSync] 缓冲下载失败:': '[useViewerStateSync] 缓冲下载失败:',
   '[useViewerStateSync] 缓冲下载已取消': '[useViewerStateSync] 缓冲下载已取消',

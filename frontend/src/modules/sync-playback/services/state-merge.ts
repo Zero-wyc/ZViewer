@@ -93,7 +93,7 @@ export function buildStateFromVideo(
     noProxyFallback: storeState.noProxyFallback,
     // 透传直播标记：换源后观众端仍要按直播模式处理（不 seek / 不校正进度）
     isLive: storeState.isLive,
-    // 透传直播线路：直链/中转是播放源属性，全房间必须一致
+    // 透传直播线路：CLI/中转是播放源属性，全房间必须一致
     liveDirect: storeState.liveDirect,
   }
 }

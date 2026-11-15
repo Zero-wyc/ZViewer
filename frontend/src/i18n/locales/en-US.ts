@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2754 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2758 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1904,7 +1904,7 @@ const enUS: Record<string, string> = {
   '状态恢复失败': 'Failed to restore the state',
   'B站 URL 已过期，请等待房主重新解析': 'The Bilibili URL expired, wait for the host to resolve it again',
 
-  // ===== modules/player（99 条） =====
+  // ===== modules/player（100 条） =====
   '  缓冲范围: {{buffered}}\n': '  Buffered: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js error: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] Total size: video={{value}}MB, ',
@@ -1920,7 +1920,7 @@ const enUS: Record<string, string> = {
   '[direct-engine] 直连失败，回退到服务器代理:': '[direct-engine] Direct connection failed, falling back to the server proxy:',
   '[direct-engine] 直链模式：直连失败，不回退服务器代理:': '[direct-engine] Direct-link mode: connection failed, not falling back to the server proxy:',
   '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:': '[direct-engine] HTTPS direct link failed (likely a stale protocol upgrade: the origin no longer serves TLS), retrying over HTTP:',
-  '[flv-engine] 直播直链连接失败，停止重连（不自动中转）': '[flv-engine] live direct connection failed, stopping retries (no automatic relay)',
+  '[flv-engine] 直播 CLI 线路连接失败，停止重连（不自动中转）': '[flv-engine] live CLI route failed, stop retrying (no automatic relay)',
   '[hls-ad-filter] 剔除 {{size}}/{{length}} 个疑似广告分片 (base={{baseHost}})': '[hls-ad-filter] Dropped {{size}}/{{length}} suspected ad segments (base={{baseHost}})',
   '[mpd-builder] 二次扫描失败: status={{status}}': '[mpd-builder] Second scan failed: status={{status}}',
   '[mpd-builder] 二次扫描异常:': '[mpd-builder] Second scan threw:',
@@ -1938,6 +1938,7 @@ const enUS: Record<string, string> = {
   '[playsvideo-subtitles] 解析 worker 出错，回退主线程:': '[playsvideo-subtitles] Parsing worker errored, falling back to the main thread:',
   '[playsvideo-subtitles] 解析 worker 创建失败，回退主线程解析:': '[playsvideo-subtitles] Failed to create the parsing worker, falling back to the main thread:',
   '[playsvideo-subtitles] worker 解析失败:': '[playsvideo-subtitles] Worker parsing failed:',
+  '[url-proxy] 直播 CLI 线路但 URL 未包装，退回服务器中转:': '[url-proxy] live CLI route but the URL is not wrapped, falling back to the server relay:',
   '[url-proxy] 走服务器代理(headers):': '[url-proxy] Using the server proxy (headers):',
   '[url-proxy] https 页面下的 http 跨域源（源站不支持 TLS，配置期已探测），走服务器代理:': '[url-proxy] HTTP cross-origin source on an HTTPS page (the origin has no TLS, detected at config time), using the server proxy:',
   '[usePlayerSource] 媒体请求鉴权失效，token 已刷新，重试 attach': '[usePlayerSource] Media request auth expired; the token was refreshed, retrying attach',
@@ -1984,7 +1985,7 @@ const enUS: Record<string, string> = {
   '需换用 Edge/Chrome': 'Use Edge or Chrome',
   '引擎已清理': 'Engine disposed',
   '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）': 'Source unavailable: the URL expired, access is denied, the format is unsupported, or an HTTPS page cannot reach an HTTP source (mixed content)',
-  '直播直链连接失败，请在影片卡片中切换为服务器中转': 'Live direct connection failed. Switch the playback route to Relay in the movie card.',
+  '直播连线失败：请确认本地 ZViewer CLI 正在运行，或在影片卡片切换为服务器中转': 'Live connection failed: make sure the local ZViewer CLI is running, or switch the playback route to Relay in the movie card',
   '直连失败且回退代理仍失败：{{value}}': 'Direct connection failed and the proxy fallback failed too: {{value}}',
   '直链播放失败': 'Direct playback failed',
   '直链播放失败：{{reason}}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），': 'Direct playback failed: {{reason}}. The browser transcoding engine needs the origin to allow cross-origin requests (CORS), ',
@@ -2005,7 +2006,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（444 条） =====
+  // ===== modules/room（446 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -2031,6 +2032,7 @@ const enUS: Record<string, string> = {
   '本次会话 · HTTP': 'This session · HTTP',
   '本地 Cookie（延迟更低，画质由你的账号决定）': 'Local Cookie (lower latency; quality follows your own account)',
   '本地代理加载失败': 'Failed to load the local proxy',
+  '本机未检测到 CLI，将退回服务器中转；启动 ZViewer CLI 后自动生效': 'No local CLI detected; falling back to the server relay. It will switch automatically once the ZViewer CLI starts',
   '哔哩哔哩登录二维码': 'Bilibili login QR code',
   '编码 CPU 受限': 'Encoder CPU limited',
   '编码格式': 'Codec',
@@ -2176,7 +2178,6 @@ const enUS: Record<string, string> = {
   '浏览服务器文件': 'Browse server files',
   '浏览器实际启用的实现': 'Implementation actually in use',
   '浏览器直连': 'Direct (browser-to-browser)',
-  '浏览器直连 B站 CDN，不占服务器带宽；部分节点会拒绝直连，失败后需手动切回中转': 'The browser pulls from Bilibili\'s CDN directly, using no server bandwidth. Some CDN nodes refuse direct connections; switch back to Relay manually if it fails.',
   '浏览器转码': 'Browser transcoding',
   '浏览器转码引擎': 'Browser transcoding engine',
   '浏览文件': 'Browse files',
@@ -2187,6 +2188,7 @@ const enUS: Record<string, string> = {
   '没有影片删除权限': 'No permission to delete movies',
   '媒体流经本服务器转发；观众越多，服务器出口带宽占用越大': 'Media is relayed by this server; more viewers means more outbound bandwidth',
   '媒体流经服务器转发，可绕过防盗链限制': 'Media is relayed by the server, which bypasses hotlink protection',
+  '媒体流由各端本地 ZViewer CLI 直连 B站，服务器不转发；未开 CLI 的一端会自动退回中转': 'Media streams are pulled by each device’s own ZViewer CLI straight from Bilibili; the server relays nothing. A device without the CLI falls back to the relay automatically',
   '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。': 'WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.',
   '每帧平均，越高越吃 CPU': 'Average per frame — higher means more CPU',
   '密码（可选）': 'Password (optional)',
@@ -2275,6 +2277,7 @@ const enUS: Record<string, string> = {
   '投屏': 'Screen share',
   '拖拽影片卡片可调整播放顺序': 'Drag movie cards to reorder playback',
   '未登录时只能解析低画质或试看片段': 'Without signing in you can only resolve low quality or previews',
+  '未检测到本地 CLI：本机将退回服务器中转。启动 ZViewer CLI 后自动生效': 'No local CLI detected: this device will use the server relay. It takes effect automatically once the ZViewer CLI starts',
   '未开启': 'Off',
   '未连接到房间': 'Not connected to a room',
   '未命名房间': 'Untitled room',
@@ -2327,7 +2330,7 @@ const enUS: Record<string, string> = {
   '已连播到影片列表末尾': 'Reached the end of the movie list',
   '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质': 'Enabled but no local CLI detected, falling back to the server MP4 direct link; start the local proxy for high quality',
   '已切换清晰度': 'Quality switched',
-  '已切换为直链，媒体流不再经服务器转发': 'Switched to direct: media no longer goes through the server',
+  '已切换为 CLI 线路，媒体流由各端本地 CLI 直连': 'Switched to the CLI route; each device pulls the stream with its own local CLI',
   '已切回服务器中转，观众将经本服务器拉流': 'Switched back to relaying: viewers now stream through this server',
   '已清空影片列表': 'Movie list cleared',
   '已任命 {{value}} 为房管': 'Appointed {{value}} as moderator',
@@ -2772,7 +2775,7 @@ const enUS: Record<string, string> = {
   'PGS RLE 图像不完整': 'Incomplete PGS RLE image',
   'PGS RLE 行长度无效': 'Invalid PGS RLE row length',
 
-  // ===== modules/sync-playback（23 条） =====
+  // ===== modules/sync-playback（24 条） =====
   '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:': '[safePlay] Refusing to play a media element detached from the document (prevents orphan audio or doubled sound):',
   '[seek-service] forceReload 也失败:': '[seek-service] forceReload failed too:',
   '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:': '[seek-service] MSE seek failed unrecoverably, calling forceReload:',
@@ -2781,6 +2784,7 @@ const enUS: Record<string, string> = {
   '[useVideoSource] 播放期媒体请求疑似 access token 过期，自动刷新并重载当前进度': '[useVideoSource] A media request during playback seems to have an expired access token; refreshing and reloading at the current position',
   '[useVideoSource] 观众本地解析失败:': '[useVideoSource] Viewer-side resolution failed:',
   '[useVideoSource] 恢复视频源失败:': '[useVideoSource] Failed to restore the video source:',
+  '[useVideoSource] 直播线路=CLI 但本地 CLI 不可用（或为 HLS 直播），改走服务器中转': '[useVideoSource] live route=CLI but no local CLI is available (or this is an HLS live stream), using the server relay instead',
   '[useVideoSource] 重载视频源失败:': '[useVideoSource] Failed to reload the video source:',
   '[useViewerStateSync] 缓冲下载失败:': '[useViewerStateSync] Buffered download failed:',
   '[useViewerStateSync] 缓冲下载已取消': '[useViewerStateSync] Buffered download cancelled',

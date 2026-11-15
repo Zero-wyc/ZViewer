@@ -906,7 +906,7 @@ export function MovieListPanel({
                   )}
                 </div>
                 {/* B站解析设置：点播影片是解析偏好（MP4/DASH/CLI/缓冲），
-                    直播间只有「播放线路」一项（直链 / 中转） */}
+                    直播间只有「播放线路」一项（CLI / 中转） */}
                 {movie.sourceType === 'bilibili' &&
                   !isScreenShare &&
                   (extractLiveRoomId(movie.url) > 0 ? (

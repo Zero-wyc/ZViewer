@@ -91,7 +91,8 @@ export interface ResolvedMovieSource {
    */
   isLive?: boolean
   /**
-   * 直播线路直链（movie.serverProxy !== true）：浏览器直接拉 B站 直播 CDN，
+   * 直播线路 CLI（movie.serverProxy !== true）：媒体流由各端本地 CLI 直连
+   * B站 CDN（浏览器直连会被防盗链拒，见 useVideoSource），
    * 不经服务器中转。观众数越多省下的服务器出口带宽越多。
    */
   liveDirect?: boolean
@@ -364,9 +365,13 @@ export async function resolveBilibiliOnline(
       headers: undefined,
       reusedRecoveryUrl: false,
       isLive: true,
-      // 线路由影片级开关决定（默认中转）：直播每个观众独立拉流，
-      // 直链可让服务器出口带宽归零，但依赖 CDN 的 CORS/Referer 策略，
-      // 因此默认仍走中转，由房主在影片卡片的设置里按需切换。
+      // 线路由影片级开关决定（默认 CLI）：直播每个观众各拉一条流，
+      // 走本机 CLI 时服务器出口带宽归零。
+      //
+      // B站直播 CDN 有防盗链（Referer/Origin 必须是 live.bilibili.com），
+      // 浏览器直连必被拒，所以「不经服务器」这条线路只能由 CLI 代理实现：
+      // 这里仍返回 CDN 原地址，由播放层（useVideoSource）按每端自己的 CLI
+      // 包装——绝不能把 127.0.0.1 地址广播出去。
       liveDirect: movie.serverProxy !== true,
     }
   }

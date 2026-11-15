@@ -19,7 +19,9 @@ export function isDirectPlayback(
 ): boolean {
   try {
     const url = new URL(state.sourceUrl ?? '', 'http://local.invalid')
-    if (/\/api\/stream\/(?:(?:anisubs|kazumi|cms)\/)?proxy$/.test(url.pathname)) {
+    if (
+      /\/api\/stream\/(?:(?:anisubs|kazumi|cms)\/)?proxy$/.test(url.pathname)
+    ) {
       return false
     }
   } catch {

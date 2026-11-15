@@ -25,6 +25,7 @@
     "This session · HTTP",
     "Local Cookie (lower latency; quality follows your own account)",
     "Failed to load the local proxy",
+    "No local CLI detected; falling back to the server relay. It will switch automatically once the ZViewer CLI starts",
     "Bilibili login QR code",
     "Encoder CPU limited",
     "Codec",
@@ -118,7 +119,6 @@
     "Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.",
     "Watch request",
     "Viewer {{index}}",
-    "Viewers",
-    "Once viewers join, each connection shows up here"
+    "Viewers"
   ]
 }

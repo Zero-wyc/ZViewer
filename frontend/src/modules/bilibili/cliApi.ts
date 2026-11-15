@@ -56,14 +56,23 @@ export function extractBangumiId(
  * CLI 代理会注入正确的 Referer/Origin/User-Agent 头，绕过 B站 CDN 防盗链。
  *
  * 若 targetUrl 本身已是该 CLI 代理地址，则直接返回避免双重包装。
+ *
+ * @param options.live 直播流：附 `ref=live`，让 CLI 用 live.bilibili.com 的
+ *   Referer/Origin（与点播是两套防盗链口径，用错必然 403），并改用不带
+ *   总超时的长连接客户端（否则每 60 秒被代理掐断一次）。
  */
-export function buildCliProxyUrl(proxyUrl: string, targetUrl: string): string {
+export function buildCliProxyUrl(
+  proxyUrl: string,
+  targetUrl: string,
+  options?: { live?: boolean }
+): string {
   const base = proxyUrl.replace(/\/$/, '')
   const proxyPrefix = `${base}/proxy?url=`
   if (targetUrl.startsWith(proxyPrefix)) {
     return targetUrl
   }
-  return `${proxyPrefix}${encodeURIComponent(targetUrl)}`
+  const wrapped = `${proxyPrefix}${encodeURIComponent(targetUrl)}`
+  return options?.live ? `${wrapped}&ref=live` : wrapped
 }
 
 /**

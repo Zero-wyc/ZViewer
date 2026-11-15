@@ -243,13 +243,14 @@ function toPlayerSource(
     duration: state.duration,
     // 直播源：FLV 引擎据此启用 isLive（延迟追赶 / 断线重连 / 缓冲清理）
     isLive: state.isLive === true,
-    // 直播线路：直链时浏览器直接拉 CDN（失败不回退代理，由用户改线路）
+    // 直播线路：CLI（本机直连 CDN，失败不回退代理，由用户改线路）。
+    // 下面会按本机 CLI 是否可用再校正一次并包装 URL。
     liveDirect: state.isLive === true && state.liveDirect === true,
   }
   // 直播中断提示：FLV 引擎内部会按指数退避重连，重连耗尽后必须让用户
   // 知道「不是卡了」——否则画面停住却没有进度条可看，只能干等。
   // 重载按钮（或重新播放该影片）会重新取流，主播换流地址后即可恢复；
-  // 直链线路的失败文案由引擎给出（提示切回中转），这里如实透传。
+  // CLI 线路的失败文案由引擎给出（提示检查 CLI 或切回中转），这里如实透传。
   if (state.isLive === true) {
     source.flvRuntimeEvents = {
       onStreamEnd: () => message.info(t('直播已结束')),
@@ -284,6 +285,29 @@ function toPlayerSource(
       if (source.audioUrl) {
         source.audioUrl = buildCliProxyUrl(proxyUrl, source.audioUrl)
       }
+    }
+  }
+
+  // 直播线路「CLI」：B站 直播 CDN 有防盗链（Referer/Origin 必须是
+  // live.bilibili.com），浏览器直连必 403——这条线路的唯一实现就是本机 CLI。
+  //
+  // 包装必须**按端**做：房主广播的 sourceUrl 永远是 CDN 原地址（带签名、全房间
+  // 共用），谁把它包成 127.0.0.1 谁就只在自己机器上有效，别人打不开。
+  //
+  // HLS 直播不走 CLI：`/proxy` 只能代理单个 URL，m3u8 里的相对分片会被
+  // hls.js 按代理地址拼接成错误路径。这类（B站 取流偏好 FLV，HLS 属少数）
+  // 退回服务器中转，不硬撑着黑屏。
+  if (state.isLive === true && state.liveDirect === true) {
+    const cli = getActiveCliProxyUrl()
+    if (cli && state.format !== 'hls') {
+      source.url = buildCliProxyUrl(cli, state.sourceUrl, { live: true })
+    } else {
+      // 没有本地 CLI：退回服务器中转。liveDirect 必须一起改回 false，
+      // 否则 url-proxy 会按「直连 CDN」处理，必然被防盗链拒绝。
+      console.warn(
+        '[useVideoSource] 直播线路=CLI 但本地 CLI 不可用（或为 HLS 直播），改走服务器中转'
+      )
+      source.liveDirect = false
     }
   }
   return source
