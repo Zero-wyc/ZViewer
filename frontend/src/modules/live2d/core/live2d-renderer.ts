@@ -8,6 +8,12 @@ import {
   LIVE2D_MODEL_HEIGHT_RATIO,
 } from '../constants'
 import { alphaForDelta, smooth } from './pointer-map'
+import {
+  clampAnchorToView,
+  clampDragOffset,
+  clampDragToView,
+  type DragOffset,
+} from './drag'
 import { getEntry, listEntries, slotX, type SceneEntry } from './scene'
 import { pickVisiblePeers } from './visibility'
 import { t as translate } from '@/i18n'
@@ -65,6 +71,23 @@ interface LoadedModel {
    * 只有「按当前 localSid 判定为旁观者」的模型才有值。
    */
   originalIdleRequest?: () => boolean
+  /**
+   * 未缩放时的包围盒尺寸（加载时取一次）。
+   *
+   * 不用每帧 getBounds()：那是遍历所有 drawable 求并集，6 个模型 × 60fps
+   * 是白扔的 CPU；贴图在呼吸/动作里只会上下浮动几个百分点，边界留这个精度
+   * 足够，反正约束只是「别整只跑出画面」。
+   */
+  localW: number
+  localH: number
+  /** 最近一次渲染用的「无偏移锚点」与像素尺寸，拖拽层的边界约束要用 */
+  baseX: number
+  baseY: number
+  boxW: number
+  boxH: number
+  /** 实际画出来的锚点（已含可见性约束），DOM 标签跟随它 */
+  px: number
+  py: number
 }
 
 export interface RendererOptions {
@@ -113,7 +136,14 @@ export class Live2DRenderer {
       antialias: false,
       preference: 'webgl',
       autoDensity: true,
-      resolution: Math.min(window.devicePixelRatio || 1, 2),
+      // 画布按「总像素预算」超采样，而不是跟着 devicePixelRatio 走。
+      //
+      // Live2D 本质是「把一张贴图用网格变形后画出来」：模型被放大到 42% 视口高
+      // 之后，边缘质量完全取决于采样密度。dpr=1 的显示器上按 1x 渲染，4096 的
+      // 贴图会被压成一层柔光——用户看到的就是「精度太低」。给到约 400 万像素
+      // （1440×900 → 1.8x，1080p → 1.4x）在几乎不涨显存的前提下把这类损失补回来；
+      // 上限 2x 兜住大视口，免得 4K 窗口把填充率吃穿。
+      resolution: resolutionForViewport(),
       autoStart: true,
       // 不传 resizeTo：画布尺寸由宿主显式给（全屏时会换父节点，
       // 自动跟随窗口会在一瞬间算出 0 尺寸）。
@@ -144,9 +174,55 @@ export class Live2DRenderer {
     if (this.destroyed) return
     const w = Math.max(1, Math.round(width))
     const h = Math.max(1, Math.round(height))
+    if (w === this.width && h === this.height) return
+    // 模型尺寸是「视口高的固定比例」，视口一变就必须重算。只在首次算过一次
+    // 的话，从全屏退回小窗后模型仍按大窗的尺寸绘制：相对变大、贴图被拉糊，
+    // 而且会比视口还高——用户这时往上拖就会看到「只剩一个头」。
+    for (const loaded of this.models.values()) loaded.baseScale = 0
     this.width = w
     this.height = h
     this.app.renderer.resize(w, h)
+  }
+
+  /** 画布尺寸（= 视口尺寸，固定铺满整屏）。拖拽层用它换算比例。 */
+  viewport(): { width: number; height: number } {
+    return { width: this.width, height: this.height }
+  }
+
+  /**
+   * 模型**实际**画出来的拖拽偏移（已含可见性约束）。
+   *
+   * 名字标签是 DOM、位置由槽位 + 偏移算，必须跟这个值而不是场景里的原始
+   * 偏移：模型贴边被夹住时，原始值还在涨，标签会自己飘出画面。
+   */
+  dragOf(sid: string): DragOffset | null {
+    const loaded = this.models.get(sid)
+    if (!loaded || !(loaded.boxW > 0) || !(loaded.boxH > 0)) return null
+    return {
+      x: (loaded.px - loaded.baseX) / this.width,
+      y: (loaded.py - loaded.baseY) / this.height,
+    }
+  }
+
+  /**
+   * 把一次拖拽偏移压回「模型仍在画面里」的范围。
+   *
+   * 给拖拽层用（它才知道模型的真实像素尺寸）：只做比例 clamp 的话，偏移
+   * 会一路涨到 -0.55，而画面早在模型贴边时就停住了，手感会断层。
+   */
+  clampOffset(sid: string, x: number, y: number): DragOffset {
+    const first = clampDragOffset(x, y)
+    const loaded = this.models.get(sid)
+    if (!loaded || !(loaded.boxW > 0) || !(loaded.boxH > 0)) return first
+    return clampDragToView({
+      offset: first,
+      baseX: loaded.baseX,
+      baseY: loaded.baseY,
+      width: loaded.boxW,
+      height: loaded.boxH,
+      viewW: this.width,
+      viewH: this.height,
+    })
   }
 
   /** 声明一个模型；同一 sid 换模型会替换，同一个模型不重复加载。 */
@@ -320,7 +396,11 @@ export class Live2DRenderer {
         // 关掉引擎自带的交互系统：它会在 canvas 上挂全局指针监听，
         // 把房间的拖拽/双击全屏全吃掉。注视由我们自己 focus()。
         autoInteract: false,
-        textureOptions: { lod: 'single-auto' },
+        // 'single-auto' 会在「屏显尺度 < 0.5」时把 4096 贴图压成 1/2、1/4 的
+        // 降采样图集再画——模型看着像被磨过一层（这正是"精度太低"的主因：
+        // 有的模型画布尺寸小，算出来的世界缩放就小于阈值，整只被降级）。
+        // 'full' 只生成 mipmap 链，用来做缩小采样的抗锯齿，不降纹理尺寸。
+        textureOptions: { lod: 'full' },
       })
       let model: Live2DModelInstance
       try {
@@ -341,12 +421,22 @@ export class Live2DRenderer {
       }
       model.anchor.set(0.5, 1)
       this.root.addChild(model)
+      // 本地包围盒（未缩放）：宽高要在约束里用，取一次就够
+      const lb = model.getLocalBounds()
       const entry: LoadedModel = {
         model,
         url,
         baseScale: 0,
         params: null,
         motionKey: '',
+        localW: lb.width > 0 ? lb.width : model.width,
+        localH: lb.height > 0 ? lb.height : model.height,
+        baseX: 0,
+        baseY: 0,
+        boxW: 0,
+        boxH: 0,
+        px: 0,
+        py: 0,
       }
       this.applyMotionPolicy(sid, entry)
       this.bindFaceParams(sid, entry)
@@ -399,17 +489,50 @@ export class Live2DRenderer {
         entry.targetDragY,
         dragAlpha
       )
-      const x =
-        slotX(i, visible.length) * this.width + entry.currentDragX * this.width
-      const y = this.height + entry.currentDragY * this.height
-      model.x = x
-      model.y = y
+      const baseX = slotX(i, visible.length) * this.width
+      const baseY = this.height
+
+      // 本地尺寸的兜底：模型刚 add 进来时 getLocalBounds() 可能还是空的
+      // （引擎还没算过 drawable 包围盒），拿 0 去算 scale 会把模型画成
+      // 原始尺寸——一整个屏幕都装不下。
+      if (!(loaded.localW > 0) || !(loaded.localH > 0)) {
+        const lb = model.getLocalBounds()
+        const w0 = lb.width > 0 ? lb.width : model.width
+        const h0 = lb.height > 0 ? lb.height : model.height
+        if (w0 > 0) loaded.localW = w0
+        if (h0 > 0) loaded.localH = h0
+      }
 
       if (loaded.baseScale <= 0) {
         const targetH = this.height * LIVE2D_MODEL_HEIGHT_RATIO
-        loaded.baseScale = model.height > 0 ? targetH / model.height : 1
+        // 用**本地**高度算，不能用 model.height：后者已含当前 scale，
+        // 窗口变化后重算时会把上一帧的缩放再乘一遍，模型瞬间缩成一个小点。
+        loaded.baseScale = loaded.localH > 0 ? targetH / loaded.localH : 1
       }
-      model.scale.set(loaded.baseScale * entry.peer.scale)
+      const scale = loaded.baseScale * entry.peer.scale
+      model.scale.set(scale)
+
+      // 像素尺寸与锚点位置都要按当前缩放算：约束是「包围盒至少留多少在画面里」，
+      // 拿旧尺寸算会在缩放/窗口变化后失效。
+      const boxW = loaded.localW > 0 ? loaded.localW * scale : model.width
+      const boxH = loaded.localH > 0 ? loaded.localH * scale : model.height
+      loaded.baseX = baseX
+      loaded.baseY = baseY
+      loaded.boxW = boxW
+      loaded.boxH = boxH
+
+      const anchor = clampAnchorToView(
+        baseX + entry.currentDragX * this.width,
+        baseY + entry.currentDragY * this.height,
+        boxW,
+        boxH,
+        this.width,
+        this.height
+      )
+      model.x = anchor.x
+      model.y = anchor.y
+      loaded.px = anchor.x
+      loaded.py = anchor.y
 
       this.advance(entry, alpha, now)
       entry.currentMouth = smooth(
@@ -547,6 +670,23 @@ export class Live2DRenderer {
 
 /** 引擎的动作优先级：3 = FORCE（能打断同优先级的动作，见 playMotion 的说明）。 */
 const MOTION_PRIORITY_FORCE = 3
+
+/**
+ * 渲染倍率：按总像素预算算，落在 1x~2x。
+ *
+ * 不直接用 devicePixelRatio：那是「物理像素 / CSS 像素」，与「这个模型需要
+ * 多少采样点才不糊」是两件事——dpr=1 的显示器上它恒等于 1，正是"精度太低"
+ * 的来源。这里反过来按面积预算推：小窗口自动多采，大窗口自动收敛。
+ */
+function resolutionForViewport(): number {
+  const pixels = Math.max(
+    1,
+    (window.innerWidth || 1280) * (window.innerHeight || 720)
+  )
+  const budget = 4_200_000
+  const ratio = Math.sqrt(budget / pixels)
+  return Math.min(2, Math.max(1, ratio))
+}
 
 /** 面部数据是否还新鲜（超过 TTL 就认为对方不再动捕）。 */
 function isFaceFresh(entry: SceneEntry): boolean {

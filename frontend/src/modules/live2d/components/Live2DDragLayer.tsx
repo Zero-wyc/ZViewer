@@ -112,12 +112,22 @@ export function Live2DDragLayer({
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const gesture = gestureRef.current
     if (!gesture || gesture.pointerId !== event.pointerId) return
-    const next = clampDragOffset(
-      gesture.baseX +
-        (event.clientX - gesture.startX) / Math.max(1, window.innerWidth),
+    // 视口尺寸优先取渲染器的：画布铺满整屏，但它才是位置换算的真口径，
+    // 窗口刚变过而 innerWidth 还没跟上时两边会差一两帧。
+    const view = renderer?.viewport() ?? {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }
+    const rawX =
+      gesture.baseX + (event.clientX - gesture.startX) / Math.max(1, view.width)
+    const rawY =
       gesture.baseY +
-        (event.clientY - gesture.startY) / Math.max(1, window.innerHeight)
-    )
+      (event.clientY - gesture.startY) / Math.max(1, view.height)
+    // 边界按**模型包围盒**算（渲染器知道真实尺寸）：只按视口比例限位的话，
+    // 高个子模型会被推出画面，只剩一个头。
+    const next = renderer
+      ? renderer.clampOffset(sid, rawX, rawY)
+      : clampDragOffset(rawX, rawY)
     latestRef.current = next
     // 本地立刻落地（跟手），网络由宿主按节流发
     setLocalDrag(sid, next.x, next.y)

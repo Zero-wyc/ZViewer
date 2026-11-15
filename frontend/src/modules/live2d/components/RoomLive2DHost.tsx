@@ -537,9 +537,12 @@ export function RoomLive2DHost({
       for (const entry of listEntries()) {
         const el = slotRefs.current.get(entry.peer.sid)
         if (!el) continue
+        // 用渲染器里的**实际**偏移：模型贴到画面边界后会被夹住，标签再按
+        // 场景里的原始偏移走就会自己飘出屏幕。
+        const eff = renderer?.dragOf(entry.peer.sid)
         // 偏移与 CSS 的 translate3d 同向（都向下为正），可以直接乘
-        const dx = entry.currentDragX * w
-        const dy = entry.currentDragY * h
+        const dx = (eff?.x ?? entry.currentDragX) * w
+        const dy = (eff?.y ?? entry.currentDragY) * h
         const key = `${dx.toFixed(1)}|${dy.toFixed(1)}`
         if (last.get(entry.peer.sid) === key) continue
         last.set(entry.peer.sid, key)
@@ -549,7 +552,7 @@ export function RoomLive2DHost({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [])
+  }, [renderer])
 
   // ---- 9. 收发 ----
   useLive2DSync({ socket, roomId, renderer })
