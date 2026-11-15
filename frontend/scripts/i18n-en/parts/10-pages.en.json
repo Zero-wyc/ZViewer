@@ -1,6 +1,5 @@
 {
   "items": [
-    "No Bilibili account linked",
     "No NetEase Cloud Music account linked",
     "Not sharing",
     "Could not get version info",
@@ -119,6 +118,7 @@
     "Cookie sign-in",
     "Sign in to Bilibili with cookies",
     "Sign in to NetEase Cloud Music with cookies",
-    "Cookies copied to clipboard"
+    "Cookies copied to clipboard",
+    "DASH (server relay, high quality)"
   ]
 }

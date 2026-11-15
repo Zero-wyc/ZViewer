@@ -1,6 +1,6 @@
 import type { Live2DPeer } from '../types'
-import { clampDragOffset } from './drag'
-import { mapPointerToAspect } from './pointer-map'
+import { clampDragOffset } from './drag.ts'
+import { mapPointerToAspect } from './pointer-map.ts'
 
 // 场景状态：**高频数据唯一的家**。
 //
@@ -209,6 +209,18 @@ export function setVoiceMouth(sid: string, mouth: number): void {
 /** 语音嘴型是否仍然新鲜（超时就把嘴还给引擎，否则静音后嘴会一直张着）。 */
 export function isVoiceActive(entry: SceneEntry, ttlMs: number): boolean {
   return entry.voiceAt > 0 && Date.now() - entry.voiceAt < ttlMs
+}
+
+/**
+ * 这个人现在是否**真的在出声**（名字标签据此高亮）。
+ *
+ * 与 isVoiceActive 的区别：开着麦不说话时，对方客户端仍会推一帧嘴型 0
+ * 把状态收尾，光看「数据新鲜」会把所有开麦的人都算成在说话。真正说话 =
+ * 数据没过期 且 嘴型不是 0 —— micLevelToMouth 里已经有噪声门，非 0 就
+ * 意味着确实越过了环境噪声。
+ */
+export function isVoiceSpeaking(entry: SceneEntry, ttlMs: number): boolean {
+  return isVoiceActive(entry, ttlMs) && entry.targetVoiceMouth > 0
 }
 
 function clamp01(v: number): number {

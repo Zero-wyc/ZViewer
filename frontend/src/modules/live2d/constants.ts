@@ -88,6 +88,14 @@ export const LIVE2D_FACE_TTL_MS = 1200
 export const LIVE2D_MAX_MODELS = 12
 
 /**
+ * 名字标签检查「谁在说话」的间隔。
+ *
+ * 语音电平本身是 200ms 一档，这里比它略慢：标签只是提示，不需要跟到每一帧；
+ * 而且状态没变化时不会触发任何渲染（见 useSpeakingSids），开销只是一次遍历。
+ */
+export const LIVE2D_SPEAKING_POLL_MS = 300
+
+/**
  * 「被戳」的抖动时长。
  *
  * 0.45 秒：短到像反射、长到能看清。再长就会和 idle 呼吸撞在一起，

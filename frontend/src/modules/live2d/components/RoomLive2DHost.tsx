@@ -10,8 +10,9 @@ import { loadLive2DEngine } from '../core/cubism-core'
 import { FaceTracker } from '../core/face-tracker'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
 import {
-  loadModelExpressions,
+  loadModelMeta,
   type ModelExpressionEntry,
+  type ModelMotionGroup,
 } from '../core/model-meta'
 import { resolveModelUrl } from '../core/model-url'
 import {
@@ -41,6 +42,7 @@ import {
   emitLive2DPolicy,
   useLive2DSync,
 } from '../hooks/useLive2DSync'
+import { useSpeakingSids } from '../hooks/useSpeakingSids'
 import { useLive2DPointer } from '../hooks/useLive2DPointer'
 import { useLive2DStore } from '../store/live2dStore'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
@@ -384,11 +386,14 @@ export function RoomLive2DHost({
     }
   }, [patchPeerState])
 
-  // 连带 url 一起存：换模型时旧清单不能先闪一下
-  const [exprState, setExprState] = useState<{
+  // 表情与动作来自同一次 model3.json 读取，放在一个状态里：分成两份会让
+  // 「刚换模型」的那一帧出现表情是新的、动作还是旧的。
+  // 连带 url 一起存：换模型时旧清单不能先闪一下。
+  const [metaState, setMetaState] = useState<{
     url: string
-    list: ModelExpressionEntry[]
-  }>({ url: '', list: [] })
+    expressions: ModelExpressionEntry[]
+    motions: ModelMotionGroup[]
+  }>({ url: '', expressions: [], motions: [] })
   // 摄像头动捕：实例放 ref（不参与渲染），开关状态在 state 里
   const trackerRef = useRef<FaceTracker | null>(null)
   // 卸载后摄像头还在跑是最糟的泄漏：启停都是异步的，必须在 await 之后复查
@@ -483,17 +488,24 @@ export function RoomLive2DHost({
   const myModelUrl = effModelId
     ? resolveModelUrl({ kind: effKind, modelId: effModelId })
     : ''
-  const myExpressions =
-    exprState.url === myModelUrl
-      ? exprState.list
-      : ([] as ModelExpressionEntry[])
+  // 换模型的过程中（url 已变、清单还没回来）一律当空：宁可少两个按钮，
+  // 也不要拿上一个模型的动作名去点新模型。
+  const metaReady = metaState.url === myModelUrl
+  const myExpressions = metaReady
+    ? metaState.expressions
+    : ([] as ModelExpressionEntry[])
+  const myMotions = metaReady ? metaState.motions : ([] as ModelMotionGroup[])
 
   useEffect(() => {
     if (!myModelUrl) return
     let cancelled = false
-    void loadModelExpressions(myModelUrl).then((list) => {
+    void loadModelMeta(myModelUrl).then((meta) => {
       if (cancelled) return
-      setExprState({ url: myModelUrl, list })
+      setMetaState({
+        url: myModelUrl,
+        expressions: meta.expressions,
+        motions: meta.motions,
+      })
     })
     return () => {
       cancelled = true
@@ -971,6 +983,20 @@ export function RoomLive2DHost({
     [socket, roomId]
   )
 
+  /**
+   * 播一个动作。
+   *
+   * 只在本机触发，广播交给渲染器的 pollLocalMotion：那条路本来就在盯着
+   * 「本人的动作变了」并上报，两处各发一次会让同一个动作在房间里出现两遍
+   * （第二次因为不是"变化"而被接收端忽略，纯属浪费上行）。
+   */
+  const handleMotion = useCallback(
+    (group: string, index: number) => {
+      renderer?.playLocalMotion(group, index)
+    },
+    [renderer]
+  )
+
   // 上传本身只做一件事：把文件传进公共库（所有房间都能选），成功后返回新
   // 模型的 id。**传完拿它干什么由调用方决定**——「我的角色」页是切到自己
   // 身上，「房间设置」页是设为统一模型。以前写死成前者，于是房主开着统一
@@ -1117,6 +1143,9 @@ export function RoomLive2DHost({
     (p) => p.sid
   )
   const hiddenCount = peers.length - visible.length
+  // 谁在说话：数据来自场景里的语音嘴型（也就是驱动嘴部的那一批），所以
+  // 标签高亮与嘴的动作永远一致。只在有人进出说话状态时才重渲染。
+  const speakingSids = useSpeakingSids()
   /** 这个成员的加载状态。只认本房间的记录，别的房间留下的一律当作没有。 */
   const stateOf = (sid: string): PeerLoadState => {
     const map = peerStates.room === roomId ? peerStates.map : null
@@ -1151,6 +1180,7 @@ export function RoomLive2DHost({
       {canShowLayer &&
         visible.map((peer, index) => {
           const slotState = stateOf(peer.sid)
+          const speaking = speakingSids.has(peer.sid)
           return (
             <div
               key={peer.sid}
@@ -1183,17 +1213,40 @@ export function RoomLive2DHost({
               )}
               <span
                 style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
                   maxWidth: 96,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                   padding: '1px 6px',
                   borderRadius: 6,
-                  background: 'rgba(0,0,0,0.35)',
+                  // 说话时加一圈白边 + 一个呼吸点：画面本身是视频，任何品牌色
+                  // 都可能被背景吃掉，白色描边是对比度最稳的做法。
+                  background: speaking
+                    ? 'rgba(0,0,0,0.62)'
+                    : 'rgba(0,0,0,0.35)',
+                  boxShadow: speaking
+                    ? '0 0 0 1px rgba(255,255,255,0.7)'
+                    : undefined,
+                  transition: 'background 140ms ease, box-shadow 140ms ease',
                   color: '#fff',
                   fontSize: 10,
                 }}
               >
+                {speaking && (
+                  <span
+                    className="animate-pulse"
+                    style={{
+                      width: 4,
+                      height: 4,
+                      borderRadius: 2,
+                      background: '#fff',
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
                 {peer.name}
               </span>
             </div>
@@ -1307,6 +1360,7 @@ export function RoomLive2DHost({
         container={menu.root}
         modelLabel={effLabel}
         expressions={myExpressions}
+        motions={myMotions}
         removed={removedNow}
         canRemove={!unifiedActive && !removedNow && Boolean(myModelId)}
         onRemove={handleRemove}
@@ -1321,6 +1375,7 @@ export function RoomLive2DHost({
         }
         onScale={handleScale}
         onExpression={handleExpression}
+        onMotion={handleMotion}
         onToggleFaceTracking={toggleFaceTracking}
         onOpenSettings={openSettings}
         onToggleDrag={toggleDragMode}
@@ -1338,6 +1393,7 @@ export function RoomLive2DHost({
         libraryModels={libraryModels}
         removableIds={removableIds}
         expressions={myExpressions}
+        motions={myMotions}
         selectedKind={myKind}
         selectedModelId={myModelId}
         removed={removedNow}
@@ -1352,6 +1408,7 @@ export function RoomLive2DHost({
         onSelect={handleSelect}
         onScale={handleScale}
         onExpression={handleExpression}
+        onMotion={handleMotion}
         onToggleFaceTracking={toggleFaceTracking}
         onToggleVoiceLipSync={toggleVoiceLipSync}
         onRemove={handleRemove}

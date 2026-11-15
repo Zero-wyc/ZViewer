@@ -47,7 +47,6 @@
     "Your session expired, sign in again and retry",
     "Waiting for video",
     "Click and enter an integer from 0 to 100",
-    "Actions",
     "A platform for watching anime and movies together, in sync",
     "Multi-page login (testing only)",
     "Released: {{value}}",
@@ -119,6 +118,7 @@
     "Update check failed",
     "Checking for updates...",
     "Get updates for the latest builds",
-    "Parse and generate a response code"
+    "Parse and generate a response code",
+    "CLI only (media is not relayed by the server)"
   ]
 }

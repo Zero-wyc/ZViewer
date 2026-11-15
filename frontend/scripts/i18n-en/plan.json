@@ -55,7 +55,7 @@
     {
       "id": "11-pages",
       "bucket": "pages",
-      "count": 12
+      "count": 11
     },
     {
       "id": "12-common",
@@ -120,7 +120,7 @@
     {
       "id": "24-live2d",
       "bucket": "modules/live2d",
-      "count": 116
+      "count": 117
     },
     {
       "id": "25-mounts",

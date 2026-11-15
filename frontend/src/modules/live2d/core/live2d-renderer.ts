@@ -21,6 +21,7 @@ import {
   shouldUpdateResolution,
 } from './render-resolution'
 import { resolveLocalScale, type LocalScaleOverride } from './scale-override'
+import { pickPokeGroup } from './motion-pick'
 import { pickVisiblePeers } from './visibility'
 import { t as translate } from '@/i18n'
 
@@ -56,6 +57,13 @@ interface InternalModelLike {
       currentIndex?: number
       shouldRequestIdleMotion?: () => boolean
     }
+    /**
+     * 这个模型有哪些动作组（组名 → 动作数组）。
+     *
+     * 引擎从 model3.json 里解析好的原始分组，用来给「戳一下」挑一个真的
+     * 存在的组——写死 tap_body 在没导出该组的模型上等于什么都没做。
+     */
+    definitions?: Record<string, unknown>
   }
 }
 
@@ -385,10 +393,11 @@ export class Live2DRenderer {
   }
 
   /**
-   * 戳一下某个角色：本地抖一下，模型自带 tap_body 动作组的话顺势播一个。
+   * 戳一下某个角色：本地抖一下，再播一个该模型**真的有**的动作。
    *
-   * 抖动是模型无关的（所有模型都有位置），而 tap_body 只有部分模型导出过，
-   * 所以两者叠加：没有动作组的模型也不会"戳了完全没反应"。
+   * 抖动是模型无关的（所有模型都有位置），动作组则要看导出：以前写死
+   * `tap_body`，没导出这个组的模型被戳时只有抖动，看着像没反应。现在按
+   * tap → flick → 任意非待机组 挑一个（见 core/motion-pick）。
    */
   poke(sid: string): void {
     if (this.destroyed) return
@@ -396,9 +405,39 @@ export class Live2DRenderer {
     if (!loaded) return
     loaded.pokeAt = Date.now()
     // 绕过 playMotion 的"本人模型不重播"判定：被戳的人自己也要看到反应
-    void loaded.model.motion('tap_body', 0, MOTION_PRIORITY_FORCE).catch(() => {
-      // 没有这个动作组就是常态，抖动已经足够表达"被戳到了"
+    const group = pickPokeGroup(this.motionDefinitions(loaded))
+    if (!group) return
+    void loaded.model.motion(group, 0, MOTION_PRIORITY_FORCE).catch(() => {
+      // 动作数据缺失时静默：抖动已经足够表达"被戳到了"
     })
+  }
+
+  /**
+   * 本地触发一个动作（右键菜单里的动作按钮）。
+   *
+   * 只在本机播，广播交给 pollLocalMotion：那条路本来就把「本人的动作变了」
+   * 上报给房间，两者共用才不会出现"本地播了但别人没看到"。
+   *
+   * 清掉 motionKey 是为了让「同一个动作再点一次」也能被认成变化——否则
+   * 连点两下时第二下只有本机看到，别人还停在上一轮。
+   */
+  playLocalMotion(group: string, index: number): void {
+    if (this.destroyed) return
+    const loaded = this.models.get(this.localSid)
+    if (!loaded || !group) return
+    if (!Number.isInteger(index) || index < 0) return
+    loaded.motionKey = ''
+    void loaded.model.motion(group, index, MOTION_PRIORITY_FORCE).catch(() => {
+      // 模型没这个组/下标：静默（面板上的清单来自 model3.json，理论上不会错）
+    })
+  }
+
+  /** 模型的动作组；引擎还没解析出来时返回 undefined。 */
+  private motionDefinitions(
+    loaded: LoadedModel
+  ): Record<string, unknown> | undefined {
+    return (loaded.model.internalModel as unknown as InternalModelLike)
+      .motionManager?.definitions
   }
 
   /**

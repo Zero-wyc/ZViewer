@@ -12,7 +12,7 @@ import {
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
-import type { ModelExpressionEntry } from '../core/model-meta'
+import type { ModelExpressionEntry, ModelMotionGroup } from '../core/model-meta'
 
 // 右键角色弹出的**快捷菜单**。
 //
@@ -41,6 +41,13 @@ export interface Live2DContextMenuProps {
   /** 当前生效模型的显示名（统一角色时是房间定的那个） */
   modelLabel: string
   expressions: ModelExpressionEntry[]
+  /**
+   * 当前模型可用的动作组（已排除待机）。
+   *
+   * 与表情一样来自 model3.json，所以模型还在加载时也能点——点了引擎那边
+   * 可能还没准备好，`motion()` 会静默失败，不值得为此禁用一个马上就可用的入口。
+   */
+  motions: ModelMotionGroup[]
   myScale: number
   faceTracking: { on: boolean; busy: boolean; error: string }
   /** 房主是否允许成员开动捕 */
@@ -65,6 +72,8 @@ export interface Live2DContextMenuProps {
   canResetPosition: boolean
   onScale: (scale: number) => void
   onExpression: (index: number) => void
+  /** 播放动作组的第 index 条（菜单只给第 1 条） */
+  onMotion: (group: string, index: number) => void
   onToggleFaceTracking: () => void
   /** 进「角色设置」（换模型、上传、房间策略都在那一处） */
   onOpenSettings: () => void
@@ -82,7 +91,7 @@ export interface Live2DContextMenuProps {
 
 const MENU_WIDTH = 264
 /** 估算高度只用于「别超出视口下沿」；实际高度由内容决定并可滚动。 */
-const MENU_HEIGHT_GUESS = 380
+const MENU_HEIGHT_GUESS = 440
 /** 「别人的角色」菜单只有标题 + 一个动作，高度估算单独给一个小值。 */
 const PEER_MENU_HEIGHT_GUESS = 96
 
@@ -93,6 +102,7 @@ export function Live2DContextMenu({
   container,
   modelLabel,
   expressions,
+  motions,
   myScale,
   faceTracking,
   allowFace,
@@ -104,6 +114,7 @@ export function Live2DContextMenu({
   canResetPosition,
   onScale,
   onExpression,
+  onMotion,
   onToggleFaceTracking,
   onOpenSettings,
   onToggleDrag,
@@ -283,6 +294,35 @@ export function Live2DContextMenu({
                 }}
               >
                 {item.name || t('表情 {{index}}', { index: item.index + 1 })}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {motions.length > 0 && (
+        <>
+          <Divider />
+          <p className="mb-1 text-[10px] uppercase tracking-wide opacity-55">
+            {t('动作')}
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {motions.map((item) => (
+              <button
+                key={item.group}
+                type="button"
+                onClick={() => onMotion(item.group, 0)}
+                disabled={removed && !unified}
+                // 组名是 Cubism 里的原始名字，不翻译：翻错了用户反而对不上
+                // 模型作者文档里的说法。
+                title={t('所有人都会看到')}
+                className="max-w-full truncate rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  background: 'var(--md-sys-color-surface)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                {item.group}
               </button>
             ))}
           </div>

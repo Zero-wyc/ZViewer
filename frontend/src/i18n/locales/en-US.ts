@@ -342,7 +342,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（372 条） =====
+  // ===== pages（371 条） =====
   ' 等': ' and others',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -390,7 +390,6 @@ const enUS: Record<string, string> = {
   '登录已过期，请重新登录后再试': 'Your session expired, sign in again and retry',
   '等待画面': 'Waiting for video',
   '点击输入 0～100 的整数': 'Click and enter an integer from 0 to 100',
-  '动作': 'Actions',
   '多人同步追番、观影与远程共享平台': 'A platform for watching anime and movies together, in sync',
   '多页面登录（仅供测试）': 'Multi-page login (testing only)',
   '发布时间： {{value}}': 'Released: {{value}}',
@@ -967,7 +966,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（116 条） =====
+  // ===== modules/live2d（117 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -988,6 +987,7 @@ const enUS: Record<string, string> = {
   '动捕开着时以动捕为准': 'Face tracking takes over while it is on',
   '动捕预览': 'Capture preview',
   '动捕中': 'Tracking',
+  '动作': 'Actions',
   '对方的角色': 'Their character',
   '对观众显示角色': 'Show characters to viewers',
   '房间里还没有模型，先上传一个': 'This room has no models yet — upload one first',

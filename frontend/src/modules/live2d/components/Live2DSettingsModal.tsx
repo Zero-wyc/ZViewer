@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
 import type { Live2DModelEntry } from '../core/model-catalog'
-import type { ModelExpressionEntry } from '../core/model-meta'
+import type { ModelExpressionEntry, ModelMotionGroup } from '../core/model-meta'
 import {
   LIVE2D_UPLOAD_MAX_BYTES,
   libraryModelThumbUrl,
@@ -52,6 +52,8 @@ export interface Live2DSettingsModalProps {
   /** 我有权删除的模型 id（服务端下发的 deletable） */
   removableIds: string[]
   expressions: ModelExpressionEntry[]
+  /** 当前模型可用的动作组（已排除待机）；右键菜单里也有一份同样的入口 */
+  motions: ModelMotionGroup[]
   /**
    * 我自己的选择（不受统一角色/删除影响）。
    *
@@ -84,6 +86,7 @@ export interface Live2DSettingsModalProps {
   onSelect: (kind: Live2DModelKind, modelId: string) => void
   onScale: (scale: number) => void
   onExpression: (index: number) => void
+  onMotion: (group: string, index: number) => void
   onToggleFaceTracking: () => void
   onToggleVoiceLipSync: () => void
   onRemove: () => void
@@ -117,6 +120,7 @@ export function Live2DSettingsModal({
   libraryModels,
   removableIds,
   expressions,
+  motions,
   selectedKind,
   selectedModelId,
   removed,
@@ -131,6 +135,7 @@ export function Live2DSettingsModal({
   onSelect,
   onScale,
   onExpression,
+  onMotion,
   onToggleFaceTracking,
   onToggleVoiceLipSync,
   onRemove,
@@ -305,6 +310,31 @@ export function Live2DSettingsModal({
                       >
                         {item.name ||
                           t('表情 {{index}}', { index: item.index + 1 })}
+                      </button>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {motions.length > 0 && (
+                <Section label={t('动作')}>
+                  <div className="flex flex-wrap gap-1">
+                    {motions.map((item) => (
+                      <button
+                        key={item.group}
+                        type="button"
+                        onClick={() => onMotion(item.group, 0)}
+                        disabled={removed && !unified}
+                        // 组名是 Cubism 里的原始名字，不翻译：翻错了反而对不上
+                        // 模型作者文档里的说法。
+                        title={t('所有人都会看到')}
+                        className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                        style={{
+                          background: 'var(--md-sys-color-surface)',
+                          borderColor: 'var(--md-sys-color-outline-variant)',
+                        }}
+                      >
+                        {item.group}
                       </button>
                     ))}
                   </div>
