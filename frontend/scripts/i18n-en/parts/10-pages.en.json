@@ -1,5 +1,6 @@
 {
   "items": [
+    "No Bilibili account linked",
     "No NetEase Cloud Music account linked",
     "Not sharing",
     "Could not get version info",
@@ -10,6 +11,7 @@
     "Invalid response code",
     "Invalid direct-link code",
     "No server needed: a one-to-one P2P share via manual SDP/ICE exchange.",
+    "Show room characters",
     "Show the traffic stats button",
     "Show the voice chat button",
     "New password",
@@ -117,8 +119,6 @@
     "Cookie sign-in",
     "Sign in to Bilibili with cookies",
     "Sign in to NetEase Cloud Music with cookies",
-    "Cookies copied to clipboard",
-    "DASH (server relay, high quality)",
-    "Kazumi rule, index or official repository URLs (one per line)"
+    "Cookies copied to clipboard"
   ]
 }

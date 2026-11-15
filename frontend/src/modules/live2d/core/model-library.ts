@@ -26,6 +26,16 @@ export interface Live2DLibraryList {
   canManage: boolean
 }
 
+/**
+ * 上传配额，与服务端 internal/api/live2d_models.go 的
+ * live2dMaxModelsPerOwner / live2dMaxModelsTotal 是同一组值。
+ *
+ * 这里只是**提示**用的：真正的拒绝发生在服务端（超了会返回具体原因）。
+ * 改一处必须同步另一处，否则界面会承诺一个实际做不到的数量。
+ */
+export const LIVE2D_LIBRARY_MAX_PER_OWNER = 8
+export const LIVE2D_LIBRARY_MAX_TOTAL = 64
+
 const EMPTY: Live2DLibraryList = { models: [], canManage: false }
 
 function normalizeEntry(raw: unknown): Live2DLibraryEntry | null {

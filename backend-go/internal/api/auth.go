@@ -337,6 +337,7 @@ func (s *Server) handlePublicSettings(w http.ResponseWriter, r *http.Request) {
 			"roomDefaultMusicVolume":    settings.RoomDefaultMusicVolume,
 			"showVoiceChatButton":       prefs.ShowVoiceChatButton,
 			"showTrafficPanel":          prefs.ShowTrafficPanel,
+			"live2dEnabled":             prefs.Live2DEnabled,
 			"appVersion":                localVersion(s.Cfg.ProjectRoot),
 			"desktopManaged":            isDesktopManaged(),
 		},

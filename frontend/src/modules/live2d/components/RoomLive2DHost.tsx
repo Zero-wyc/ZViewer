@@ -22,9 +22,14 @@ import {
   type Live2DLibraryEntry,
 } from '../core/model-library'
 import { Live2DRenderer } from '../core/live2d-renderer'
+import { clearDragPref, loadDragPref, saveDragPref } from '../core/drag-prefs'
 import { getEntry, listEntries, setLocalDrag, slotX } from '../core/scene'
 import { pickVisiblePeers, resolveEffectiveModel } from '../core/visibility'
-import { LIVE2D_DRAG_INTERVAL_MS, LIVE2D_MAX_RENDERED } from '../constants'
+import {
+  LIVE2D_DRAG_INTERVAL_MS,
+  LIVE2D_DRAG_PREF_APPLY_DELAY_MS,
+  LIVE2D_MAX_RENDERED,
+} from '../constants'
 import {
   emitLive2DAction,
   emitLive2DConfig,
@@ -562,16 +567,51 @@ export function RoomLive2DHost({
       if (!final && now - dragEmitAt.current < LIVE2D_DRAG_INTERVAL_MS) return
       dragEmitAt.current = now
       emitLive2DDrag(socket, roomId, x, y)
+      // 松手即落本机偏好：下次进房 / 换回来时自动站回这个位置。
+      // 拖动中不写（每帧一次 localStorage 写太重，而且中间值没有意义）。
+      if (final && effModelId) saveDragPref(effKind, effModelId, x, y)
     },
-    [socket, roomId]
+    [socket, roomId, effKind, effModelId]
   )
 
   const handleResetPosition = useCallback(() => {
     if (mySid) setLocalDrag(mySid, 0, 0)
     emitLive2DDrag(socket, roomId, 0, 0)
+    // 「回到原位」也要把本机偏好清掉：否则下次进房又被挪回旧位置，
+    // 用户会觉得这个按钮没生效。
+    if (effModelId) clearDragPref(effKind, effModelId)
     // 从菜单点进来时顺手收起：位置已经回原位，「回到原位」不该还挂在那儿
     closeMenu()
-  }, [mySid, socket, roomId, closeMenu])
+  }, [mySid, socket, roomId, effKind, effModelId, closeMenu])
+
+  // ---- 8e. 进房 / 换模型后应用本机的拖拽偏好 ----
+  //
+  // 为什么延迟 800ms：刚声明完模型时 join 快照可能还没到，名册里没有我，
+  // 这时候写场景会被随后的 upsert 覆盖掉。代价是角色先出现在默认槽位、
+  // 再平滑滑到记忆里的位置——比"每次都回默认、人人重拖一遍"好得多。
+  //
+  // 每个 (sid, 模型) 只应用一次：否则用户手动拖到别处后，任何一次重连之外的
+  // 重渲染都会把他拽回记忆里的位置。
+  const dragPrefAppliedRef = useRef('')
+  useEffect(() => {
+    if (!mySid || !effModelId) return
+    const key = `${mySid}|${effKind}:${effModelId}`
+    if (dragPrefAppliedRef.current === key) return
+    const timer = window.setTimeout(() => {
+      const pref = loadDragPref(effKind, effModelId)
+      if (!pref) {
+        // 没记过（或原点）也要标记，免得每次依赖抖动都白等 800ms 再查一遍
+        dragPrefAppliedRef.current = key
+        return
+      }
+      // 名册里还没有我：不标记，等下一次依赖变化（快照到达/重连）再试
+      if (!getEntry(mySid)) return
+      setLocalDrag(mySid, pref.x, pref.y)
+      emitLive2DDrag(socket, roomId, pref.x, pref.y)
+      dragPrefAppliedRef.current = key
+    }, LIVE2D_DRAG_PREF_APPLY_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [mySid, effKind, effModelId, socket, roomId])
 
   const exitDragMode = useCallback(() => setDragMode(false), [])
 
@@ -899,7 +939,7 @@ export function RoomLive2DHost({
             >
               {failureReason && (
                 <div
-                  title={t('模型加载失败：{{reason}}', {
+                  title={t('模型加载失败：{{reason}}（右键可以换一个模型）', {
                     reason: failureReason,
                   })}
                   onContextMenu={(event) => {

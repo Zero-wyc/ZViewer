@@ -855,6 +855,9 @@ type adminSettingsDTO struct {
 	// 落在 config/ui-prefs.json（见 uiprefs.go）。
 	ShowVoiceChatButton bool `json:"showVoiceChatButton"`
 	ShowTrafficPanel    bool `json:"showTrafficPanel"`
+	// Live2DEnabled 控制房间里是否显示悬浮角色。与上面两个一样**不写库**，
+	// 落在 config/ui-prefs.json；默认开启。
+	Live2DEnabled bool `json:"live2dEnabled"`
 	// AllowCliHostResolve 是「允许 CLI 使用房主 B站 身份解析」开关。
 	// 与上面两个一样**不写库**，落在 config/cli-prefs.json（见 cliprefs.go）。
 	// 关闭后，CLI 的房主直链请求会被后端拒绝，观众只能用自己的 Cookie 解析。
@@ -893,6 +896,7 @@ func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool, prefs UIP
 		AnnounceAutoPopupOnUpdate: cfg.AnnounceAutoPopupOnUpdate,
 		ShowVoiceChatButton:       prefs.ShowVoiceChatButton,
 		ShowTrafficPanel:          prefs.ShowTrafficPanel,
+		Live2DEnabled:             prefs.Live2DEnabled,
 		AllowCliHostResolve:       cli.AllowHostResolveForCli,
 		DesktopManaged:            isDesktopManaged(),
 	}
@@ -1132,6 +1136,15 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		prefs.ShowTrafficPanel = v
+		prefsChanged = true
+	}
+	if raw, ok := body["live2dEnabled"]; ok {
+		v, valid := rawBool(raw)
+		if !valid {
+			httpx.BadRequest(w, "live2dEnabled 必须是布尔值")
+			return
+		}
+		prefs.Live2DEnabled = v
 		prefsChanged = true
 	}
 

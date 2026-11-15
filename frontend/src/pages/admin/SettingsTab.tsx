@@ -263,6 +263,21 @@ export function SettingsTab({
                 {t('关闭后房间左下角不显示流量统计。')}
               </p>
             </div>
+            <div>
+              <Switch
+                label={t('显示房间角色')}
+                checked={settings.live2dEnabled}
+                onChange={(e) =>
+                  onSettingsChange((prev) => ({
+                    ...prev,
+                    live2dEnabled: e.target.checked,
+                  }))
+                }
+              />
+              <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                {t('关闭后房间里不显示 Live2D 角色，也不加载渲染引擎。')}
+              </p>
+            </div>
           </div>
 
           <Title level={5} className="mb-4 mt-6">
@@ -372,7 +387,7 @@ export function SettingsTab({
           <div className="mb-6">
             <Switch
               label={t(
-                '启用 Beta 功能（Kazumi / AniSubs 番剧源 / B站视频下载 / Live2D 角色）'
+                '启用 Beta 功能（Kazumi / AniSubs 番剧源 / B站视频下载）'
               )}
               checked={settings.betaFeaturesEnabled}
               onChange={(e) =>
@@ -384,7 +399,7 @@ export function SettingsTab({
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               {t(
-                '关闭后隐藏 Kazumi、AniSubs 番剧源、B站视频下载与房间内的 Live2D 角色。'
+                '关闭后隐藏 Kazumi、AniSubs 番剧源与 B站视频下载。房间角色由上面的「显示房间角色」单独控制。'
               )}
             </p>
           </div>

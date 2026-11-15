@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2770 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2773 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -342,7 +342,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（370 条） =====
+  // ===== pages（372 条） =====
   ' 等': ' and others',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -436,9 +436,10 @@ const enUS: Record<string, string> = {
   '勾选各角色作为观众时可执行的动作。房主与 root 始终放行，不参与勾选；未勾选按默认：房管与管理员允许，普通用户禁止。': 'Choose which actions each role may perform as a viewer. The host and root always pass and are not listed; anything unchecked falls back to the default: moderators and admins allowed, regular users denied.',
   '构建产物：{{assetName}} ( {{value}} MB)': 'Build artifact: {{assetName}} ({{value}} MB)',
   '关闭房间': 'Close room',
+  '关闭后房间里不显示 Live2D 角色，也不加载渲染引擎。': 'Hides Live2D characters in rooms; the renderer is not loaded either.',
   '关闭后房间右下角不显示语音入口。': 'Turns off the voice entry in the bottom-right corner of the room.',
   '关闭后房间左下角不显示流量统计。': 'Turns off the traffic stats in the bottom-left corner of the room.',
-  '关闭后隐藏 Kazumi、AniSubs 番剧源、B站视频下载与房间内的 Live2D 角色。': 'Hides Kazumi, AniSubs anime sources, Bilibili downloads, and in-room Live2D characters when off.',
+  '关闭后隐藏 Kazumi、AniSubs 番剧源与 B站视频下载。房间角色由上面的「显示房间角色」单独控制。': 'Hides Kazumi, AniSubs sources and Bilibili downloads. Room characters are controlled separately by "Show room characters" above.',
   '关闭失败': 'Failed to close',
   '观看端应答码（粘贴回传）': 'Viewer response code (paste it back)',
   '管理该房间的房管': 'Manage this room\'s moderators',
@@ -501,7 +502,7 @@ const enUS: Record<string, string> = {
   '屏幕共享': 'Screen share',
   '启动直连共享': 'Start direct sharing',
   '启动直连共享失败': 'Failed to start direct sharing',
-  '启用 Beta 功能（Kazumi / AniSubs 番剧源 / B站视频下载 / Live2D 角色）': 'Enable beta features (Kazumi / AniSubs anime sources / Bilibili downloads / Live2D characters)',
+  '启用 Beta 功能（Kazumi / AniSubs 番剧源 / B站视频下载）': 'Enable beta features (Kazumi / AniSubs sources / Bilibili downloads)',
   '强制关闭房间': 'Force close room',
   '清理': 'Clean up',
   '清理房间失败': 'Failed to clean up rooms',
@@ -593,6 +594,7 @@ const enUS: Record<string, string> = {
   '无效的应答码': 'Invalid response code',
   '无效的直连码': 'Invalid direct-link code',
   '无需服务器，通过手动交换 SDP/ICE 实现一对一 P2P 共享。': 'No server needed: a one-to-one P2P share via manual SDP/ICE exchange.',
+  '显示房间角色': 'Show room characters',
   '显示流量统计按钮': 'Show the traffic stats button',
   '显示语音聊天按钮': 'Show the voice chat button',
   '新密码': 'New password',
@@ -965,7 +967,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（100 条） =====
+  // ===== modules/live2d（101 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -1011,10 +1013,11 @@ const enUS: Record<string, string> = {
   '浏览器不支持摄像头动捕': 'This browser doesn\'t support camera tracking',
   '没有找到可用的摄像头': 'No camera found',
   '眉': 'Brows',
+  '每人最多 {{perOwner}} 个，全库最多 {{total}} 个': 'Up to {{perOwner}} per person, {{total}} in total',
   '模型包不能超过 {{size}}MB': 'Model pack must be under {{size}}MB',
   '模型包是 zip，需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB；上传后所有房间都能选': 'The model pack is a zip containing model3.json (keep textures and motions inside), up to {{size}}MB; once uploaded it can be used in every room',
   '模型大小': 'Model size',
-  '模型加载失败：{{reason}}': 'Could not load model: {{reason}}',
+  '模型加载失败：{{reason}}（右键可以换一个模型）': 'Model failed to load: {{reason}} (right-click to pick another)',
   '模型已删除': 'Model deleted',
   '模型已上传': 'Model uploaded',
   '模型由房主统一：{{name}}': 'Model set by the host: {{name}}',

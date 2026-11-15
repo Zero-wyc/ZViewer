@@ -1,0 +1,128 @@
+import type { Live2DModelKind } from '../types.ts'
+import { clampDragOffset, type DragOffset } from './drag.ts'
+
+// 「我把角色拖到哪儿了」是本机习惯，不是房间状态。
+//
+// 以前偏移只活在服务端内存的名册里：每次进房都回到默认槽位，人人重拖一遍；
+// 服务重启后全房间一起归位。这里按模型 id 记在本机，进房后自动应用一次。
+//
+// **键必须是 modelId 而不是全局一个值**：不同模型的包围盒差很多，同一个偏移
+// 对高模型是"往下挪一点"，对矮模型就是"整只出画"。大小（scale）也不必进键——
+// 偏移被 clamp 在比例区间里，换大小后顶多需要再微调，比"换大小就丢位置"好。
+//
+// 存在的边界：同一个账号在两台设备上拖出不同位置时，后进房的那台会用自己的
+// 偏好覆盖——这符合"每台设备各自的摆法"，不值得为它引入服务端存储。
+
+const STORAGE_KEY = 'zviewer.live2d.drag-prefs'
+
+/** 最多记这么多个模型：够用，也不至于让 localStorage 无限增长。 */
+const MAX_ENTRIES = 24
+
+type PrefMap = Record<string, DragOffset>
+
+/**
+ * 存储的最小接口。
+ *
+ * 不直接摸 `localStorage` 有两个原因：单测跑在 node 里没有这个全局；
+ * 隐私模式下访问它会抛异常，而"记不住位置"绝不该影响拖拽本身。
+ */
+export interface DragPrefStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+}
+
+function defaultStorage(): DragPrefStorage | null {
+  try {
+    if (typeof localStorage === 'undefined') return null
+    return localStorage
+  } catch {
+    return null
+  }
+}
+
+/** kind 一起进键：两条来源里同名的模型是不同的东西。 */
+function prefKey(kind: Live2DModelKind, modelId: string): string {
+  return `${kind}:${modelId}`
+}
+
+function readAll(storage: DragPrefStorage): PrefMap {
+  try {
+    const raw = storage.getItem(STORAGE_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: PrefMap = {}
+    for (const [key, value] of Object.entries(
+      parsed as Record<string, unknown>
+    )) {
+      if (!value || typeof value !== 'object') continue
+      const { x, y } = value as { x?: unknown; y?: unknown }
+      if (typeof x !== 'number' || typeof y !== 'number') continue
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+      // 旧版本可能写过超出范围的数，读的时候再夹一次
+      out[key] = clampDragOffset(x, y)
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function writeAll(storage: DragPrefStorage, map: PrefMap): void {
+  try {
+    storage.setItem(STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    // 配额满 / 隐私模式：记不住就算了
+  }
+}
+
+/** 读取某模型的偏移；没记过（或记的是原点）时返回 null。 */
+export function loadDragPref(
+  kind: Live2DModelKind,
+  modelId: string,
+  storage: DragPrefStorage | null = defaultStorage()
+): DragOffset | null {
+  if (!storage || !modelId) return null
+  const value = readAll(storage)[prefKey(kind, modelId)]
+  if (!value) return null
+  if (Math.abs(value.x) < 1e-4 && Math.abs(value.y) < 1e-4) return null
+  return value
+}
+
+/** 记下某模型的偏移（拖拽松手时调用）。 */
+export function saveDragPref(
+  kind: Live2DModelKind,
+  modelId: string,
+  x: number,
+  y: number,
+  storage: DragPrefStorage | null = defaultStorage()
+): void {
+  if (!storage || !modelId) return
+  const key = prefKey(kind, modelId)
+  const map = readAll(storage)
+  // 先删再写：对象保持插入顺序，"最近用过的排最后"就够做淘汰了，
+  // 不必再存一个时间戳。
+  delete map[key]
+  map[key] = clampDragOffset(x, y)
+  const keys = Object.keys(map)
+  if (keys.length > MAX_ENTRIES) {
+    for (const stale of keys.slice(0, keys.length - MAX_ENTRIES)) {
+      delete map[stale]
+    }
+  }
+  writeAll(storage, map)
+}
+
+/** 忘掉某模型的偏移（「回到原位」时调用）。 */
+export function clearDragPref(
+  kind: Live2DModelKind,
+  modelId: string,
+  storage: DragPrefStorage | null = defaultStorage()
+): void {
+  if (!storage || !modelId) return
+  const map = readAll(storage)
+  const key = prefKey(kind, modelId)
+  if (!(key in map)) return
+  delete map[key]
+  writeAll(storage, map)
+}

@@ -93,9 +93,10 @@
     "Choose which actions each role may perform as a viewer. The host and root always pass and are not listed; anything unchecked falls back to the default: moderators and admins allowed, regular users denied.",
     "Build artifact: {{assetName}} ({{value}} MB)",
     "Close room",
+    "Hides Live2D characters in rooms; the renderer is not loaded either.",
     "Turns off the voice entry in the bottom-right corner of the room.",
     "Turns off the traffic stats in the bottom-left corner of the room.",
-    "Hides Kazumi, AniSubs anime sources, Bilibili downloads, and in-room Live2D characters when off.",
+    "Hides Kazumi, AniSubs sources and Bilibili downloads. Room characters are controlled separately by \"Show room characters\" above.",
     "Failed to close",
     "Viewer response code (paste it back)",
     "Manage this room's moderators",
@@ -118,7 +119,6 @@
     "Update check failed",
     "Checking for updates...",
     "Get updates for the latest builds",
-    "Parse and generate a response code",
-    "CLI only (media is not relayed by the server)"
+    "Parse and generate a response code"
   ]
 }

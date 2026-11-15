@@ -45,6 +45,13 @@ export interface SystemSettings {
   showVoiceChatButton: boolean
   /** 房间左下角是否显示流量统计入口（config/ui-prefs.json） */
   showTrafficPanel: boolean
+  /**
+   * 房间里是否显示 Live2D 悬浮角色（config/ui-prefs.json，默认开启）。
+   *
+   * 以前它跟 betaFeaturesEnabled 共用开关：想关影片推送面板就得把角色一起
+   * 关掉，角色想转正也转不了。拆开之后各管各的。
+   */
+  live2dEnabled: boolean
   /** 后端本地版本号（public-settings 下发，用于公告「版本更新自动弹出」判定） */
   appVersion: string
   /**
@@ -89,6 +96,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   announceAutoPopupOnUpdate: true,
   showVoiceChatButton: true,
   showTrafficPanel: true,
+  live2dEnabled: true,
   appVersion: '',
   desktopManaged: false,
   dataSourceConfig: null,

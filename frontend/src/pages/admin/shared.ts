@@ -104,6 +104,8 @@ export interface AdminSettings {
   roomCreationMode: RoomCreationMode
   roomPermissionMatrix: PermissionMatrix | null
   betaFeaturesEnabled: boolean
+  /** 房间里是否显示 Live2D 悬浮角色（config/ui-prefs.json，默认开启） */
+  live2dEnabled: boolean
   dashDisabled: boolean
   /** 添加 B站影片时的默认解析模式（普通视频，未显式配置影片的运行时兜底） */
   bilibiliDefaultParseMode: 'mp4' | 'dash'

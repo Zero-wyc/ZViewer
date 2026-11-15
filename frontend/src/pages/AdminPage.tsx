@@ -55,6 +55,7 @@ export default function AdminPage() {
     roomCreationMode: 'admin-only',
     roomPermissionMatrix: null,
     betaFeaturesEnabled: false,
+    live2dEnabled: true,
     dashDisabled: false,
     bilibiliDefaultParseMode: 'mp4',
     bilibiliPgcDefaultMode: 'mp4',
@@ -529,6 +530,7 @@ export default function AdminPage() {
         // 房间悬浮入口显隐（后端落 config/ui-prefs.json，不写库）
         showVoiceChatButton: settings.showVoiceChatButton,
         showTrafficPanel: settings.showTrafficPanel,
+        live2dEnabled: settings.live2dEnabled,
         // CLI 房主直链分发（后端落 config/cli-prefs.json，不写库）
         allowCliHostResolve: settings.allowCliHostResolve,
       }

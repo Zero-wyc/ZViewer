@@ -1,5 +1,6 @@
 {
   "items": [
+    "CLI only (media is not relayed by the server)",
     "Only root or the room creator can manage this room's moderators",
     "Admins only (root / admin)",
     "Only .zip and .tar.gz archives are supported",
@@ -38,7 +39,7 @@
     "Screen share",
     "Start direct sharing",
     "Failed to start direct sharing",
-    "Enable beta features (Kazumi / AniSubs anime sources / Bilibili downloads / Live2D characters)",
+    "Enable beta features (Kazumi / AniSubs sources / Bilibili downloads)",
     "Force close room",
     "Clean up",
     "Failed to clean up rooms",
@@ -118,7 +119,6 @@
     "Signed in to NetEase Cloud Music with cookies",
     "Signed in to NetEase Cloud Music",
     "NetEase Cloud Music login QR code",
-    "NetEase Cloud Music user",
-    "No Bilibili account linked"
+    "NetEase Cloud Music user"
   ]
 }

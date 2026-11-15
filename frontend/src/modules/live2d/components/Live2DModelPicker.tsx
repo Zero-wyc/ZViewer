@@ -3,10 +3,14 @@ import { Check, Link2, Trash2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { t } from '@/i18n'
-import { cn } from '@/lib/utils'
+import { cn, formatFileSize } from '@/lib/utils'
 import type { Live2DModelEntry } from '../core/model-catalog'
 import { validateModelUrl } from '../core/model-url'
-import type { Live2DLibraryEntry } from '../core/model-library'
+import {
+  LIVE2D_LIBRARY_MAX_PER_OWNER,
+  LIVE2D_LIBRARY_MAX_TOTAL,
+  type Live2DLibraryEntry,
+} from '../core/model-library'
 import type { Live2DModelKind } from '../types'
 
 // 模型来源选择：本服模型（随包 + 服务端上传库）、自定义地址，两段平铺。
@@ -67,12 +71,14 @@ export function Live2DModelPicker({
       id: item.id,
       label: item.label,
       removable: false,
+      bytes: 0,
     })),
     ...libraryModels.map((item) => ({
       kind: 'room' as Live2DModelKind,
       id: item.id,
       label: item.label,
       removable: removable.has(item.id),
+      bytes: item.bytes,
     })),
   ]
 
@@ -93,6 +99,12 @@ export function Live2DModelPicker({
               <UploadButton
                 uploading={upload.uploading}
                 onUpload={upload.onUpload}
+                // 配额只在 title 里说：真正超了由服务端拒绝并给出具体原因，
+                // 界面上常驻一行"每人 8 个"只会占地方。
+                title={t('每人最多 {{perOwner}} 个，全库最多 {{total}} 个', {
+                  perOwner: LIVE2D_LIBRARY_MAX_PER_OWNER,
+                  total: LIVE2D_LIBRARY_MAX_TOTAL,
+                })}
               />
             )}
           </div>
@@ -197,14 +209,17 @@ function UrlRow({
 function UploadButton({
   uploading,
   onUpload,
+  title,
 }: {
   uploading: boolean
   onUpload: (file: File) => void
+  title?: string
 }) {
   // input 无法美化，藏起来由 label 触发；value 每次都要清空，否则同一个文件
   // 连选两次不会触发 change。
   return (
     <label
+      title={title}
       className={cn(
         'inline-flex cursor-pointer items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity',
         uploading ? 'cursor-not-allowed opacity-55' : 'hover:opacity-80'
@@ -265,6 +280,8 @@ interface ChipItem {
   label: string
   /** 这个条目在管理态下能不能删（只有服务端说 deletable 的才行） */
   removable: boolean
+  /** 大小（服务端已下发），管理态下显示，便于挑出占地方的那个 */
+  bytes: number
 }
 
 function Chips({
@@ -309,7 +326,14 @@ function Chips({
             }}
           >
             <span className="truncate">{item.label}</span>
-            {active && !deleting && <Check size={12} className="shrink-0" />}
+            {deleting ? (
+              // 管理态显示大小：这一段就是为了"哪个模型占地方、要不要删"
+              <span className="shrink-0 text-[9px] tabular-nums opacity-55">
+                {item.bytes > 0 ? formatFileSize(item.bytes) : ''}
+              </span>
+            ) : (
+              active && <Check size={12} className="shrink-0" />
+            )}
           </button>
         )
 
