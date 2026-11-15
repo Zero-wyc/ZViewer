@@ -1,0 +1,7 @@
+{
+  "bucket": "modules/live2d",
+  "items": [
+    "Live2D 引擎加载失败",
+    "Live2D 引擎加载失败：{{reason}}"
+  ]
+}

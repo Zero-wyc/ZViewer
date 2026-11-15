@@ -83,17 +83,24 @@ export interface Live2DContextMenuProps {
   /**
    * 右键的是**别人的**角色。
    *
-   * 菜单随之切成「对他」的形态，只有互动动作。以前不管点到谁都是「我的角色」：
-   * 在别人的角色上右键，却看到自己的模型名和自己的大小滑杆。
+   * 菜单随之切成「对他」的形态：戳一下，以及**本机**给他调大小。
+   * 以前不管点到谁都是「我的角色」——在别人的角色上右键，却看到自己的
+   * 模型名和自己的大小滑杆。大小也只写本机偏好：各端看同一个人可以不一样大。
    */
-  peer?: { name: string; onPoke: () => void } | null
+  peer?: {
+    name: string
+    /** 我这台设备上他的显示比例（没调过就是 1） */
+    scale: number
+    onPoke: () => void
+    onScale: (scale: number) => void
+  } | null
 }
 
 const MENU_WIDTH = 264
 /** 估算高度只用于「别超出视口下沿」；实际高度由内容决定并可滚动。 */
 const MENU_HEIGHT_GUESS = 440
-/** 「别人的角色」菜单只有标题 + 一个动作，高度估算单独给一个小值。 */
-const PEER_MENU_HEIGHT_GUESS = 96
+/** 「别人的角色」菜单：标题 + 大小滑杆 + 一个互动动作，高度单独估一个小值。 */
+const PEER_MENU_HEIGHT_GUESS = 200
 
 export function Live2DContextMenu({
   open,
@@ -149,8 +156,8 @@ export function Live2DContextMenu({
 
   if (!open) return null
 
-  // 「别人的角色」只有一行，位置按小面板夹紧；早返回而不是在同一個 JSX 里分支，
-  // 是为了让「我的角色」那份菜单保持原样（分支会让整段代码重新缩进，
+  // 「别人的角色」只有大小 + 一个动作，位置按小面板夹紧；早返回而不是在同一个
+  // JSX 里分支，是为了让「我的角色」那份菜单保持原样（分支会让整段代码重新缩进，
   // 每次改一行都变成几百行的 diff）。
   if (peer) {
     const peerLeft = Math.min(
@@ -194,9 +201,31 @@ export function Live2DContextMenu({
             <X size={13} />
           </button>
         </div>
+
+        {/* 大小：只改我这台设备的显示比例，别人看到的他还是原样 */}
+        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide opacity-55">
+          <span>{t('大小')}</span>
+          <span className="tabular-nums">{Math.round(peer.scale * 100)}%</span>
+        </div>
+        <Slider
+          min={0.5}
+          max={2}
+          step={0.05}
+          value={peer.scale}
+          showValue={false}
+          onChange={peer.onScale}
+          size="sm"
+          aria-label={t('对方角色大小')}
+        />
+
+        <Divider />
+
         <MenuAction onClick={peer.onPoke} icon={<Hand size={13} />}>
           {t('戳一下')}
         </MenuAction>
+        <p className="mt-1.5 text-[10px] leading-snug opacity-50">
+          {t('大小只影响你的画面')}
+        </p>
       </div>,
       container ?? document.body
     )
@@ -345,6 +374,9 @@ export function Live2DContextMenu({
         size="sm"
         aria-label={t('模型大小')}
       />
+      <p className="mt-1 text-[10px] leading-snug opacity-50">
+        {t('大小只影响你的画面')}
+      </p>
 
       <Divider />
 

@@ -13,10 +13,12 @@ export type Live2DModelKind = 'builtin' | 'url' | 'room'
  * ord 是服务端分配的排位序号，客户端据此等距摆位——位置本身不广播，
  * 只有序号同步，各端才会摆出同一幕。
  *
+ * 第 5 项（scale）与第 12、13 项（dragX/dragY）**已经不再使用**：大小与位置
+ * 都改成了本机偏好。字段留在行里是因为服务端仍在按固定形状下发（老客户端
+ * 也会发 drag），解析时跳过即可，不必为它改协议。
+ *
  * 第 9、10 位是摄像头动捕算出的面部姿态（张嘴幅度 / 睁眼程度，0~1），
  * 没开动捕的成员一直是 0 / 1。
- *
- * 第 11、12 位是拖拽偏移（相对槽位基准的视口比例）。
  *
  * 最后三位是动捕的**表情细节与歪头**：嘴形、眉毛、歪头，0~1 编码、0.5 为中性。
  * 它们与 m/e 同源同时效，放在这里让「刚进房的人」也能看到别人当下的表情，
@@ -65,8 +67,9 @@ export type Live2DStateRow = [
 /**
  * patch 里的拖拽偏移行：[socketId, dx, dy]。
  *
- * 单开一类而不是塞进 u 行：u 行已经是变长的（末尾可选 m/e），再挂两个
- * 可选字段就分不清「第 5 项是张嘴幅度还是横向偏移」了。
+ * **本端已经不再读取**：位置改成本机偏好之后，谁也不需要知道别人把他自己的
+ * 角色拖到哪儿了。类型保留只因为服务端仍在按这个形状下发（老客户端会发
+ * live2d-drag，服务端照旧转发），丢掉整段 `d` 字段即可。
  */
 export type Live2DDragRow = [string, number, number]
 
@@ -75,6 +78,12 @@ export interface Live2DPeer {
   name: string
   kind: Live2DModelKind
   modelId: string
+  /**
+   * 服务端名册里的缩放。
+   *
+   * **不再用于渲染**（大小是本机偏好，见 core/peer-scale）。留着是因为行里
+   * 就这么发的，解析成字段比在下标里跳过更容易对齐协议。
+   */
   scale: number
   ord: number
   /** 归一化注视目标（发送端视口，0~1） */
@@ -92,10 +101,6 @@ export interface Live2DPeer {
   brow: number
   /** 歪头 0~1，0.5 端正、<0.5 向左倒、>0.5 向右倒（动捕） */
   roll: number
-  /** 拖拽偏移：正数向右（视口宽度的比例） */
-  dragX: number
-  /** 拖拽偏移：正数向下（视口高度的比例） */
-  dragY: number
 }
 
 export interface Live2DSnapshotPayload {
@@ -200,8 +205,8 @@ export function rowToPeer(row: Live2DRow): Live2DPeer {
     ar: Number(row[8] ?? 1.78) || 1.78,
     mouth: clampUnit(Number(row[9] ?? 0)),
     eyes: clampUnit(Number(row[10] ?? 1)),
-    dragX: finiteOffset(row[11]),
-    dragY: finiteOffset(row[12]),
+    // 第 11、12 位（dragX/dragY）跳过：位置是本机偏好，名册里那一份不再参与
+    // 渲染（老客户端可能还在发，读了也没人用）。
     // 缺这三项（老服务端）时按中性处理：clampUnit 对 NaN 的兜底正好是 0.5，
     // 不会让模型歪头或皱眉
     form: clampUnit(Number(row[13])),
@@ -215,10 +220,4 @@ function clampUnit(v: number): number {
   if (v < 0) return 0
   if (v > 1) return 1
   return v
-}
-
-/** 偏移可以为负（向左/向上），所以不能走 clampUnit；NaN 一律当 0。 */
-function finiteOffset(v: unknown): number {
-  const n = Number(v ?? 0)
-  return Number.isFinite(n) ? n : 0
 }

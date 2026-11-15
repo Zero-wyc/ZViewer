@@ -8,7 +8,12 @@ export const LIVE2D_EVENT = {
   CONFIG: 'live2d-config',
   /** C→S：指针位置（高频，无 ack） */
   STATE: 'live2d-state',
-  /** C→S：拖拽偏移（拖动时约 16Hz，无 ack） */
+  /**
+   * C→S：拖拽偏移。
+   *
+   * 客户端**不再发送**（位置已改成本机偏好）。事件名保留是因为服务端仍在
+   * 注册与转发（老客户端会发），前端收到也会直接丢掉（见 useLive2DSync）。
+   */
   DRAG: 'live2d-drag',
   /** C→S：挂载/重连后补拉全量快照 */
   REQUEST: 'live2d-request',
@@ -47,22 +52,12 @@ export const LIVE2D_STATE_INTERVAL_MS = Math.round(1000 / LIVE2D_STATE_HZ)
 export const LIVE2D_STATE_EPSILON = 0.002
 
 /**
- * 拖拽偏移的上行间隔。
+ * 停手后多久把「大小」写回本机偏好。
  *
- * 拖动是连续手势，但位置不是每帧都要「实时」给别人看：100ms 一次的下行
- * 合并已经把下行的颗粒度定在 10Hz，客户端发得更快只是多消耗上行带宽。
- * 松手时客户端会无条件补发一帧终值，所以最终位置永远是准的。
- */
-export const LIVE2D_DRAG_INTERVAL_MS = 60
-
-/**
- * 停手后多久把「大小」提交上去。
- *
- * 滑杆是连续手势：0.5~2 每档 0.05，拖一次能经过二三十个值。以前每个值都直接
- * 写 store → 声明 effect 重跑 → 上行 `live2d-config` → 服务端把该成员置为
- * pendingAdd → 全房间广播一整行 add + 给本人回一份全量快照，顺带每档写一次
- * localStorage。250ms 是「停手即提交」与「中途不停顿的拖动不会被截断」之间
- * 的折中；拖动期间画面由渲染器的本地覆盖跟手（无网络参与）。
+ * 滑杆是连续手势：0.5~2 每档 0.05，拖一次能经过二三十个值。画面由渲染器的
+ * `setSelfScale` 实时跟手（纯本地，不碰网络也不碰 React），这里只决定什么时候
+ * 落一次 localStorage——250ms 是「停手即记」与「拖动中途不停顿也不会被截断」
+ * 之间的折中。以前这个提交会触发上行 live2d-config，现在没有网络参与了。
  */
 export const LIVE2D_SCALE_COMMIT_MS = 250
 

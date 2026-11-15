@@ -59,8 +59,8 @@ export interface SceneEntry {
   voiceAt: number
 
   // ---- 拖拽偏移 ----
-  // 和视线一样分「目标 / 当前」：网络的台阶要磨成连续运动。唯一的例外是
-  // 本机拖拽——那时目标与当前一起写，否则拖起来会有一帧的延迟感。
+  // **纯本机**的位置：不同步给别人，名册也不再带它。分「目标 / 当前」是为了
+  // 保留平滑（回位、换窗口时不要瞬移），但对本人拖拽时两者一起写，跟手。
   targetDragX: number
   targetDragY: number
   currentDragX: number
@@ -87,10 +87,9 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
   if (existing) {
     existing.peer = peer
     existing.lastActiveAt = now
-    // 位置跟着整行走（快照/add 都带）：换模型、重连补快照时也能回到别人
-    // 看到的那个位置，不会突然跳回槽位原点。
-    existing.targetDragX = peer.dragX
-    existing.targetDragY = peer.dragY
+    // 位置**不动**：它是本机偏好，名册里那一份（老服务端/老客户端发来的）
+    // 与我这台设备的摆法无关。以前这里跟着整行走，于是任何一次 upsert
+    // （换模型、重连补快照）都会把用户拖好的位置打回服务端的值。
     return existing
   }
   const entry: SceneEntry = {
@@ -117,10 +116,12 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
     currentVoiceMouth: 0,
     targetVoiceMouth: 0,
     voiceAt: 0,
-    targetDragX: peer.dragX,
-    targetDragY: peer.dragY,
-    currentDragX: peer.dragX,
-    currentDragY: peer.dragY,
+    // 新条目站在默认槽位；本人的记忆位置由 useDragPref 在「我出现在名册里」
+    // 那一刻套上去，别人的位置本来就没有可记的东西。
+    targetDragX: 0,
+    targetDragY: 0,
+    currentDragX: 0,
+    currentDragY: 0,
   }
   entries.set(peer.sid, entry)
   return entry
@@ -150,11 +151,12 @@ export function captureSmooth(): Map<string, SceneEntry> {
 /**
  * 把上一份快照里的连续量套回同名条目。
  *
- * 只恢复「当前/目标值」与时间戳这几类平滑用的量：名册部分（模型、缩放、
- * 排序）必须用服务端刚发来的那一份，否则换模型会被旧快照顶回去。
+ * 只恢复「当前/目标值」与时间戳这几类平滑用的量：名册部分（模型、排序）必须用
+ * 服务端刚发来的那一份，否则换模型会被旧快照顶回去。
  *
- * 拖拽只恢复 `current`：`target` 以名册为准——快照里的 dragX 就是服务端的
- * 权威值，恢复成旧值等于让画面朝着一个已知过时的位置走一帧。
+ * 拖拽现在**全是本机状态**，名册里没有权威值可依，所以目标值也必须恢复：
+ * 只恢复 current 的话，重建出来的条目 target 是 0，下一帧角色就会从记忆位置
+ * 自己滑回槽位——正是「重拉快照瞬移」这个 bug。
  */
 export function restoreSmooth(prev: Map<string, SceneEntry>): void {
   for (const [sid, entry] of entries) {
@@ -181,6 +183,8 @@ export function restoreSmooth(prev: Map<string, SceneEntry>): void {
     entry.voiceAt = old.voiceAt
     entry.currentDragX = old.currentDragX
     entry.currentDragY = old.currentDragY
+    entry.targetDragX = old.targetDragX
+    entry.targetDragY = old.targetDragY
   }
 }
 
@@ -280,22 +284,12 @@ function clamp01(v: number): number {
 }
 
 /**
- * 远端拖拽偏移（来自 patch 的 d 行）。
- *
- * 只写目标值：10Hz 的台阶交给渲染器平滑，直接跳到目标会让人看到"瞬移"。
- */
-export function setRemoteDrag(sid: string, x: number, y: number): void {
-  const entry = entries.get(sid)
-  if (!entry) return
-  const next = clampDragOffset(x, y)
-  entry.targetDragX = next.x
-  entry.targetDragY = next.y
-}
-
-/**
  * 本机拖拽偏移：目标与当前一起写。
  *
  * 必须跟手——拖动时如果也走平滑，模型会像被橡皮筋拽着，手感立刻变差。
+ *
+ * 只给本人的角色用：位置不再同步，别人的站位由槽位算，没有「我要把他的角色
+ * 挪个地方」这回事（大小倒是可以各端自己调，见 core/peer-scale）。
  */
 export function setLocalDrag(sid: string, x: number, y: number): void {
   const entry = entries.get(sid)
@@ -305,6 +299,19 @@ export function setLocalDrag(sid: string, x: number, y: number): void {
   entry.targetDragY = next.y
   entry.currentDragX = next.x
   entry.currentDragY = next.y
+}
+
+/**
+ * 平滑地把偏移送回某个位置（回位用）。
+ *
+ * 与 setLocalDrag 的区别：只写目标值，渲染器按帧插值过去，而不是瞬移。
+ */
+export function moveDragTo(sid: string, x: number, y: number): void {
+  const entry = entries.get(sid)
+  if (!entry) return
+  const next = clampDragOffset(x, y)
+  entry.targetDragX = next.x
+  entry.targetDragY = next.y
 }
 
 /**

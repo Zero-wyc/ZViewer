@@ -10,18 +10,13 @@ import {
   LIVE2D_POKE_MS,
 } from '../constants'
 import { alphaForDelta, smooth } from './pointer-map'
-import {
-  clampAnchorToView,
-  clampDragOffset,
-  clampDragToView,
-  type DragOffset,
-} from './drag'
+import { clampDragOffset, type DragOffset } from './drag'
 import { getEntry, listEntries, slotX, type SceneEntry } from './scene'
 import {
   resolutionForViewport,
   shouldUpdateResolution,
 } from './render-resolution'
-import { resolveLocalScale, type LocalScaleOverride } from './scale-override'
+import { peerScaleOf } from './peer-scale'
 import { pickPokeGroup } from './motion-pick'
 import { releaseTextureRefs, retainTextureRefs } from './texture-refs'
 import { pickVisiblePeers } from './visibility'
@@ -109,12 +104,12 @@ interface LoadedModel {
    */
   localW: number
   localH: number
-  /** 最近一次渲染用的「无偏移锚点」与像素尺寸，拖拽层的边界约束要用 */
+  /** 最近一次渲染的「无偏移锚点」（槽位基准）与像素尺寸；dragOf 用它反算偏移 */
   baseX: number
   baseY: number
   boxW: number
   boxH: number
-  /** 实际画出来的锚点（已含可见性约束），DOM 标签跟随它 */
+  /** 实际画出来的锚点（含偏移、不含被戳抖动），DOM 标签跟随它 */
   px: number
   py: number
   /**
@@ -173,16 +168,12 @@ export class Live2DRenderer {
    */
   private textureRefs = new Map<Texture, number>()
   /**
-   * 拖动滑杆期间对**本人**模型的临时缩放覆盖。
+   * 本人模型的缩放（本机偏好，不同步给任何人）。
    *
-   * 大小是走服务端名册的（各端看到的一致），但滑杆是连续手势：每个值都上行
-   * 一次会让服务端把此人反复标成「新成员」并全房间广播。所以拖动期间只在本机
-   * 屏幕上跟手，停手后再提交一次终值。
-   *
-   * `base` 是设置覆盖时服务端给的缩放：一旦名册里的值变了，说明回声（或服务端
-   * 夹取后的值）到了，覆盖立刻让位——否则本地会永远和别人的画面差一档。
+   * 由宿主从 store 里推进来：`myScale` 是持久化的本机设置，滑杆拖动期间宿主
+   * 会直接调 `setSelfScale` 让画面跟手，停手后再写回 store。
    */
-  private localScale: LocalScaleOverride | null = null
+  private selfScale = 1
 
   // erasableSyntaxOnly 下不能用参数属性，只能显式赋值
   private constructor(engine: Live2DEngine, app: Application) {
@@ -236,18 +227,14 @@ export class Live2DRenderer {
   }
 
   /**
-   * 拖动滑杆时让本人的模型立刻跟手（不走网络）。
+   * 改本人模型的大小（本地生效，不外发）。
    *
-   * 只对本人生效：别人的大小永远来自名册，否则「谁说了算」就分不清了。
-   * 覆盖会在名册回声到达时自动让位（见 `localScale`）。
+   * 滑杆每动一档就调一次：这里只改一个数字，下一帧 `scaleOf` 就会用上，
+   * 不碰网络也不碰名册——所以「拖一下滑杆触发全房间广播」那条老问题从根上没了。
    */
-  setLocalScale(scale: number): void {
+  setSelfScale(scale: number): void {
     if (!(scale > 0)) return
-    this.localScale = {
-      value: scale,
-      // 名册里还没有我（刚进房）时记 0，等自己的行到了再把服务端的值当基准
-      base: this.localScale?.base ?? getEntry(this.localSid)?.peer.scale ?? 0,
-    }
+    this.selfScale = scale
   }
 
   resize(width: number, height: number): void {
@@ -295,24 +282,13 @@ export class Live2DRenderer {
   }
 
   /**
-   * 把一次拖拽偏移压回「模型仍在画面里」的范围。
+   * 把一次拖拽偏移收进合法范围。
    *
-   * 给拖拽层用（它才知道模型的真实像素尺寸）：只做比例 clamp 的话，偏移
-   * 会一路涨到 -0.55，而画面早在模型贴边时就停住了，手感会断层。
+   * 位置是本机偏好，不再按包围盒夹回可见区（用户可以把角色拖到完全看不见的
+   * 地方），所以这里只剩「防手滑」的比例上限。
    */
-  clampOffset(sid: string, x: number, y: number): DragOffset {
-    const first = clampDragOffset(x, y)
-    const loaded = this.models.get(sid)
-    if (!loaded || !(loaded.boxW > 0) || !(loaded.boxH > 0)) return first
-    return clampDragToView({
-      offset: first,
-      baseX: loaded.baseX,
-      baseY: loaded.baseY,
-      width: loaded.boxW,
-      height: loaded.boxH,
-      viewW: this.width,
-      viewH: this.height,
-    })
+  clampOffset(x: number, y: number): DragOffset {
+    return clampDragOffset(x, y)
   }
 
   /** 声明一个模型；同一 sid 换模型会替换，同一个模型不重复加载。 */
@@ -396,18 +372,16 @@ export class Live2DRenderer {
   }
 
   /**
-   * 这个成员此刻该用的缩放：名册值，或本人拖动滑杆期间的本地覆盖。
+   * 这个成员此刻该用的大小。
    *
-   * 别人的大小永远来自名册——只有本人的拖动能改变自己那一档，所以覆盖也
-   * 只对 localSid 生效。
+   * 自己的来自 store（`myScale` 推进来），别人的来自本机偏好（core/peer-scale，
+   * 按显示名记账）；名册里的 `peer.scale` 已经不用了——大小不同步。
+   *
+   * 没调过的人一律 1：这是模型的「原始比例」，也是每个人眼里的默认观感。
    */
   private scaleOf(entry: SceneEntry): number {
-    if (entry.peer.sid !== this.localSid) return entry.peer.scale
-    // 「本地覆盖什么时候让位」的判定在 core/scale-override（有单测）：
-    // 这里只负责把结果写回去。
-    const resolved = resolveLocalScale(entry.peer.scale, this.localScale)
-    this.localScale = resolved.override
-    return resolved.scale
+    if (entry.peer.sid === this.localSid) return this.selfScale
+    return peerScaleOf(entry.peer.name, entry.peer.sid) ?? 1
   }
 
   /**
@@ -734,18 +708,17 @@ export class Live2DRenderer {
       loaded.boxW = boxW
       loaded.boxH = boxH
 
-      const anchor = clampAnchorToView(
-        baseX + entry.currentDragX * this.width,
-        baseY + entry.currentDragY * this.height,
-        boxW,
-        boxH,
-        this.width,
-        this.height
-      )
-      model.x = anchor.x + pokeWobble(loaded)
-      model.y = anchor.y
-      loaded.px = anchor.x
-      loaded.py = anchor.y
+      // 位置完全由本机决定：不再按包围盒夹回可见区，允许把角色整只拖出画面
+      // （临时让出画面是很自然的需求）。代价是拖出去之后右键命不中，回位靠
+      // 「角色设置 → 重置模型位置」——这条路径必须有，否则角色就找不回来了。
+      //
+      // px 记的是**不含抖动**的锚点：名字标签跟着它，被戳时不该跟着抖。
+      const anchorX = baseX + entry.currentDragX * this.width
+      const anchorY = baseY + entry.currentDragY * this.height
+      model.x = anchorX + pokeWobble(loaded)
+      model.y = anchorY
+      loaded.px = anchorX
+      loaded.py = anchorY
 
       this.advance(entry, alpha, now)
       entry.currentMouth = smooth(

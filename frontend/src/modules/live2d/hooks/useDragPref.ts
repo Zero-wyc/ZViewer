@@ -1,9 +1,7 @@
 import { useEffect, useRef } from 'react'
-import type { Socket } from 'socket.io-client'
 import { loadDragPref } from '../core/drag-prefs'
 import { setLocalDrag } from '../core/scene'
 import type { Live2DModelKind } from '../types'
-import { emitLive2DDrag } from './useLive2DSync'
 
 // 进房 / 换模型后把本机记住的站位套回去。
 //
@@ -13,6 +11,9 @@ import { emitLive2DDrag } from './useLive2DSync'
 //
 // 每个 (sid, 模型) 只应用一次：否则用户手动拖到别处后，任何一次重新渲染都会
 // 把他拽回记忆里的位置。
+//
+// 位置只在本机生效，所以这里也不需要再把它发给任何人——以前还顺手上行一次
+// 「我的站位」，那是位置同步时代的遗留。
 
 export interface UseDragPrefOptions {
   /** 本机 socket id（空 = 还没连接） */
@@ -22,8 +23,6 @@ export interface UseDragPrefOptions {
   modelId: string
   /** 我是否已经出现在名册里 */
   inRoster: boolean
-  socket: Socket | null
-  roomId: string
 }
 
 export function useDragPref({
@@ -31,8 +30,6 @@ export function useDragPref({
   kind,
   modelId,
   inRoster,
-  socket,
-  roomId,
 }: UseDragPrefOptions): void {
   const appliedRef = useRef('')
   useEffect(() => {
@@ -45,7 +42,5 @@ export function useDragPref({
     if (!pref) return
     // 目标与当前一起写：名册刚建出来，再平滑过去反而像"飘"
     setLocalDrag(sid, pref.x, pref.y)
-    // 别人那边也站到这个位置：服务端名册里的偏移可能还是上一次会话的残留
-    emitLive2DDrag(socket, roomId, pref.x, pref.y)
-  }, [sid, kind, modelId, inRoster, socket, roomId])
+  }, [sid, kind, modelId, inRoster])
 }

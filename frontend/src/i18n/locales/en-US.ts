@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2788 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2793 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -966,7 +966,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（117 条） =====
+  // ===== modules/live2d（122 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -977,6 +977,7 @@ const enUS: Record<string, string> = {
   '戳一下': 'Poke',
   '从链接导入 zip 模型包': 'Import a zip model pack from a link',
   '大小': 'Size',
+  '大小只影响你的画面': 'Size only affects your view',
   '导入': 'Import',
   '导入失败': 'Import failed',
   '导入中…': 'Importing…',
@@ -989,6 +990,7 @@ const enUS: Record<string, string> = {
   '动捕中': 'Tracking',
   '动作': 'Actions',
   '对方的角色': 'Their character',
+  '对方角色大小': 'Size of their character',
   '对观众显示角色': 'Show characters to viewers',
   '房间里还没有模型，先上传一个': 'This room has no models yet — upload one first',
   '房间设置': 'Room settings',
@@ -1065,6 +1067,8 @@ const enUS: Record<string, string> = {
   '完成': 'Done',
   '未检测到人脸': 'No face detected',
   '未知模型': 'Unknown model',
+  '位置': 'Position',
+  '位置和大小只保存在本机，不会同步给别人': 'Position and size are saved on this device only and are not shared',
   '我的角色': 'My character',
   '笑': 'Smile',
   '眼': 'Eyes',
@@ -1078,6 +1082,7 @@ const enUS: Record<string, string> = {
   '重新标定': 'Recalibrate',
   '重新选一个模型之后动捕才有作用': 'Face tracking only works once you pick a model again',
   '重新选一个模型之后口型才有作用': 'Pick a model again for lip sync to have something to move',
+  '重置模型位置': 'Reset model position',
   '自定义模型地址': 'Custom model URL',
   '嘴': 'Mouth',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',

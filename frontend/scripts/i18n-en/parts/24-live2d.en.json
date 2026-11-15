@@ -10,6 +10,7 @@
     "Poke",
     "Import a zip model pack from a link",
     "Size",
+    "Size only affects your view",
     "Import",
     "Import failed",
     "Importing…",
@@ -22,6 +23,7 @@
     "Tracking",
     "Actions",
     "Their character",
+    "Size of their character",
     "Show characters to viewers",
     "This room has no models yet — upload one first",
     "Room settings",
@@ -98,6 +100,8 @@
     "Done",
     "No face detected",
     "Unknown model",
+    "Position",
+    "Position and size are saved on this device only and are not shared",
     "My character",
     "Smile",
     "Eyes",
@@ -111,11 +115,10 @@
     "Recalibrate",
     "Face tracking only works once you pick a model again",
     "Pick a model again for lip sync to have something to move",
+    "Reset model position",
     "Custom model URL",
     "Mouth",
     "Failed to load Cubism Core",
-    "Cubism Core loaded but not registered",
-    "Live2D engine failed to load",
-    "Live2D engine failed to load: {{reason}}"
+    "Cubism Core loaded but not registered"
   ]
 }

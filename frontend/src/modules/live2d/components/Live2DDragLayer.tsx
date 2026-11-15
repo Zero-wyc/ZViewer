@@ -23,7 +23,7 @@ export interface Live2DDragLayerProps {
   sid: string
   /** 提示条的挂载容器（原生全屏时要进全屏子树） */
   container?: HTMLElement | null
-  /** 偏移变化；final=true 表示松手，必须发 */
+  /** 偏移变化；final=true 表示松手（宿主据此落本机偏好） */
   onDrag: (x: number, y: number, final: boolean) => void
   onReset: () => void
   onExit: () => void
@@ -123,13 +123,14 @@ export function Live2DDragLayer({
     const rawY =
       gesture.baseY +
       (event.clientY - gesture.startY) / Math.max(1, view.height)
-    // 边界按**模型包围盒**算（渲染器知道真实尺寸）：只按视口比例限位的话，
-    // 高个子模型会被推出画面，只剩一个头。
+    // 位置是本机偏好，所以只挡「荒谬值」，**不把模型夹回画面里**：用户可以把
+    // 角色拖到完全看不见的地方（临时让出画面）。回位靠提示条上的「回到原位」
+    // 或角色设置里的「重置模型位置」。
     const next = renderer
-      ? renderer.clampOffset(sid, rawX, rawY)
+      ? renderer.clampOffset(rawX, rawY)
       : clampDragOffset(rawX, rawY)
     latestRef.current = next
-    // 本地立刻落地（跟手），网络由宿主按节流发
+    // 本地立刻落地（跟手）；位置不再上行，也不需要节流
     setLocalDrag(sid, next.x, next.y)
     onDrag(next.x, next.y, false)
   }

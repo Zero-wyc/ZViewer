@@ -20,7 +20,6 @@ import {
   removePeer,
   restoreSmooth,
   setFace,
-  setRemoteDrag,
   setRemotePointer,
   setVoiceMouth,
   upsertPeer,
@@ -170,14 +169,9 @@ export function useLive2DSync({
         }
       }
 
-      if (payload.d?.length) {
-        // 拖拽偏移同理：只写场景，不进 React（拖动时这里 10Hz）
-        for (const row of payload.d) {
-          const sid = String(row[0] ?? '')
-          if (!sid) continue
-          setRemoteDrag(sid, Number(row[1]), Number(row[2]))
-        }
-      }
+      // payload.d（拖拽偏移）**刻意忽略**：位置已经改成本机偏好，谁也不能替
+      // 别人决定他的角色摆在哪。老客户端还会发 live2d-drag、服务端也照旧转发，
+      // 这里直接丢掉——写回场景的话，别人的手一抖我的画面就会跟着动。
 
       if (membershipChanged) syncRenderer()
     }
@@ -247,6 +241,11 @@ export function emitLive2DConfig(
     action: 'set' | 'clear'
     kind?: string
     modelId?: string
+    /**
+     * 已废弃：大小改成本机偏好，不再上行。
+     *
+     * 字段留着只是因为服务端仍接受它（老客户端会带）；新代码不要再传。
+     */
     scale?: number
   },
   onDone?: (ack: Live2DConfigAck | null) => void
@@ -302,27 +301,6 @@ export function emitLive2DPoke(
   if (!socket || !roomId || !group) return
   if (!Number.isInteger(index) || index < 0) return
   socket.emit(LIVE2D_EVENT.ACTION, { roomId, g: group, i: index })
-}
-
-/**
- * 广播本人的拖拽偏移（相对槽位基准的视口比例，正数向右/向下）。
- *
- * 本地已经先写进场景了（否则拖起来会跟手慢半拍），这里只负责让别人也
- * 看到同一个位置。服务端按 40ms 门限丢超频，再合并进 100ms 一次的 patch。
- */
-export function emitLive2DDrag(
-  socket: Socket | null,
-  roomId: string,
-  x: number,
-  y: number
-): void {
-  if (!socket || !roomId) return
-  socket.emit(LIVE2D_EVENT.DRAG, {
-    roomId,
-    // 偏移可以是负数，roundCoord 会把值夹到 0~1，这里自己压精度
-    x: Math.round(x * 1000) / 1000,
-    y: Math.round(y * 1000) / 1000,
-  })
 }
 
 /**

@@ -21,18 +21,14 @@ import {
   uploadLibraryModel,
   type Live2DLibraryEntry,
 } from '../core/model-library'
-import { clearDragPref, saveDragPref } from '../core/drag-prefs'
-import { getEntry, listEntries, setLocalDrag, slotX } from '../core/scene'
+import { clearAllDragPrefs, saveDragPref } from '../core/drag-prefs'
+import { peerScaleOf, setPeerScale } from '../core/peer-scale'
+import { getEntry, listEntries, moveDragTo, slotX } from '../core/scene'
 import { pickVisiblePeers, resolveEffectiveModel } from '../core/visibility'
-import {
-  LIVE2D_DRAG_INTERVAL_MS,
-  LIVE2D_MAX_RENDERED,
-  LIVE2D_SCALE_COMMIT_MS,
-} from '../constants'
+import { LIVE2D_MAX_RENDERED, LIVE2D_SCALE_COMMIT_MS } from '../constants'
 import {
   emitLive2DAction,
   emitLive2DConfig,
-  emitLive2DDrag,
   emitLive2DMotion,
   emitLive2DPoke,
   emitLive2DPolicy,
@@ -63,9 +59,10 @@ import { Live2DSettingsModal } from './Live2DSettingsModal'
 //   4. **入口**：右键角色呼出快捷菜单（表情/动作/大小/动捕/拖拽/删除），换模型与
 //      房间设置统一走「角色设置」弹窗；右下角另有一个常驻圆钮直通后者
 //      （右键依赖包围盒命中，模型加载失败 / 命中漏判时它是唯一退路）；
-//   5. **拖拽模式**：菜单里开启后可把自己的角色拖到任意位置，偏移同步给
-//      全房间（各端看到的站位一致）。它会给角色套一层透明抓取层，所以只在
-//      用户主动开启时存在。
+//   5. **拖拽模式**：菜单里开启后可把自己的角色拖到任意位置。位置与大小都是
+//      **本机偏好**（不同步给任何人），所以可以把角色拖到完全看不见的地方；
+//      找回来的路是「角色设置 → 重置模型位置」（右下角常驻入口）与拖拽模式里
+//      的「回到原位」。它会给角色套一层透明抓取层，所以只在用户主动开启时存在。
 //
 // 与画面无关的三块副作用已拆出去（动捕启停 → useFaceTracker、站位记忆 →
 // useDragPref）：这个文件只留"房间页里要怎么摆、点了算什么"。
@@ -299,8 +296,10 @@ export function RoomLive2DHost({
     /**
      * 右键命中的是**别人的**角色时记下它：菜单切成「对他」的形态。
      * 为空 = 右键在空白处或自己身上，菜单是「我的角色」。
+     *
+     * scale 是**本机**给他设的大小（没调过就是 1），不是名册值。
      */
-    peer: { sid: string; name: string } | null
+    peer: { sid: string; name: string; scale: number } | null
   }>({
     open: false,
     x: 0,
@@ -328,7 +327,11 @@ export function RoomLive2DHost({
         root: fs instanceof HTMLElement ? fs : null,
         offsetX: entry?.targetDragX ?? 0,
         offsetY: entry?.targetDragY ?? 0,
-        peer,
+        // 别人的大小读本机偏好：菜单里的滑杆必须从「我现在看到的比例」起步，
+        // 否则一动滑杆就会跳到我上次设的档位。
+        peer: peer
+          ? { ...peer, scale: peerScaleOf(peer.name, peer.sid) ?? 1 }
+          : null,
       })
     },
     [mySid]
@@ -540,16 +543,16 @@ export function RoomLive2DHost({
     setMyModel('builtin', builtins[0].id)
   }, [removedNow, unifiedActive, myModelId, builtins, setMyModel])
 
-  // ---- 7b. 大小：本地跟手 + 停手后提交一次 ----
+  // ---- 7b. 大小：纯本机偏好，跟手即可 ----
   //
-  // 拖动期间只写本机（渲染器的本地覆盖 + 这里的草稿），网络上一个字节都不发；
-  // 停手 250ms 才把终值写进 store，声明 effect 随之只发一次 live2d-config。
-  // 画面上的即时反馈由 `renderer.setLocalScale` 负责——它只覆盖本人，
-  // 服务端回声一到就让位，不会和别人的屏幕长期不一致。
+  // 大小不再同步（各端可以各自决定自己看到的角色多大），所以滑杆没有网络成本：
+  // 拖动期间直接改渲染器的 selfScale，停手 250ms 才写一次 store（localStorage）。
+  // 以前每经过一档都要上行 live2d-config，服务端把本人标成「新成员」并广播
+  // 整张名册，这套风暴随着「不同步」一起消失了。
   const handleScale = useCallback(
     (value: number) => {
       setScaleDraft(value)
-      renderer?.setLocalScale(value)
+      renderer?.setSelfScale(value)
     },
     [renderer]
   )
@@ -563,10 +566,33 @@ export function RoomLive2DHost({
     return () => window.clearTimeout(timer)
   }, [scaleDraft, setMyScale])
 
-  // ---- 8. 声明自己的模型（换模型/改大小才发；没模型时撤回声明）----
+  // 进房 / 重新加载引擎时把记忆里的大小推给渲染器：默认值是 1，不推的话
+  // 用户上次调好的比例会一直不生效，直到他再碰一次滑杆。
+  useEffect(() => {
+    renderer?.setSelfScale(myScale)
+  }, [renderer, myScale])
+
+  // 别人的大小：本机偏好，按显示名记账（下次进房还生效），只影响我的画面。
+  const handlePeerScale = useCallback(
+    (value: number) => {
+      const peer = menu.peer
+      if (!peer) return
+      setPeerScale(peer.name, peer.sid, value)
+      // 菜单里的百分比要跟着动：不更新的话滑杆动了但数字停在旧值
+      setMenu((prev) =>
+        prev.peer ? { ...prev, peer: { ...prev.peer, scale: value } } : prev
+      )
+    },
+    [menu.peer]
+  )
+
+  // ---- 8. 声明自己的模型（只有换模型 / 删除才发）----
   //
   // 用「生效模型」而不是「我选的模型」：房主统一角色时服务端名册也跟着统一，
   // 各端画出来的才是同一个。
+  //
+  // 大小不在这里（它已经不同步），所以这条 effect 的依赖表里没有 myScale：
+  // 以前把滑杆塞进来，一次拖动能触发二三十次全房间广播。
   //
   // ack 是唯一能知道「服务端有没有收下这个模型」的地方，必须接住：房间满 12 个、
   // 模型已被别人删掉、模型标识不合法、自定义地址只有房主能设——这几种以前全是
@@ -588,7 +614,6 @@ export function RoomLive2DHost({
         action: 'set',
         kind: effKind,
         modelId: effModelId,
-        scale: myScale,
       },
       (ack) => {
         // 没有回执（断线）不当成失败：那种情况下重连会自己重发一次。
@@ -602,7 +627,7 @@ export function RoomLive2DHost({
         message.error(text)
       }
     )
-  }, [socket, roomId, effKind, effModelId, myScale, removedNow])
+  }, [socket, roomId, effKind, effModelId, removedNow])
 
   const toggleVoiceLipSync = useCallback(() => {
     setVoiceLipSync(!voiceLipSync)
@@ -657,33 +682,36 @@ export function RoomLive2DHost({
 
   // ---- 8d. 拖拽模式 ----
   //
-  // 偏移只在场景里流转（拖动时 10Hz 级别，不进 React），这里只负责三件事：
-  // 开关模式、按节流把偏移发给房间、以及「回到原位」。
-  const dragEmitAt = useRef(0)
-
+  // 偏移只在场景里流转（拖动时 10Hz 级别，不进 React），这里只负责两件事：
+  // 开关模式，以及松手时把位置记进本机偏好。
+  //
+  // 位置不再上行：以前这里按 60ms 节流发 live2d-drag、服务端再转发给全房间，
+  // 现在每个人只看自己的摆法，网络那一端整个去掉了。
   const handleDrag = useCallback(
     (x: number, y: number, final: boolean) => {
-      const now = performance.now()
-      // 拖动中按 60ms 节流；松手那一帧无条件发，终值不能丢
-      if (!final && now - dragEmitAt.current < LIVE2D_DRAG_INTERVAL_MS) return
-      dragEmitAt.current = now
-      emitLive2DDrag(socket, roomId, x, y)
-      // 松手即落本机偏好：下次进房 / 换回来时自动站回这个位置。
-      // 拖动中不写（每帧一次 localStorage 写太重，而且中间值没有意义）。
-      if (final && effModelId) saveDragPref(effKind, effModelId, x, y)
+      // 拖动中不写：每帧一次 localStorage 写太重，而且中间值没有意义。
+      if (!final || !effModelId) return
+      saveDragPref(effKind, effModelId, x, y)
     },
-    [socket, roomId, effKind, effModelId]
+    [effKind, effModelId]
   )
 
+  /**
+   * 回到默认站位。
+   *
+   * 三件事必须一起做，少一件都表现为「按钮没生效」：
+   *   1. 场景里的偏移归零（平滑过去，不要瞬移）；
+   *   2. 本机记的站位全部清掉（只清当前模型的话，切一次模型就撞回旧位置）；
+   *   3. 从菜单点进来时顺手收起菜单。
+   *
+   * 位置是纯本机状态，所以这里不需要网络；角色被拖到画面外时，这条路径是
+   * **唯一**能把它找回来的入口（右键已经打不中它了）。
+   */
   const handleResetPosition = useCallback(() => {
-    if (mySid) setLocalDrag(mySid, 0, 0)
-    emitLive2DDrag(socket, roomId, 0, 0)
-    // 「回到原位」也要把本机偏好清掉：否则下次进房又被挪回旧位置，
-    // 用户会觉得这个按钮没生效。
-    if (effModelId) clearDragPref(effKind, effModelId)
-    // 从菜单点进来时顺手收起：位置已经回原位，「回到原位」不该还挂在那儿
+    if (mySid) moveDragTo(mySid, 0, 0)
+    clearAllDragPrefs()
     closeMenu()
-  }, [mySid, socket, roomId, effKind, effModelId, closeMenu])
+  }, [mySid, closeMenu])
 
   // ---- 8e. 进房 / 换模型后应用本机的拖拽偏好 ----
   //
@@ -697,8 +725,6 @@ export function RoomLive2DHost({
     kind: effKind,
     modelId: effModelId,
     inRoster: myInRoster,
-    socket,
-    roomId,
   })
 
   const exitDragMode = useCallback(() => setDragMode(false), [])
@@ -1223,7 +1249,16 @@ export function RoomLive2DHost({
         onOpenSettings={openSettings}
         onToggleDrag={toggleDragMode}
         onResetPosition={handleResetPosition}
-        peer={menu.peer ? { name: menu.peer.name, onPoke: handlePoke } : null}
+        peer={
+          menu.peer
+            ? {
+                name: menu.peer.name,
+                scale: menu.peer.scale,
+                onPoke: handlePoke,
+                onScale: handlePeerScale,
+              }
+            : null
+        }
       />
 
       <Live2DSettingsModal
@@ -1250,6 +1285,7 @@ export function RoomLive2DHost({
         uploading={uploading}
         onSelect={handleSelect}
         onScale={handleScale}
+        onResetPosition={handleResetPosition}
         onExpression={handleExpression}
         onMotion={handleMotion}
         onToggleFaceTracking={toggleFaceTracking}

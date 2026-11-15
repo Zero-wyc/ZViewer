@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, Mic, Trash2, Users } from 'lucide-react'
+import { Camera, Mic, RotateCcw, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmModal, Modal } from '@/components/ui/Modal'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
@@ -85,6 +85,13 @@ export interface Live2DSettingsModalProps {
   /* 我的角色 */
   onSelect: (kind: Live2DModelKind, modelId: string) => void
   onScale: (scale: number) => void
+  /**
+   * 把角色放回默认站位（清掉本机记住的所有站位）。
+   *
+   * 位置不再同步，所以这是角色被拖到画面外之后**唯一**的找回入口：
+   * 那时候右键已经命不中它，右下角这个入口必须一直在。
+   */
+  onResetPosition: () => void
   onExpression: (index: number) => void
   onMotion: (group: string, index: number) => void
   onToggleFaceTracking: () => void
@@ -134,6 +141,7 @@ export function Live2DSettingsModal({
   uploading,
   onSelect,
   onScale,
+  onResetPosition,
   onExpression,
   onMotion,
   onToggleFaceTracking,
@@ -274,9 +282,10 @@ export function Live2DSettingsModal({
                 </>
               )}
 
-              {/* 大小是**个人**的：服务端名册按成员各存一份 scale，统一角色
-                  只统一模型。以前这里跟着统一一起禁用，等于房主定了个模型就
-                  顺带决定了别人屏幕上该多大——而每个人的画面尺寸根本不同。 */}
+              {/* 大小是**本机**的：不写名册、也不上行。自己的这一档存在本机
+                  偏好里，别人的在右键他的角色时单独调。以前大小跟着房间走，
+                  房主定个模型就顺带决定了别人屏幕上该多大——而每个人的窗口
+                  尺寸、观看距离根本不同。 */}
               <Section label={t('大小')}>
                 <Slider
                   min={0.5}
@@ -288,6 +297,26 @@ export function Live2DSettingsModal({
                   valueFormatter={(value) => `${Math.round(value * 100)}%`}
                   aria-label={t('模型大小')}
                 />
+              </Section>
+
+              {/* 位置也是本机的。这里必须有一个「放回去」的出口：角色可以
+                  被拖到完全看不见的地方（位置不同步，各端互不影响），那时
+                  右键命不中它，右下角这个入口就是唯一的路。 */}
+              <Section label={t('位置')}>
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 text-[10px] leading-snug opacity-50">
+                    {t('位置和大小只保存在本机，不会同步给别人')}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disableAnimation
+                    icon={<RotateCcw size={13} />}
+                    onClick={onResetPosition}
+                  >
+                    {t('重置模型位置')}
+                  </Button>
+                </div>
               </Section>
 
               {expressions.length > 0 && (

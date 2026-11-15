@@ -33,8 +33,6 @@ function peer(sid: string, patch: Partial<Live2DPeer> = {}): Live2DPeer {
     form: 0.5,
     brow: 0.5,
     roll: 0.5,
-    dragX: 0,
-    dragY: 0,
     ...patch,
   }
 }
@@ -47,7 +45,7 @@ function replay(payload: Live2DPeer[]): void {
   restoreSmooth(prev)
 }
 
-test('重拉快照不把平滑后的拖拽位置打回原点', () => {
+test('重拉快照不把本机拖好的位置打回槽位', () => {
   clearScene()
   const entry = upsertPeer(peer('a'))
   // 拖动中：目标与当前都推到某处
@@ -57,11 +55,12 @@ test('重拉快照不把平滑后的拖拽位置打回原点', () => {
   replay([peer('a')])
   const next = getEntry('a')
   assert.ok(next)
-  // 当前值保住 —— 画面上不会从记忆位置瞬移回槽位
+  // 位置是纯本机状态，名册里没有权威值可依，所以当前与目标都要保住：
+  // 只恢复 current 的话，下一帧就会朝 target(0) 平滑回去
   assert.equal(next.currentDragX, 0.2)
   assert.equal(next.currentDragY, -0.1)
-  // 目标值以名册为准（服务端这次给的还是 0，随后会被 d 行纠正）
-  assert.equal(next.targetDragX, 0)
+  assert.equal(next.targetDragX, 0.2)
+  assert.equal(next.targetDragY, -0.1)
 })
 
 test('重拉快照保留视线与面部中间值', () => {
@@ -90,12 +89,12 @@ test('快照里新出现的人不会被上一份的残留状态污染', () => {
   setLocalDrag('a', 0.3, 0.3)
 
   // 快照里换成了另一个人
-  replay([peer('z', { dragX: 0.1, dragY: 0.05 })])
+  replay([peer('z')])
   const next = getEntry('z')
   assert.ok(next)
-  // 新条目：当前值来自名册本身，不是从 a 抄过来的
-  assert.equal(next.currentDragX, 0.1)
-  assert.equal(next.currentDragY, 0.05)
+  // 新条目：站默认槽位，不是从 a 抄过来的
+  assert.equal(next.currentDragX, 0)
+  assert.equal(next.currentDragY, 0)
   assert.equal(getEntry('a'), undefined)
 })
 
@@ -112,6 +111,7 @@ test('名册部分用服务端的新值，不被旧快照顶回去', () => {
   assert.equal(next.peer.scale, 1.5)
   // 连续量：还是旧的，画面不会因为这行名册抖一下
   assert.equal(next.currentDragX, 0.4)
+  assert.equal(next.targetDragX, 0.4)
 })
 
 test('空快照重放也不会把场景搞成半截状态', () => {

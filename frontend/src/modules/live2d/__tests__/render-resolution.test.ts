@@ -6,10 +6,8 @@ import {
   resolutionForViewport,
   shouldUpdateResolution,
 } from '../core/render-resolution.ts'
-import { resolveLocalScale } from '../core/scale-override.ts'
 
-// 两件纯计算：画布超采样倍率，以及「拖动滑杆期间本地覆盖什么时候让位」。
-// 渲染器本身要 WebGL，没法在这里跑，所以把这两段判定抽出来单独钉住。
+// 画布超采样倍率：渲染器本身要 WebGL，没法在这里跑，把这段判定抽出来单独钉住。
 
 describe('resolutionForViewport', () => {
   it('按像素预算给倍率：小窗口多采、大窗口少采', () => {
@@ -46,45 +44,5 @@ describe('shouldUpdateResolution', () => {
 
   it('取不到当前值时不动', () => {
     assert.equal(shouldUpdateResolution(Number.NaN, 1.5), false)
-  })
-})
-
-describe('resolveLocalScale', () => {
-  it('没有覆盖时就是名册值', () => {
-    assert.deepEqual(resolveLocalScale(1.2, null), {
-      scale: 1.2,
-      override: null,
-    })
-  })
-
-  it('拖动期间用覆盖值，且覆盖保持不变', () => {
-    const override = { value: 1.7, base: 1.2 }
-    assert.deepEqual(resolveLocalScale(1.2, override), {
-      scale: 1.7,
-      override,
-    })
-  })
-
-  it('名册回声一到就交还（否则本地永远和别人的屏幕差一档）', () => {
-    assert.deepEqual(resolveLocalScale(1.7, { value: 1.7, base: 1.2 }), {
-      scale: 1.7,
-      override: null,
-    })
-  })
-
-  it('名册里还没有我时先把当前值记成基准，之后再按回声交还', () => {
-    const first = resolveLocalScale(1, { value: 1.5, base: 0 })
-    assert.equal(first.scale, 1.5)
-    assert.equal(first.override?.base, 1)
-    const echo = resolveLocalScale(1.5, first.override)
-    assert.equal(echo.scale, 1.5)
-    assert.equal(echo.override, null)
-  })
-
-  it('释放之后继续按名册值走', () => {
-    assert.deepEqual(resolveLocalScale(1.9, null), {
-      scale: 1.9,
-      override: null,
-    })
   })
 })

@@ -30,8 +30,6 @@ function peer(sid: string): Live2DPeer {
     form: 0.5,
     brow: 0.5,
     roll: 0.5,
-    dragX: 0,
-    dragY: 0,
   }
 }
 
