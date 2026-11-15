@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, Eye, EyeOff, Trash2, Upload, Users } from 'lucide-react'
+import { Camera, Trash2, Upload, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmModal, Modal } from '@/components/ui/Modal'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
@@ -45,18 +45,18 @@ export interface Live2DAdvancedSettingsProps {
   libraryModels: Live2DLibraryEntry[]
   expressions: ModelExpressionEntry[]
   /**
-   * 我自己的选择（不受统一角色/隐藏影响）。
+   * 我自己的选择（不受统一角色/删除影响）。
    *
-   * 刻意不传「生效模型」：隐藏时它是空串、统一时它是房间的模型，两种情况下
+   * 刻意不传「生效模型」：删除时它是空串、统一时它是房间的模型，两种情况下
    * 拿它给选择器做高亮都会高亮错——一个像"从没选过"，一个像"我选了房间的
    * 那个模型"。
    */
   selectedKind: Live2DModelKind
   selectedModelId: string
-  /** 我在本房间隐藏了角色 */
-  hidden: boolean
-  /** 能否隐藏（统一角色时不行；已经隐藏时走的是「显示」） */
-  canHide: boolean
+  /** 我已删除自己的角色 */
+  removed: boolean
+  /** 能否删除（统一角色时不行；已经删除了就不用再删） */
+  canRemove: boolean
   myScale: number
   faceTracking: { on: boolean; busy: boolean; error: string }
   policy: Live2DPolicy
@@ -66,8 +66,7 @@ export interface Live2DAdvancedSettingsProps {
   onScale: (scale: number) => void
   onExpression: (index: number) => void
   onToggleFaceTracking: () => void
-  onHide: () => void
-  onShow: () => void
+  onRemove: () => void
   /* 房间设置（房主） */
   onPolicy: (patch: Partial<Live2DPolicy>) => void
   onUpload: (file: File) => void
@@ -85,8 +84,8 @@ export function Live2DAdvancedSettings({
   expressions,
   selectedKind,
   selectedModelId,
-  hidden,
-  canHide,
+  removed,
+  canRemove,
   myScale,
   faceTracking,
   policy,
@@ -95,8 +94,7 @@ export function Live2DAdvancedSettings({
   onScale,
   onExpression,
   onToggleFaceTracking,
-  onHide,
-  onShow,
+  onRemove,
   onPolicy,
   onUpload,
   onDeleteModel,
@@ -201,12 +199,16 @@ export function Live2DAdvancedSettings({
                 <Note>{t('房主已统一角色，全房间使用同一个模型')}</Note>
               ) : (
                 <>
-                  {hidden && (
-                    <Note>{t('角色已隐藏，房间里其他成员也看不到它')}</Note>
+                  {removed && (
+                    <Note>
+                      {t(
+                        '角色已删除，房间里所有人（包括你）都看不到它。在下面重新选一个模型即可恢复'
+                      )}
+                    </Note>
                   )}
-                  {/* 高亮用「我的选择」而不是「生效模型」：隐藏时生效模型是
+                  {/* 高亮用「我的选择」而不是「生效模型」：删除时生效模型是
                       空串，用它当 value 会让选择器整片都不选中，看起来像"我从
-                      来没选过模型"——而实际上只是藏起来了。 */}
+                      来没选过模型"——而实际上只是删掉了。 */}
                   <Live2DModelPicker
                     builtins={builtins}
                     libraryModels={libraryModels}
@@ -241,9 +243,9 @@ export function Live2DAdvancedSettings({
                         key={item.index}
                         type="button"
                         onClick={() => onExpression(item.index)}
-                        // 隐藏时服务端名册里没有我，动作会被直接丢掉：
+                        // 删除角色后服务端名册里没有我，动作会被直接丢掉：
                         // 能点却没有任何反应比置灰更容易被当成 bug
-                        disabled={hidden}
+                        disabled={removed}
                         title={t('所有人都会看到')}
                         className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                         style={{
@@ -268,8 +270,8 @@ export function Live2DAdvancedSettings({
                       ? faceTracking.error
                       : !canUseFace
                         ? t('房主已关闭成员动捕')
-                        : hidden
-                          ? t('显示角色之后动捕才有作用')
+                        : removed
+                          ? t('重新选一个模型之后动捕才有作用')
                           : faceTracking.on
                             ? t('画面只在本机处理，不会上传')
                             : t('开启后角色会跟着你的头部转动')}
@@ -277,45 +279,31 @@ export function Live2DAdvancedSettings({
                 </span>
                 <Switch
                   checked={faceTracking.on}
-                  // 隐藏时开动捕没有任何可驱动的对象（指针上报也跟着停了），
+                  // 删除角色后开动捕没有任何可驱动的对象（指针上报也跟着停了），
                   // 让开关能点却毫无反应比直接置灰更让人怀疑坏了
-                  disabled={!canUseFace || hidden || faceTracking.busy}
+                  disabled={!canUseFace || removed || faceTracking.busy}
                   onChange={onToggleFaceTracking}
                   aria-label={t('摄像头动捕')}
                 />
               </div>
 
-              {/* 隐藏 / 显示是同一个位置的两个方向。
-                  以前这里只写「隐藏角色」，且隐藏后按钮因为没模型直接变灰，
-                  文案却让人去点右下角——而右下角打开的还是这块面板，等于
-                  把唯一的恢复入口也锁上了。 */}
-              {hidden ? (
+              {/* 删除角色是**单向**动作，这里不再有「显示角色」的反向按钮。
+                  以前那一对按钮就是紊乱的源头：删除后模型选择器仍然可选，
+                  点任意一个模型都会恢复，所以"恢复"的正确入口一直是列表本身，
+                  而不是一个只在特定状态下才出现的按钮。 */}
+              {!removed && (
                 <div>
                   <Button
-                    variant="primary"
+                    variant="danger"
                     size="sm"
-                    icon={<Eye size={13} />}
-                    onClick={onShow}
+                    icon={<Trash2 size={13} />}
+                    onClick={onRemove}
+                    disabled={!canRemove}
                   >
-                    {t('显示角色')}
+                    {t('删除角色')}
                   </Button>
                   <p className="mt-1 text-[10px] leading-snug opacity-45">
-                    {t('显示后会回到你之前选的角色')}
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon={<EyeOff size={13} />}
-                    onClick={onHide}
-                    disabled={!canHide}
-                  >
-                    {t('隐藏角色')}
-                  </Button>
-                  <p className="mt-1 text-[10px] leading-snug opacity-45">
-                    {t('隐藏后房间里其他成员也看不到你的角色')}
+                    {t('删除后房间里所有人（包括你）都看不到你的角色')}
                   </p>
                 </div>
               )}

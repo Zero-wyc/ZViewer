@@ -685,3 +685,74 @@ func TestLive2DOrdReusesGap(t *testing.T) {
 		t.Fatalf("新人应填进空出来的 2 号位，实际 %d", ord)
 	}
 }
+
+// 11) 一个用户只能有一个角色。
+//
+// 名册按 socket 组织，所以「同一用户的两个连接」会变成两个角色：重连窗口里
+// （旧连接还没被服务端判死、新连接已经声明）画面上就是"我自己站在两个位置"，
+// 而观众各有各的一份名册，谁也说不清哪个才是真的。
+//
+// 归并按 Identity（登录用户 userId / 游客 guestId），**新连接顶替旧记录并
+// 接住旧排位**，旧 socket 以 rem 行下发。
+func TestLive2DOneModelPerUser(t *testing.T) {
+	env := newTestEnv(t)
+	const room = "ROOM_ONE_PER_USER"
+	env.hub.members[room] = []string{"s-old", "s-new"}
+
+	env.svc.Live2DSet(room, live2dMember{
+		SocketID: "s-old", Identity: "u:7", Name: "Alice",
+		Kind: "builtin", ModelID: "hiyori", Scale: 1,
+	})
+	env.svc.Live2DSet(room, live2dMember{
+		SocketID: "s-new", Identity: "u:7", Name: "Alice",
+		Kind: "builtin", ModelID: "hiyori", Scale: 1,
+	})
+
+	snap := env.svc.Live2DSnapshot(room)
+	if len(snap) != 1 {
+		t.Fatalf("同一用户只应有一个角色，实际 %d 个：%+v", len(snap), snap)
+	}
+	if snap[0].SocketID != "s-new" {
+		t.Fatalf("应保留最新的连接，实际 %s", snap[0].SocketID)
+	}
+	if snap[0].Ord != 1 {
+		t.Fatalf("顶替后应接住旧排位 1，实际 %d", snap[0].Ord)
+	}
+
+	env.svc.FlushLive2D()
+	patches := env.hub.payloads[room+"|live2d-patch"]
+	if len(patches) == 0 {
+		t.Fatal("顶替后应下发一条 patch")
+	}
+	patch, ok := patches[len(patches)-1].(live2dPatchOut)
+	if !ok {
+		t.Fatalf("patch 类型意外：%T", patches[len(patches)-1])
+	}
+	if len(patch.Rem) != 1 || patch.Rem[0] != "s-old" {
+		t.Fatalf("被顶替的旧 socket 应以 rem 行下发，实际 %v", patch.Rem)
+	}
+}
+
+// 12) 不同用户、以及无法识别身份的连接之间不得互相顶替。
+//
+// 这是上一条的边界：游客共享 userId=0，若按它归并，全房间游客会一个接一个
+// 把对方挤掉；同理两个没有 guestId 的连接必须各占一格。
+func TestLive2DIdentityDoesNotMergeStrangers(t *testing.T) {
+	env := newTestEnv(t)
+	const room = "ROOM_IDENT_SPLIT"
+
+	for _, m := range []live2dMember{
+		{SocketID: "a", Identity: "u:1", Kind: "builtin", ModelID: "hiyori", Scale: 1},
+		{SocketID: "b", Identity: "u:2", Kind: "builtin", ModelID: "hiyori", Scale: 1},
+		{SocketID: "c", Identity: "", Kind: "builtin", ModelID: "hiyori", Scale: 1},
+		{SocketID: "d", Identity: "", Kind: "builtin", ModelID: "hiyori", Scale: 1},
+	} {
+		if !env.svc.Live2DSet(room, m) {
+			t.Fatalf("声明 %s 失败", m.SocketID)
+		}
+	}
+
+	if n := env.svc.Live2DCount(room); n != 4 {
+		t.Fatalf("不同身份不应互相顶替，实际只剩 %d 个", n)
+	}
+}

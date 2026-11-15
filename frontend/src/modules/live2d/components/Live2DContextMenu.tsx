@@ -1,14 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  Eye,
-  EyeOff,
-  Move,
-  RotateCcw,
-  Settings2,
-  Sparkles,
-  X,
-} from 'lucide-react'
+import { Move, RotateCcw, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
@@ -48,15 +40,15 @@ export interface Live2DContextMenuProps {
   /** 房主已统一角色：选模型这一段换成说明 */
   unified: boolean
   /**
-   * 我在本房间隐藏了自己的角色。
+   * 我已删除自己的角色。
    *
-   * 隐藏时右键其实打不到任何模型（画面上没有角色），所以这里大概率恒为
+   * 删除后右键其实打不到任何模型（画面上没有角色），所以这里大概率恒为
    * false；留着它是为了让菜单永远是"当前真实状态"的投影——占位卡、将来的
-   * 名册入口都能复用它，不必各自维护一份"隐藏中"的判断。
+   * 名册入口都能复用它，不必各自维护一份"已删除"的判断。
    */
-  hidden: boolean
-  /** 能否在隐藏/显示之间切换（统一角色时不能） */
-  canToggleVisibility: boolean
+  removed: boolean
+  /** 能否删除自己的角色（统一角色时不能；已删除时入口不出现） */
+  canRemove: boolean
   /** 有角色才能拖（没模型时整个入口置灰） */
   canDrag: boolean
   /** 拖拽模式是否正在进行（决定这个入口是「进入」还是「退出」） */
@@ -70,8 +62,7 @@ export interface Live2DContextMenuProps {
   onOpenAdvanced: () => void
   onToggleDrag: () => void
   onResetPosition: () => void
-  onHide: () => void
-  onShow: () => void
+  onRemove: () => void
 }
 
 const MENU_WIDTH = 272
@@ -92,8 +83,8 @@ export function Live2DContextMenu({
   faceTracking,
   allowFace,
   unified,
-  hidden,
-  canToggleVisibility,
+  removed,
+  canRemove,
   canDrag,
   dragMode,
   canResetPosition,
@@ -104,8 +95,7 @@ export function Live2DContextMenu({
   onOpenAdvanced,
   onToggleDrag,
   onResetPosition,
-  onHide,
-  onShow,
+  onRemove,
 }: Live2DContextMenuProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
 
@@ -297,19 +287,24 @@ export function Live2DContextMenu({
         <MenuAction onClick={onOpenAdvanced} icon={<Settings2 size={13} />}>
           {t('高级设置')}
         </MenuAction>
-        {/* 一个入口，两个方向：隐藏之后同一处就是「显示角色」。以前隐藏会把
-            模型选择清空，这个入口随即整条消失，用户只能去模型列表里"换一个"
-            才能让角色回来。 */}
-        {canToggleVisibility && (
+        {/* 只有「删除」一个方向：删除后画面上没有角色，右键也打不到它；
+            想再要有角色就从上面的模型列表里重新选一个（选中即恢复）。 */}
+        {canRemove && (
           <MenuAction
-            onClick={hidden ? onShow : onHide}
-            icon={hidden ? <Eye size={13} /> : <EyeOff size={13} />}
-            title={hidden ? t('重新显示角色') : t('隐藏角色')}
+            onClick={onRemove}
+            icon={<Trash2 size={13} />}
+            danger
+            title={t('删除后房间里所有人（包括你）都看不到你的角色')}
           >
-            {hidden ? t('显示角色') : t('隐藏角色')}
+            {t('删除角色')}
           </MenuAction>
         )}
       </div>
+      {removed && (
+        <p className="mt-1.5 text-[10px] leading-snug opacity-50">
+          {t('角色已删除，在上面选一个模型即可恢复')}
+        </p>
+      )}
     </div>,
     container ?? document.body
   )
@@ -332,12 +327,15 @@ function MenuAction({
   icon,
   title,
   disabled,
+  danger,
   children,
 }: {
   onClick: () => void
   icon: React.ReactNode
   title?: string
   disabled?: boolean
+  /** 破坏性动作（删除角色）：用错误色，和普通入口区分开 */
+  danger?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -350,6 +348,7 @@ function MenuAction({
       style={{
         background: 'var(--md-sys-color-surface)',
         borderColor: 'var(--md-sys-color-outline-variant)',
+        color: danger ? 'var(--md-sys-color-error)' : undefined,
       }}
     >
       {icon}

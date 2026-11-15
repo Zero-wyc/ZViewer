@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,6 +97,23 @@ type live2dDragPayload struct {
 	RoomID string   `json:"roomId"`
 	X      *float64 `json:"x"`
 	Y      *float64 `json:"y"`
+}
+
+// live2dIdentity 返回「这个人是谁」的稳定标识，用于「一个用户只能有一个角色」。
+//
+//   - 登录用户用 userId（游客共享 userId=0，不能按其判定，否则全房间游客
+//     会互相顶替）；
+//   - 游客用 guestId（同一浏览器的多个标签共享它，正好符合"一个用户一个角色"）；
+//   - 两者都没有时返回空串，表示无法识别——宁可他多占一格，也不能把两个
+//     陌生人合并成一个。
+func live2dIdentity(sc *sio.Socket) string {
+	if uid := socketUserID(sc); uid != nil && *uid > 0 {
+		return "u:" + strconv.FormatInt(*uid, 10)
+	}
+	if gid := socketGuestID(sc); gid != nil {
+		return "g:" + *gid
+	}
+	return ""
 }
 
 // Live2DModelChecker 判断某个模型是否存在（由 api 层注入，避免 room 包碰磁盘）。
@@ -250,6 +268,7 @@ func (s *Service) handleLive2DConfig(sc *sio.Socket, args []json.RawMessage, ack
 
 	member := live2dMember{
 		SocketID: sc.ID,
+		Identity: live2dIdentity(sc),
 		Name:     name,
 		Kind:     kind,
 		ModelID:  modelID,

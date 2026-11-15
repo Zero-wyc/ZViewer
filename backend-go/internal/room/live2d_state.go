@@ -96,6 +96,12 @@ const (
 // live2dMember 是一个成员在当前房间里的模型状态。
 type live2dMember struct {
 	SocketID string
+	// Identity 是「这个人是谁」的稳定标识（`u:<userId>` / `g:<guestId>`，空串
+	// 表示无法识别）。名册按 socket 组织，但**一个用户只能有一个角色**：
+	// 同一 Identity 重新声明时顶替旧记录（见 live2dStore.Set）。
+	//
+	// 不进任何下发：客户端只需要 socketId，身份留在服务端。
+	Identity string
 	Name     string
 	Kind     string // builtin | url | room（room = 房主上传到本房间的模型）
 	ModelID  string
@@ -147,8 +153,8 @@ type live2dMember struct {
 	//
 	// 与 dirty 分开：指针/面部走 u 行、拖拽走 d 行，两者形状不同；合成一种
 	// 脏标记就只能二选一，拖动时指针会一起被当成"状态变了"重发。
-	dirtyDrag  bool
-	lastState  time.Time
+	dirtyDrag bool
+	lastState time.Time
 	// lastAction 只用于表情频控，不参与下发。
 	lastAction time.Time
 	updatedAt  time.Time
@@ -156,6 +162,27 @@ type live2dMember struct {
 
 type live2dRoom struct {
 	models map[string]*live2dMember
+	// replaced 是「被同一用户的另一个连接顶替掉」的 socketId，等下一轮 flush
+	// 以 rem 行下发。
+	//
+	// 为什么不在这里直接广播：store 不认识 Hub（它在锁内不能回调 Service）。
+	// 攒到 FlushLive2D 与 PruneStale 的结果合并成一条 patch，顺带也能被
+	// 「房间里没人收」的分支一起清掉。
+	replaced []string
+}
+
+// TakeReplaced 取出并清空被顶替的 socketId（调用方负责下发 rem 行）。
+func (st *live2dStore) TakeReplaced(roomID string) []string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	r := st.rooms[roomID]
+	if r == nil || len(r.replaced) == 0 {
+		return nil
+	}
+	out := r.replaced
+	r.replaced = nil
+	return out
 }
 
 // nextOrdLocked 取最小的未占用排位（调用方必须已持锁）。
@@ -217,11 +244,32 @@ func (st *live2dStore) roomLocked(roomID string) *live2dRoom {
 // Set 写入/更新一个成员的模型声明，返回 false 表示房间已满。
 //
 // 更新已有成员永远允许（不能因为满了就连换模型都不让改）。
+//
+// **一个用户只能有一个角色**：同一个 Identity 已经用别的 socket 声明过时，
+// 旧记录当场被顶替（新的接住旧排位），旧 socketId 进 replaced 队列等下一轮
+// flush 下发 rem。没有这一步，重连窗口里（旧连接还没被服务端判死、新连接
+// 已经声明）同一个人会站在两个位置——每个人的屏幕上都多出一个"我自己"。
 func (st *live2dStore) Set(roomID string, m live2dMember, now time.Time) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
 	r := st.roomLocked(roomID)
+	// 先归并同身份记录，再判容量——顶替会腾出一个名额，不该因为"满了"
+	// 把这次声明挡回去。
+	if m.Identity != "" {
+		for id, old := range r.models {
+			if id == m.SocketID || old.Identity != m.Identity {
+				continue
+			}
+			// 接住旧排位：换设备/重连不该让位置跳到队尾（队尾还可能掉出
+			// 前端的前 N 个渲染名额，表现为"我明明有角色却看不见自己"）。
+			m.Ord = old.Ord
+			delete(r.models, id)
+			r.replaced = append(r.replaced, id)
+			break
+		}
+	}
+
 	if existing := r.models[m.SocketID]; existing != nil {
 		// 保留排位、指针与面部状态：换模型不该让人在画面里换个位置站着，
 		// 也不该在换模型的一瞬间闭眼。
@@ -237,7 +285,9 @@ func (st *live2dStore) Set(roomID string, m live2dMember, now time.Time) bool {
 	if len(r.models) >= live2dMaxModels {
 		return false
 	}
-	m.Ord = r.nextOrdLocked()
+	if m.Ord == 0 {
+		m.Ord = r.nextOrdLocked()
+	}
 	if m.AR <= 0 {
 		m.AR = live2dDefaultAR
 	}
@@ -583,7 +633,8 @@ func (s *Service) FlushLive2D() {
 			s.live2d.TakeDirty(roomID)
 			continue
 		}
-		removed := s.live2d.PruneStale(roomID, s.Hub.Connected, live2dStaleAfter, now)
+		removed := s.live2d.TakeReplaced(roomID)
+		removed = append(removed, s.live2d.PruneStale(roomID, s.Hub.Connected, live2dStaleAfter, now)...)
 		changed := s.live2d.TakeDirty(roomID)
 		if len(changed) == 0 && len(removed) == 0 {
 			continue
