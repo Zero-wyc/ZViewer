@@ -201,6 +201,21 @@ export function RoomLive2DHost({
   // 的所有人失效。
   const canShowLayer = isHost || isServerAdmin || policy.showToViewers
 
+  // 「对观众显示角色」被关掉时，这一层以前是**静默消失**：观众看不到角色，
+  // 也不知道是房主关的，只会以为功能坏了（尤其是刚进房就看到一片空白）。
+  // 这里在隐藏期间说一次状态——不渲染任何东西，只解释「为什么没有」。
+  // 房主与服务器管理员不受影响（他们永远看得见），所以不会走到这条分支。
+  const hiddenNoticeRef = useRef(false)
+  useEffect(() => {
+    if (canShowLayer) {
+      hiddenNoticeRef.current = false
+      return
+    }
+    if (hiddenNoticeRef.current) return
+    hiddenNoticeRef.current = true
+    message.info(t('房主已关闭角色显示'))
+  }, [canShowLayer])
+
   // ---- 2. 原生全屏时搬进 top layer ----
   useEffect(() => {
     const sync = () => {
@@ -359,6 +374,12 @@ export function RoomLive2DHost({
   //
   // 用「生效模型」而不是「我选的模型」：房主统一角色时服务端名册也跟着统一，
   // 各端画出来的才是同一个。
+  //
+  // ack 是唯一能知道「服务端有没有收下这个模型」的地方，必须接住：房间满 12 个、
+  // 模型已被别人删掉、模型标识不合法、自定义地址只有房主能设——这几种以前全是
+  // 静默失败，用户看到的只是「选了模型却没有角色」。
+  // 同一条错误只提示一次：这条 effect 会在重连等情况下重跑，重复弹窗只是噪音。
+  const declareErrorRef = useRef('')
   useEffect(() => {
     if (!socket || !roomId) return
     if (!effModelId) {
@@ -367,12 +388,27 @@ export function RoomLive2DHost({
       if (removedNow) emitLive2DConfig(socket, roomId, { action: 'clear' })
       return
     }
-    emitLive2DConfig(socket, roomId, {
-      action: 'set',
-      kind: effKind,
-      modelId: effModelId,
-      scale: myScale,
-    })
+    emitLive2DConfig(
+      socket,
+      roomId,
+      {
+        action: 'set',
+        kind: effKind,
+        modelId: effModelId,
+        scale: myScale,
+      },
+      (ack) => {
+        // 没有回执（断线）不当成失败：那种情况下重连会自己重发一次。
+        if (!ack || ack.success) {
+          declareErrorRef.current = ''
+          return
+        }
+        const text = ack.message || t('角色模型应用失败')
+        if (declareErrorRef.current === text) return
+        declareErrorRef.current = text
+        message.error(text)
+      }
+    )
   }, [socket, roomId, effKind, effModelId, myScale, removedNow])
 
   // ---- 8b. 摄像头动捕 ----
@@ -536,8 +572,54 @@ export function RoomLive2DHost({
     return () => cancelAnimationFrame(raf)
   }, [renderer])
 
+  // ---- 8f. 别人删掉了我在用的模型 ----
+  //
+  // 公共库是全服的，删的人可能根本不在这个房间（甚至不在线）。服务端已经把
+  // 我的角色从名册里摘掉了，这里负责把**本地选择**也换掉：否则 store 会一直
+  // 指着一个不存在的模型，下次进房只会得到「该模型已不存在」的 ack 失败，
+  // 或者一张永远加载不出来的占位卡。
+  const handleModelRemoved = useCallback(
+    (modelId: string) => {
+      if (myKind === 'room' && myModelId === modelId) {
+        const wasRemoved = removedNow
+        const fallback = builtins[0]?.id ?? ''
+        setFailed({})
+        setMyModel('builtin', fallback)
+        // setMyModel 会顺手清掉「已删除」：但这次换模型不是为了恢复角色，
+        // 用户明确删掉的角色不该因为别人删了一个模型又自己冒出来。
+        if (wasRemoved) setRemoved(true)
+        else {
+          message.warning(
+            fallback
+              ? t('你用的模型已被删除，已换成默认模型')
+              : t('你用的模型已被删除')
+          )
+        }
+      }
+      // 统一角色指向它：服务端已关掉统一并广播了新策略，这里只说清原因。
+      if (policy.unifiedKind === 'room' && policy.unifiedId === modelId) {
+        message.warning(t('房间统一使用的模型已被删除'))
+      }
+    },
+    [
+      myKind,
+      myModelId,
+      removedNow,
+      builtins,
+      setMyModel,
+      setRemoved,
+      policy.unifiedKind,
+      policy.unifiedId,
+    ]
+  )
+
   // ---- 9. 收发 ----
-  useLive2DSync({ socket, roomId, renderer })
+  useLive2DSync({
+    socket,
+    roomId,
+    renderer,
+    onModelRemoved: handleModelRemoved,
+  })
   useLive2DPointer({
     socket,
     roomId,

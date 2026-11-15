@@ -206,6 +206,15 @@ export function Live2DAdvancedSettings({
                       )}
                     </Note>
                   )}
+                  {/* 一个模型都没有时的唯一出口：不引导的话这里就是一块空面板，
+                      游客尤其无从下手（他们不能上传，只能等别人传）。 */}
+                  {builtins.length === 0 && libraryModels.length === 0 && (
+                    <Note>
+                      {canUploadModels
+                        ? t('还没有可用的模型，上传一个模型包就能开始')
+                        : t('还没有可用的模型，登录后可以上传，或等别人上传')}
+                    </Note>
+                  )}
                   {/* 高亮用「我的选择」而不是「生效模型」：删除时生效模型是
                       空串，用它当 value 会让选择器整片都不选中，看起来像"我从
                       来没选过模型"——而实际上只是删掉了。 */}
@@ -214,7 +223,11 @@ export function Live2DAdvancedSettings({
                     libraryModels={libraryModels}
                     value={{ kind: selectedKind, id: selectedModelId }}
                     onSelect={onSelect}
-                    allowUrl={canUploadModels}
+                    // 与后端同口径：kind=url 只开给房主（它会让房间里每个人的
+                    // 浏览器都去拉第三方资源）。这里以前传的是 canUploadModels
+                    // （任何登录用户），于是非房主能看到输入框、填了却被服务端
+                    // 拒绝，表现成「选了模型却没反应」。
+                    allowUrl={isHost}
                   />
                 </>
               )}

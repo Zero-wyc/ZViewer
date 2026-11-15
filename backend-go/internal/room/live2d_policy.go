@@ -2,6 +2,7 @@ package room
 
 import (
 	"encoding/json"
+	"sort"
 
 	"zviewer/backend/internal/sio"
 )
@@ -59,6 +60,33 @@ func (st *live2dStore) SetPolicy(roomID string, p live2dPolicy) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.policies[roomID] = p
+}
+
+// ClearUnifiedModel 关掉「统一角色用的正是这个模型」的房间，返回受影响的 roomID。
+//
+// 不关掉的话，房间里所有人会一直声明一个不存在的模型：服务端在 set 时确实会
+// 拒绝（validateLive2DModelRef 查存在性），但用户看到的只是「统一角色开着、
+// 谁都没有角色」，比直接关掉统一更难理解。
+//
+// 连 UnifiedKind/ID 一起清：留着死 ID，房主下次打开统一开关会直接命中它，
+// 又回到全房间没有角色。
+func (st *live2dStore) ClearUnifiedModel(modelID string) []string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	var rooms []string
+	for roomID, p := range st.policies {
+		if !p.Unified || p.UnifiedKind != "room" || p.UnifiedID != modelID {
+			continue
+		}
+		p.Unified = false
+		p.UnifiedKind = ""
+		p.UnifiedID = ""
+		st.policies[roomID] = p
+		rooms = append(rooms, roomID)
+	}
+	sort.Strings(rooms)
+	return rooms
 }
 
 // Live2DPolicy 是 Service 侧读取入口。

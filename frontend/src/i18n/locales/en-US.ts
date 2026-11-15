@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2758 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2765 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（88 条） =====
+  // ===== modules/live2d（95 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -980,17 +980,22 @@ const enUS: Record<string, string> = {
   '动捕中': 'Tracking',
   '对观众显示角色': 'Show characters to viewers',
   '房间设置': 'Room settings',
+  '房间统一使用的模型已被删除': 'The room-wide model has been deleted',
   '房主已关闭成员动捕': 'The host turned off tracking for members',
+  '房主已关闭角色显示': 'The host turned off character display',
   '房主已统一角色，全房间使用同一个模型': 'The host picked one character for the whole room',
   '关闭动捕预览': 'Close preview',
   '关闭后成员的动捕开关会被禁用': 'Members cannot turn on camera tracking',
   '关闭后观众看不到任何角色，你自己仍然看得到': 'Viewers see no characters; you still do',
+  '还没有可用的模型，登录后可以上传，或等别人上传': 'No models available yet — sign in to upload one, or wait for someone else to',
+  '还没有可用的模型，上传一个模型包就能开始': 'No models available yet — upload a model pack to get started',
   '还没有内置模型': 'No built-in models yet',
   '还没有内置模型，可以上传一个模型包，或填写下面的地址': 'No built-in models yet — upload a model pack, or enter a URL below',
   '画面只在本机处理，不会上传': 'Frames stay on this device and are never uploaded',
   '回到默认站位': 'Back to default spot',
   '回到原位': 'Reset position',
   '加载超时': 'Load timed out',
+  '角色模型应用失败': 'Could not apply the character model',
   '角色设置': 'Character settings',
   '角色已删除，房间里所有人（包括你）都看不到它。在下面重新选一个模型即可恢复': 'Character deleted — nobody in the room (including you) can see it now. Pick a model below to bring it back',
   '角色已删除，在上面选一个模型即可恢复': 'Character deleted — pick a model above to bring it back',
@@ -1009,6 +1014,8 @@ const enUS: Record<string, string> = {
   '模型已删除': 'Model deleted',
   '模型已上传': 'Model uploaded',
   '内置模型': 'Built-in',
+  '你用的模型已被删除': 'The model you were using has been deleted',
+  '你用的模型已被删除，已换成默认模型': 'The model you were using has been deleted — switched to the default',
   '请填写模型地址': 'Enter a model URL',
   '全房间都显示同一个模型，成员不能再自己换': 'Everyone shows the same model and cannot change it',
   '人脸检测模型加载失败': 'Failed to load the face model',

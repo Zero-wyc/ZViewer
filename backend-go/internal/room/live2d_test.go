@@ -781,3 +781,79 @@ func TestLive2DIdentityKey(t *testing.T) {
 		}
 	}
 }
+
+// 20) 公共库模型被删：正在用它的人要被摘掉并收到原因，统一角色指向它要关掉。
+//
+// 场景是跨房间的：删模型的人可能根本不在用它的房间里（库是全服的），
+// 所以清理只能由服务端扫全量名册完成——客户端没有这个视野。
+func TestLive2DModelRemoved(t *testing.T) {
+	env := newTestEnv(t)
+	env.hub.members["ROOM_M1"] = []string{"s-user", "s-other"}
+	env.hub.members["ROOM_M2"] = []string{"s-far"}
+
+	// 两个房间、三个成员：两个用被删的那套、一个用别的
+	env.svc.Live2DSet("ROOM_M1", live2dMember{
+		SocketID: "s-user", Name: "user", Kind: "room", ModelID: "m-gone", Scale: 1, AR: 1.7,
+	})
+	env.svc.Live2DSet("ROOM_M1", live2dMember{
+		SocketID: "s-other", Name: "other", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+	env.svc.Live2DSet("ROOM_M2", live2dMember{
+		SocketID: "s-far", Name: "far", Kind: "room", ModelID: "m-gone", Scale: 1, AR: 1.7,
+	})
+	// 另一个房间的统一角色也指着它
+	env.svc.setLive2DPolicy("ROOM_M2", live2dPolicy{
+		AllowFace: true, ShowToViewers: true,
+		Unified: true, UnifiedKind: "room", UnifiedID: "m-gone",
+	})
+
+	env.svc.Live2DModelRemoved("m-gone")
+
+	if n := env.svc.Live2DCount("ROOM_M1"); n != 1 {
+		t.Fatalf("只应摘掉用被删模型的成员，ROOM_M1 剩 %d 个", n)
+	}
+	if n := env.svc.Live2DCount("ROOM_M2"); n != 0 {
+		t.Fatalf("ROOM_M2 的成员应被摘掉，剩 %d 个", n)
+	}
+	if !env.svc.Live2DHas("ROOM_M1", "s-other") {
+		t.Fatal("用别的模型的人不该被牵连")
+	}
+
+	// rem 行必须带被摘掉的 sid，客户端据此把画面删掉
+	remSeen := false
+	for _, item := range env.hub.payloads["ROOM_M1|live2d-patch"] {
+		if patch, ok := item.(live2dPatchOut); ok {
+			for _, sid := range patch.Rem {
+				if sid == "s-user" {
+					remSeen = true
+				}
+			}
+		}
+	}
+	if !remSeen {
+		t.Fatal("被摘掉的成员应以 rem 行下发")
+	}
+
+	// 只发 rem 的话用户只会看到角色凭空消失，必须同时说清原因
+	var notice live2dModelRemovedOut
+	for _, item := range env.hub.payloads["ROOM_M1|live2d-model-removed"] {
+		if v, ok := item.(live2dModelRemovedOut); ok {
+			notice = v
+		}
+	}
+	if notice.ModelID != "m-gone" || notice.RoomID != "ROOM_M1" {
+		t.Fatalf("缺少「模型已删除」通知：%+v", notice)
+	}
+	if !env.hub.hasRoomEvent("ROOM_M2", "live2d-model-removed") {
+		t.Fatal("另一个使用中的房间也要收到通知")
+	}
+
+	// 统一角色指向死模型：必须关掉并广播，否则全房间一直声明一个不存在的模型
+	p := env.svc.Live2DPolicy("ROOM_M2")
+	if p.Unified || p.UnifiedID != "" || p.UnifiedKind != "" {
+		t.Fatalf("统一角色应被关闭并清空模型：%+v", p)
+	}
+	if !env.hub.hasRoomEvent("ROOM_M2", "live2d-policy") {
+		t.Fatal("关闭统一角色要广播给房间")
+	}
+}

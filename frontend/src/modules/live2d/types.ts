@@ -169,6 +169,17 @@ export interface Live2DConfigAck {
   data?: { models?: Live2DRow[] }
 }
 
+/**
+ * 「你正在用的公共库模型被删了」的通知。
+ *
+ * 只带 modelId，由客户端自己比对是不是自己的选择：被摘掉的成员已经由同批的
+ * rem 行从名册里移除，这条只负责说明原因并触发本地回退。
+ */
+export interface Live2DModelRemovedPayload {
+  roomId: string
+  modelId: string
+}
+
 export function rowToPeer(row: Live2DRow): Live2DPeer {
   return {
     sid: String(row[0] ?? ''),

@@ -22,6 +22,14 @@ export const LIVE2D_EVENT = {
   POLICY_SET: 'live2d-policy-set',
   /** S→C：房间级策略变更（含下发时的回执，房主自己也会收到） */
   POLICY: 'live2d-policy',
+  /**
+   * S→C：正在使用的公共库模型被删掉了。
+   *
+   * 与 SNAPSHOT/PATCH 不同，这条不是「房间状态变了」而是「你的选择失效了」：
+   * 服务端先下发 rem 行把画面清掉，再补这一条说明原因，客户端据此换回默认
+   * 模型（否则本地会一直指着一个已经不存在、也永远加载不出来的模型）。
+   */
+  MODEL_REMOVED: 'live2d-model-removed',
 } as const
 
 /** 上行频率。服务端单连接有 40ms 门限，这里留余量。 */

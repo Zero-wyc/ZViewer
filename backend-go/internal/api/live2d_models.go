@@ -886,6 +886,12 @@ func (s *Server) handleDeleteLive2DModel(w http.ResponseWriter, r *http.Request)
 		httpx.InternalError(w, "live2d-models/delete", err)
 		return
 	}
+	// 模型库是全局的：删掉之后可能还有其他房间的人正站着它。清理必须由服务端
+	// 扫全量房间完成（他们的 socket 不在这次请求里），否则那些人只会看到自己的
+	// 角色凭空消失，或者一直挂着一个加载失败的占位卡。
+	if s.RoomSvc != nil {
+		s.RoomSvc.Live2DModelRemoved(modelID)
+	}
 	httpx.OK(w, map[string]any{"success": true, "message": "模型已删除"})
 }
 

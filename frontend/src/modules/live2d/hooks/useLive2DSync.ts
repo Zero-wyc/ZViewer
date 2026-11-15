@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { Socket } from 'socket.io-client'
 import { LIVE2D_EVENT } from '../constants'
 import {
@@ -6,6 +6,7 @@ import {
   rowToPeer,
   type Live2DActionPayload,
   type Live2DConfigAck,
+  type Live2DModelRemovedPayload,
   type Live2DPatchPayload,
   type Live2DPolicy,
   type Live2DPolicyPayload,
@@ -33,6 +34,13 @@ export interface UseLive2DSyncOptions {
   socket: Socket | null
   roomId: string
   renderer: Live2DRenderer | null
+  /**
+   * 公共库模型被删掉了（房间里有人的角色因此消失）。
+   *
+   * 由宿主处理「换回默认模型 + 说明原因」：钩子这边拿不到内置模型清单，
+   * 也不该知道 UI 该提示什么。
+   */
+  onModelRemoved?: (modelId: string) => void
 }
 
 function aspectRatio(): number {
@@ -45,7 +53,16 @@ export function useLive2DSync({
   socket,
   roomId,
   renderer,
+  onModelRemoved,
 }: UseLive2DSyncOptions): void {
+  // 回调用 ref 转一手：它每次渲染都可能换身份（依赖我的模型选择），直接进
+  // 依赖表会让整条订阅在每次换模型时重建——那会连带重发 live2d-request，
+  // 快照回来又要 clearScene，画面上就是一次无谓的重载。
+  const removedSinkRef = useRef(onModelRemoved)
+  useEffect(() => {
+    removedSinkRef.current = onModelRemoved
+  }, [onModelRemoved])
+
   // 渲染器晚于 hook 就绪（引擎异步加载），所以它进依赖表：就绪时会重订阅一次
   // 并重新拉快照，代价可忽略，换来的是不在 render 期写 ref。
   useEffect(() => {
@@ -163,10 +180,18 @@ export function useLive2DSync({
       renderer?.playExpression(payload.sid, Number(payload.e))
     }
 
+    // 模型被删：名册已经由同一批 rem 行清干净了，这里只把「选择失效」这件事
+    // 交回给宿主（它知道内置模型清单，也知道该说什么）。
+    const onModelRemoved = (payload: Live2DModelRemovedPayload) => {
+      if (!payload || payload.roomId !== roomId || !payload.modelId) return
+      removedSinkRef.current?.(payload.modelId)
+    }
+
     socket.on(LIVE2D_EVENT.SNAPSHOT, onSnapshot)
     socket.on(LIVE2D_EVENT.PATCH, onPatch)
     socket.on(LIVE2D_EVENT.ACTION, onAction)
     socket.on(LIVE2D_EVENT.POLICY, onPolicy)
+    socket.on(LIVE2D_EVENT.MODEL_REMOVED, onModelRemoved)
 
     // 挂载即拉：join 时服务端的推送往往早于 effect 挂载，已经丢了
     socket.emit(LIVE2D_EVENT.REQUEST, { roomId })
@@ -176,6 +201,7 @@ export function useLive2DSync({
       socket.off(LIVE2D_EVENT.PATCH, onPatch)
       socket.off(LIVE2D_EVENT.ACTION, onAction)
       socket.off(LIVE2D_EVENT.POLICY, onPolicy)
+      socket.off(LIVE2D_EVENT.MODEL_REMOVED, onModelRemoved)
     }
   }, [socket, roomId, renderer])
 

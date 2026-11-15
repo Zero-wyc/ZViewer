@@ -315,6 +315,39 @@ func (st *live2dStore) Set(roomID string, m live2dMember, now time.Time) bool {
 	return true
 }
 
+// DropModel 把「正在使用这个公共库模型」的成员全部摘掉，返回 roomID → 被摘掉的 socketId。
+//
+// 公共库是全局的：删模型的人可能不在用它的房间里，甚至根本不在线。所以清理只能
+// 由服务端扫全量房间完成——客户端无从知道自己删掉的模型正被谁用着。
+//
+// 只动 kind=room 的记录：同名 id 不会出现在 builtin（字符集不同）或 url（是完整
+// 地址）里，多一道判断是为了将来加类型时不会误伤。
+func (st *live2dStore) DropModel(modelID string) map[string][]string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	out := make(map[string][]string)
+	for roomID, r := range st.rooms {
+		var gone []string
+		for sid, m := range r.models {
+			if m.Kind != "room" || m.ModelID != modelID {
+				continue
+			}
+			delete(r.models, sid)
+			gone = append(gone, sid)
+		}
+		if len(gone) == 0 {
+			continue
+		}
+		if len(r.models) == 0 {
+			delete(st.rooms, roomID)
+		}
+		sort.Strings(gone)
+		out[roomID] = gone
+	}
+	return out
+}
+
 // Has 是热路径上的成员资格判断：不查库、不碰 Service.mu。
 func (st *live2dStore) Has(roomID, socketID string) bool {
 	st.mu.Lock()
@@ -616,6 +649,38 @@ func (s *Service) Live2DCount(roomID string) int {
 		return 0
 	}
 	return s.live2d.Count(roomID)
+}
+
+// Live2DModelRemoved 是「公共库模型被删掉」之后的房间侧收尾：
+// 摘掉正在用它的人、关掉指向它的统一角色，并把结果广播给受影响的房间。
+//
+// 由 api 层在删除成功后调用。放在这里而不是 api：只有这里同时拿着名册、策略
+// 与 Hub，而这三样都是纯内存、锁边界很清楚（api 层没有名册，也无权广播）。
+func (s *Service) Live2DModelRemoved(modelID string) {
+	if s == nil || s.live2d == nil {
+		return
+	}
+	dropped := s.live2d.DropModel(modelID)
+	unifiedOff := s.live2d.ClearUnifiedModel(modelID)
+	if s.Hub == nil {
+		return
+	}
+	for roomID, sids := range dropped {
+		// 先让画面消失（rem），再说明原因：只发 rem 的话，本人只会看到自己的
+		// 角色凭空不见，还以为是自己掉线或对方网络问题。
+		s.Hub.EmitRoom(roomID, "live2d-patch", live2dPatchOut{RoomID: roomID, Rem: sids})
+		s.Hub.EmitRoom(roomID, "live2d-model-removed", live2dModelRemovedOut{
+			RoomID:  roomID,
+			ModelID: modelID,
+		})
+	}
+	for _, roomID := range unifiedOff {
+		// 读策略必须放在锁外：ClearUnifiedModel 已经返回并解锁，这里再取一次。
+		s.Hub.EmitRoom(roomID, "live2d-policy", live2dPolicyOut{
+			RoomID: roomID,
+			Policy: s.Live2DPolicy(roomID),
+		})
+	}
 }
 
 // FlushLive2D 把这一轮累积的变更合并成一条 live2d-patch 下发。

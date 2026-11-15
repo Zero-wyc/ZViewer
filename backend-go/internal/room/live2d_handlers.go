@@ -45,6 +45,15 @@ type live2dSnapshotOut struct {
 	Policy live2dPolicy `json:"policy"`
 }
 
+// live2dModelRemovedOut 是「你正在用的公共库模型被删了」的通知。
+//
+// 只带 modelId：客户端自己比对「是不是我在用的那个」，不猜别人的状态——
+// 被摘掉的成员已经由同一批的 rem 行从名册里移除，画面先消失、原因随后到。
+type live2dModelRemovedOut struct {
+	RoomID  string `json:"roomId"`
+	ModelID string `json:"modelId"`
+}
+
 type live2dConfigPayload struct {
 	RoomID  string   `json:"roomId"`
 	Action  string   `json:"action"`
