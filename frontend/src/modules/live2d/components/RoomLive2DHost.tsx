@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Socket } from 'socket.io-client'
 import { t } from '@/i18n'
-import { Camera, Sparkles } from 'lucide-react'
+import { Camera, Loader2, Sparkles } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -30,6 +30,7 @@ import {
   LIVE2D_DRAG_INTERVAL_MS,
   LIVE2D_DRAG_PREF_APPLY_DELAY_MS,
   LIVE2D_MAX_RENDERED,
+  LIVE2D_SCALE_COMMIT_MS,
 } from '../constants'
 import {
   emitLive2DAction,
@@ -89,10 +90,84 @@ function labelOf(
   return t('自定义模型地址')
 }
 
+/** 没有加载记录时的空状态。常量共享，避免每帧新建对象。 */
+const EMPTY_PEER_STATE: PeerLoadState = {}
+
+/**
+ * 模型还没出现在画面上时的占位卡。
+ *
+ * 加载中与加载失败**共用同一个形状**：以前只有失败才画卡，加载期间（最长
+ * 45 秒）画面上只有名字，用户分不清是在等还是坏了。同形状也意味着状态切换
+ * 时不会跳一下（原来是「什么都没有 → 突然一张卡」）。
+ *
+ * 两种状态都可以右键：这时候模型没画出来，`renderer.pick` 打不中，这张卡
+ * 是唯一能打开菜单的地方。
+ */
+function Live2DSlotPlaceholder({
+  name,
+  failureReason,
+  onContextMenu,
+}: {
+  name: string
+  /** 有值 = 加载失败（带原因）；为空 = 仍在加载 */
+  failureReason?: string
+  onContextMenu: (event: React.MouseEvent) => void
+}) {
+  const failed = Boolean(failureReason)
+  return (
+    <div
+      title={
+        failed
+          ? t('模型加载失败：{{reason}}（右键可以换一个模型）', {
+              reason: failureReason,
+            })
+          : t('角色模型加载中…')
+      }
+      onContextMenu={onContextMenu}
+      style={{
+        pointerEvents: 'auto',
+        width: 44,
+        height: 64,
+        borderRadius: 10,
+        // 加载中用虚线框：同样是空位，但「还在等」和「已经坏了」要一眼分开
+        border: failed
+          ? '1px solid var(--md-sys-color-outline-variant)'
+          : '1px dashed var(--md-sys-color-outline-variant)',
+        background: 'var(--md-sys-color-surface-container)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 14,
+        opacity: failed ? 0.85 : 0.6,
+        color: 'var(--md-sys-color-on-surface-variant)',
+      }}
+    >
+      {failed ? (
+        (name || '?').slice(0, 1)
+      ) : (
+        <Loader2 size={14} className="animate-spin" />
+      )}
+    </div>
+  )
+}
+
 export interface RoomLive2DHostProps {
   roomId: string
   socket: Socket | null
   isHost: boolean
+}
+
+/**
+ * 单个成员模型的加载状态。
+ *
+ * 存**原因**而不是只存 sid：占位卡上那句「可能被跨域限制」对 4K 素材、moc3
+ * 版本、404 一视同仁，用户根本无从下手，至少要把引擎给的原话透出来。
+ */
+interface PeerLoadState {
+  /** 正在加载（含排队）。模型最长等 45 秒，没有中间态时用户分不清是在等还是坏了 */
+  loading?: boolean
+  /** 失败原因；有值就说明这次加载已经结束且没成功 */
+  failed?: string
 }
 
 export function RoomLive2DHost({
@@ -163,6 +238,20 @@ export function RoomLive2DHost({
   const [canUploadModels, setCanUploadModels] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // 拖动滑杆期间的大小。滑杆要跟手，但「上行 + 落盘」只在停手后做一次：
+  // 以前 `myScale` 直接躺在声明 effect 的依赖表里，拖动一次会经过二三十个值，
+  // 每个值都触发 live2d-config → 服务端把本人标成「新成员」→ 全房间广播一整行
+  // add + 给本人回一份全量快照，外加每个值写一次 localStorage。
+  // null = 没有待提交的值，滑杆直接读 store。
+  const [scaleDraft, setScaleDraft] = useState<number | null>(null)
+  // 每个成员模型的加载状态（加载中 / 失败原因）。**带房间号**：sid 是连接级的，
+  // 换房后旧记录不该再命中新房间里的同号 sid，否则一进房先闪一张
+  // 「加载中 / 加载失败」卡。用「读的时候比对房间号」而不是 effect 里清空——
+  // effect 里同步 setState 属于 set-state-in-effect，而且清理总比首帧晚一拍。
+  const [peerStates, setPeerStates] = useState<{
+    room: string
+    map: Record<string, PeerLoadState>
+  }>({ room: '', map: {} })
 
   // 模型名同时用在右键菜单（「当前模型」）和设置页（统一角色的只读展示），
   // 算一次就够。必须包 useMemo：组件体里裸调外部函数会让 React Compiler
@@ -244,9 +333,57 @@ export function RoomLive2DHost({
     },
     [mySid]
   )
-  // sid → 加载失败原因。存原因而不是只存 sid：占位卡上那句「可能被跨域限制」
-  // 对 4K 素材、moc3 版本、404 一视同仁，用户根本无从下手。
-  const [failed, setFailed] = useState<Record<string, string>>({})
+  // 加载状态的两个写入口。渲染器只创建一次（依赖 canvasEl），拿不到最新的
+  // roomId，所以走 ref 转发到最新一次渲染的闭包——和 motionSinkRef 同一套办法。
+  const peerStateSinkRef = useRef<{
+    loading: (sid: string, loading: boolean) => void
+    failed: (sid: string, reason: string) => void
+  }>({ loading: () => {}, failed: () => {} })
+
+  /**
+   * 合并某个成员的加载状态。
+   *
+   * 写的时候把当前房间盖上去：换房后第一次写就会丢掉上一个房间的记录；读的
+   * 时候再比对房间号（见 `stateOf`），两头一起保证「看不到别的房间的状态」。
+   */
+  const patchPeerState = useCallback(
+    (sid: string, patch: PeerLoadState) => {
+      if (!sid) return
+      setPeerStates((prev) => {
+        const map = prev.room === roomId ? { ...prev.map } : {}
+        map[sid] = { ...map[sid], ...patch }
+        return { room: roomId, map }
+      })
+    },
+    [roomId]
+  )
+  /** 清掉某个成员的加载状态（换了自己的模型、删掉角色之后不该再挂着旧反馈）。 */
+  const clearPeerState = useCallback(
+    (sid: string) => {
+      if (!sid) return
+      setPeerStates((prev) => {
+        if (prev.room !== roomId || !(sid in prev.map)) return prev
+        const map = { ...prev.map }
+        delete map[sid]
+        return { room: roomId, map }
+      })
+    },
+    [roomId]
+  )
+  useEffect(() => {
+    peerStateSinkRef.current = {
+      // 重新开始加载 = 上一次失败正在重试，旧原因必须清掉，否则新的这次
+      // 就算成功了，那张错误卡也会一直挂着。
+      loading: (sid, loading) =>
+        patchPeerState(
+          sid,
+          loading ? { loading: true, failed: undefined } : { loading: false }
+        ),
+      failed: (sid, reason) =>
+        patchPeerState(sid, { loading: false, failed: reason }),
+    }
+  }, [patchPeerState])
+
   // 连带 url 一起存：换模型时旧清单不能先闪一下
   const [exprState, setExprState] = useState<{
     url: string
@@ -387,11 +524,10 @@ export function RoomLive2DHost({
           mount: canvasEl,
           localSid: socket?.id ?? '',
           onLocalMotion: (group, index) => motionSinkRef.current(group, index),
-          onModelError: (sid, reason) => {
-            setFailed((prev) =>
-              prev[sid] === reason ? prev : { ...prev, [sid]: reason }
-            )
-          },
+          onModelError: (sid, reason) =>
+            peerStateSinkRef.current.failed(sid, reason),
+          onLoadingChange: (sid, loading) =>
+            peerStateSinkRef.current.loading(sid, loading),
         })
         if (cancelled) {
           instance.destroy()
@@ -444,6 +580,29 @@ export function RoomLive2DHost({
       return
     setMyModel('builtin', builtins[0].id)
   }, [removedNow, unifiedActive, myModelId, builtins, setMyModel])
+
+  // ---- 7b. 大小：本地跟手 + 停手后提交一次 ----
+  //
+  // 拖动期间只写本机（渲染器的本地覆盖 + 这里的草稿），网络上一个字节都不发；
+  // 停手 250ms 才把终值写进 store，声明 effect 随之只发一次 live2d-config。
+  // 画面上的即时反馈由 `renderer.setLocalScale` 负责——它只覆盖本人，
+  // 服务端回声一到就让位，不会和别人的屏幕长期不一致。
+  const handleScale = useCallback(
+    (value: number) => {
+      setScaleDraft(value)
+      renderer?.setLocalScale(value)
+    },
+    [renderer]
+  )
+  useEffect(() => {
+    if (scaleDraft === null) return
+    const timer = window.setTimeout(() => {
+      setMyScale(scaleDraft)
+      // 提交后立刻交还给 store：滑杆继续读同一个值，界面上没有跳动
+      setScaleDraft(null)
+    }, LIVE2D_SCALE_COMMIT_MS)
+    return () => window.clearTimeout(timer)
+  }, [scaleDraft, setMyScale])
 
   // ---- 8. 声明自己的模型（换模型/改大小才发；没模型时撤回声明）----
   //
@@ -716,7 +875,7 @@ export function RoomLive2DHost({
       if (myKind === 'room' && myModelId === modelId) {
         const wasRemoved = removedNow
         const fallback = builtins[0]?.id ?? ''
-        setFailed({})
+        clearPeerState(mySid)
         setMyModel('builtin', fallback)
         // setMyModel 会顺手清掉「已删除」：但这次换模型不是为了恢复角色，
         // 用户明确删掉的角色不该因为别人删了一个模型又自己冒出来。
@@ -743,6 +902,8 @@ export function RoomLive2DHost({
       setRemoved,
       policy.unifiedKind,
       policy.unifiedId,
+      mySid,
+      clearPeerState,
     ]
   )
 
@@ -772,12 +933,12 @@ export function RoomLive2DHost({
   // preserve-manual-memoization。所以本机状态一律通过依赖表拿。
   const handleSelect = useCallback(
     (kind: Live2DModelKind, modelId: string) => {
-      setFailed({})
+      clearPeerState(mySid)
       // setMyModel 会顺手清掉 removed：选模型就是"我要有角色"的动作，
       // 否则用户点了列表却什么都没发生。
       setMyModel(kind, modelId)
     },
-    [setMyModel]
+    [setMyModel, mySid, clearPeerState]
   )
 
   /**
@@ -881,7 +1042,7 @@ export function RoomLive2DHost({
       // 第一个内置模型；连内置模型都没有（未随包模型）时直接清空，别让
       // 名册里留一个永远加载不出来的条目。
       if (myKind === 'room' && myModelId === modelId) {
-        setFailed({})
+        clearPeerState(mySid)
         const fallback = builtins[0]?.id
         // setMyModel 会把 removed 清掉——但用户是"删了角色"而不是"要换一个
         // 角色"，这里手动把删除状态还回去。
@@ -900,6 +1061,8 @@ export function RoomLive2DHost({
       setRemoved,
       socket,
       roomId,
+      mySid,
+      clearPeerState,
     ]
   )
 
@@ -954,6 +1117,11 @@ export function RoomLive2DHost({
     (p) => p.sid
   )
   const hiddenCount = peers.length - visible.length
+  /** 这个成员的加载状态。只认本房间的记录，别的房间留下的一律当作没有。 */
+  const stateOf = (sid: string): PeerLoadState => {
+    const map = peerStates.room === roomId ? peerStates.map : null
+    return (map && map[sid]) || EMPTY_PEER_STATE
+  }
   // 拖拽模式的两个前提：有自己的模型，且模型当前真的在画面上。房主统一角色
   // 时模型是房间定的，但位置仍然是每个成员自己的，所以照拖不误。
   const dragActive =
@@ -982,7 +1150,7 @@ export function RoomLive2DHost({
 
       {canShowLayer &&
         visible.map((peer, index) => {
-          const failureReason = failed[peer.sid]
+          const slotState = stateOf(peer.sid)
           return (
             <div
               key={peer.sid}
@@ -1001,33 +1169,17 @@ export function RoomLive2DHost({
                 gap: 4,
               }}
             >
-              {failureReason && (
-                <div
-                  title={t('模型加载失败：{{reason}}（右键可以换一个模型）', {
-                    reason: failureReason,
-                  })}
+              {(slotState.failed || slotState.loading) && (
+                <Live2DSlotPlaceholder
+                  name={peer.name}
+                  failureReason={slotState.failed}
                   onContextMenu={(event) => {
-                    // 加载失败的占位卡是 DOM，直接自己收右键；否则这个角色
-                    // 就成了唯一没有入口的那一格。
+                    // 占位卡是 DOM，直接自己收右键；否则这个角色就成了唯一
+                    // 没有入口的那一格（模型没画出来时 pick 打不中）。
                     event.preventDefault()
                     openMenuAt(event.clientX, event.clientY)
                   }}
-                  style={{
-                    pointerEvents: 'auto',
-                    width: 44,
-                    height: 64,
-                    borderRadius: 10,
-                    border: '1px solid var(--md-sys-color-outline-variant)',
-                    background: 'var(--md-sys-color-surface-container)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 14,
-                    opacity: 0.85,
-                  }}
-                >
-                  {(peer.name || '?').slice(0, 1)}
-                </div>
+                />
               )}
               <span
                 style={{
@@ -1158,7 +1310,7 @@ export function RoomLive2DHost({
         removed={removedNow}
         canRemove={!unifiedActive && !removedNow && Boolean(myModelId)}
         onRemove={handleRemove}
-        myScale={myScale}
+        myScale={scaleDraft ?? myScale}
         faceTracking={face}
         allowFace={policy.allowFace}
         unified={unifiedActive}
@@ -1167,7 +1319,7 @@ export function RoomLive2DHost({
         canResetPosition={
           Math.abs(menu.offsetX) > 0.005 || Math.abs(menu.offsetY) > 0.005
         }
-        onScale={setMyScale}
+        onScale={handleScale}
         onExpression={handleExpression}
         onToggleFaceTracking={toggleFaceTracking}
         onOpenSettings={openSettings}
@@ -1190,7 +1342,7 @@ export function RoomLive2DHost({
         selectedModelId={myModelId}
         removed={removedNow}
         canRemove={!unifiedActive && !removedNow && Boolean(myModelId)}
-        myScale={myScale}
+        myScale={scaleDraft ?? myScale}
         faceTracking={face}
         voiceLipSync={voiceLipSync}
         policy={policy}
@@ -1198,7 +1350,7 @@ export function RoomLive2DHost({
         hiddenByHost={!canShowLayer}
         uploading={uploading}
         onSelect={handleSelect}
-        onScale={setMyScale}
+        onScale={handleScale}
         onExpression={handleExpression}
         onToggleFaceTracking={toggleFaceTracking}
         onToggleVoiceLipSync={toggleVoiceLipSync}

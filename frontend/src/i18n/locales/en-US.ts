@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2787 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2788 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -967,7 +967,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（115 条） =====
+  // ===== modules/live2d（116 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -1010,6 +1010,7 @@ const enUS: Record<string, string> = {
   '加入语音后说话会动嘴，不需要摄像头': 'Once you join voice, your character moves its mouth as you speak — no camera needed',
   '加载超时': 'Load timed out',
   '角色互动': 'Character actions',
+  '角色模型加载中…': 'Character model loading…',
   '角色模型应用失败': 'Could not apply the character model',
   '角色设置': 'Character settings',
   '角色已删除，房间里所有人（包括你）都看不到它。在下面重新选一个模型即可恢复': 'Character deleted — nobody in the room (including you) can see it now. Pick a model below to bring it back',

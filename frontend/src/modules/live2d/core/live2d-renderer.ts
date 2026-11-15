@@ -16,6 +16,11 @@ import {
   type DragOffset,
 } from './drag'
 import { getEntry, listEntries, slotX, type SceneEntry } from './scene'
+import {
+  resolutionForViewport,
+  shouldUpdateResolution,
+} from './render-resolution'
+import { resolveLocalScale, type LocalScaleOverride } from './scale-override'
 import { pickVisiblePeers } from './visibility'
 import { t as translate } from '@/i18n'
 
@@ -104,6 +109,15 @@ export interface RendererOptions {
   /** 模型加载失败时通知宿主（宿主渲染占位卡） */
   onModelError?: (sid: string, reason: string) => void
   /**
+   * 模型进入/离开加载态时通知宿主。
+   *
+   * 加载最长可以等 45 秒（4K 素材），期间画面上只有名字——用户无从判断是
+   * 「在加载」还是「坏了」。这条回调让宿主能给出「加载中」这个中间态。
+   * 排队等待也算加载态：那是用户唯一能感知的等待，而从队列里取出来的时间
+   * 点他看不见。
+   */
+  onLoadingChange?: (sid: string, loading: boolean) => void
+  /**
    * 本机 socket id。只有本人的模型保留「自动挑 idle 动作」的行为，
    * 并在切换时通过 onLocalMotion 广播；别人的模型一律等人喂动作。
    */
@@ -127,6 +141,20 @@ export class Live2DRenderer {
   private localSid = ''
   private onModelError?: (sid: string, reason: string) => void
   private onLocalMotion?: (group: string, index: number) => void
+  private onLoadingChange?: (sid: string, loading: boolean) => void
+  /** 已经通告为「加载中」的 sid（去重，避免同一状态重复推给 React） */
+  private announcedLoading = new Set<string>()
+  /**
+   * 拖动滑杆期间对**本人**模型的临时缩放覆盖。
+   *
+   * 大小是走服务端名册的（各端看到的一致），但滑杆是连续手势：每个值都上行
+   * 一次会让服务端把此人反复标成「新成员」并全房间广播。所以拖动期间只在本机
+   * 屏幕上跟手，停手后再提交一次终值。
+   *
+   * `base` 是设置覆盖时服务端给的缩放：一旦名册里的值变了，说明回声（或服务端
+   * 夹取后的值）到了，覆盖立刻让位——否则本地会永远和别人的画面差一档。
+   */
+  private localScale: LocalScaleOverride | null = null
 
   // erasableSyntaxOnly 下不能用参数属性，只能显式赋值
   private constructor(engine: Live2DEngine, app: Application) {
@@ -151,7 +179,7 @@ export class Live2DRenderer {
       // 贴图会被压成一层柔光——用户看到的就是「精度太低」。给到约 400 万像素
       // （1440×900 → 1.8x，1080p → 1.4x）在几乎不涨显存的前提下把这类损失补回来；
       // 上限 2x 兜住大视口，免得 4K 窗口把填充率吃穿。
-      resolution: resolutionForViewport(),
+      resolution: resolutionForViewport(window.innerWidth, window.innerHeight),
       autoStart: true,
       // 不传 resizeTo：画布尺寸由宿主显式给（全屏时会换父节点，
       // 自动跟随窗口会在一瞬间算出 0 尺寸）。
@@ -163,6 +191,7 @@ export class Live2DRenderer {
     const renderer = new Live2DRenderer(opts.engine, app)
     renderer.onModelError = opts.onModelError
     renderer.onLocalMotion = opts.onLocalMotion
+    renderer.onLoadingChange = opts.onLoadingChange
     renderer.localSid = opts.localSid ?? ''
     return renderer
   }
@@ -178,6 +207,21 @@ export class Live2DRenderer {
     }
   }
 
+  /**
+   * 拖动滑杆时让本人的模型立刻跟手（不走网络）。
+   *
+   * 只对本人生效：别人的大小永远来自名册，否则「谁说了算」就分不清了。
+   * 覆盖会在名册回声到达时自动让位（见 `localScale`）。
+   */
+  setLocalScale(scale: number): void {
+    if (!(scale > 0)) return
+    this.localScale = {
+      value: scale,
+      // 名册里还没有我（刚进房）时记 0，等自己的行到了再把服务端的值当基准
+      base: this.localScale?.base ?? getEntry(this.localSid)?.peer.scale ?? 0,
+    }
+  }
+
   resize(width: number, height: number): void {
     if (this.destroyed) return
     const w = Math.max(1, Math.round(width))
@@ -189,6 +233,16 @@ export class Live2DRenderer {
     for (const loaded of this.models.values()) loaded.baseScale = 0
     this.width = w
     this.height = h
+    // 渲染倍率也要跟着重算：它是「按总像素预算超采样」算出来的（见 create），
+    // 只在小窗口创建时算一次的话，把小窗拉到 4K 屏上采样密度就固定在小窗的
+    // 水平，模型边缘依旧是糊的——正是用户说的「精度太低」。
+    //
+    // 跨过 0.25 档才改：改倍率会重建 framebuffer（一次全屏清空 + 重新分配），
+    // 窗口拖动过程中每像素都改一次等于每秒重建几十次。
+    const next = resolutionForViewport(w, h)
+    if (shouldUpdateResolution(this.app.renderer.resolution, next)) {
+      this.app.renderer.resolution = next
+    }
     this.app.renderer.resize(w, h)
   }
 
@@ -247,16 +301,41 @@ export class Live2DRenderer {
     if (failedAt && Date.now() - failedAt < 60_000) return
     if (this.queue.some((item) => item.sid === sid && item.url === url)) return
     this.queue.push({ sid, url })
+    this.notifyLoading(sid, true)
     this.pump()
   }
 
   remove(sid: string): void {
     this.queue = this.queue.filter((item) => item.sid !== sid)
+    this.notifyLoading(sid, false)
     const loaded = this.models.get(sid)
     if (!loaded) return
     this.models.delete(sid)
     this.root.removeChild(loaded.model)
     loaded.model.destroy({ children: true, texture: true, baseTexture: true })
+  }
+
+  /** 加载态只通告变化，宿主不必为「同一个人又排了一次队」重渲染。 */
+  private notifyLoading(sid: string, loading: boolean): void {
+    if (loading === this.announcedLoading.has(sid)) return
+    if (loading) this.announcedLoading.add(sid)
+    else this.announcedLoading.delete(sid)
+    this.onLoadingChange?.(sid, loading)
+  }
+
+  /**
+   * 这个成员此刻该用的缩放：名册值，或本人拖动滑杆期间的本地覆盖。
+   *
+   * 别人的大小永远来自名册——只有本人的拖动能改变自己那一档，所以覆盖也
+   * 只对 localSid 生效。
+   */
+  private scaleOf(entry: SceneEntry): number {
+    if (entry.peer.sid !== this.localSid) return entry.peer.scale
+    // 「本地覆盖什么时候让位」的判定在 core/scale-override（有单测）：
+    // 这里只负责把结果写回去。
+    const resolved = resolveLocalScale(entry.peer.scale, this.localScale)
+    this.localScale = resolved.override
+    return resolved.scale
   }
 
   /**
@@ -474,6 +553,7 @@ export class Live2DRenderer {
       this.onModelError?.(sid, reason)
     } finally {
       this.loading.delete(sid)
+      this.notifyLoading(sid, false)
     }
   }
 
@@ -535,7 +615,7 @@ export class Live2DRenderer {
         // 窗口变化后重算时会把上一帧的缩放再乘一遍，模型瞬间缩成一个小点。
         loaded.baseScale = loaded.localH > 0 ? targetH / loaded.localH : 1
       }
-      const scale = loaded.baseScale * entry.peer.scale
+      const scale = loaded.baseScale * this.scaleOf(entry)
       model.scale.set(scale)
 
       // 像素尺寸与锚点位置都要按当前缩放算：约束是「包围盒至少留多少在画面里」，
@@ -711,23 +791,6 @@ export class Live2DRenderer {
 
 /** 引擎的动作优先级：3 = FORCE（能打断同优先级的动作，见 playMotion 的说明）。 */
 const MOTION_PRIORITY_FORCE = 3
-
-/**
- * 渲染倍率：按总像素预算算，落在 1x~2x。
- *
- * 不直接用 devicePixelRatio：那是「物理像素 / CSS 像素」，与「这个模型需要
- * 多少采样点才不糊」是两件事——dpr=1 的显示器上它恒等于 1，正是"精度太低"
- * 的来源。这里反过来按面积预算推：小窗口自动多采，大窗口自动收敛。
- */
-function resolutionForViewport(): number {
-  const pixels = Math.max(
-    1,
-    (window.innerWidth || 1280) * (window.innerHeight || 720)
-  )
-  const budget = 4_200_000
-  const ratio = Math.sqrt(budget / pixels)
-  return Math.min(2, Math.max(1, ratio))
-}
 
 /** 面部数据是否还新鲜（超过 TTL 就认为对方不再动捕）。 */
 function isFaceFresh(entry: SceneEntry): boolean {

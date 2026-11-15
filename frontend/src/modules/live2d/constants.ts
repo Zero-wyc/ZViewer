@@ -65,6 +65,17 @@ export const LIVE2D_DRAG_INTERVAL_MS = 60
 export const LIVE2D_DRAG_PREF_APPLY_DELAY_MS = 800
 
 /**
+ * 停手后多久把「大小」提交上去。
+ *
+ * 滑杆是连续手势：0.5~2 每档 0.05，拖一次能经过二三十个值。以前每个值都直接
+ * 写 store → 声明 effect 重跑 → 上行 `live2d-config` → 服务端把该成员置为
+ * pendingAdd → 全房间广播一整行 add + 给本人回一份全量快照，顺带每档写一次
+ * localStorage。250ms 是「停手即提交」与「中途不停顿的拖动不会被截断」之间
+ * 的折中；拖动期间画面由渲染器的本地覆盖跟手（无网络参与）。
+ */
+export const LIVE2D_SCALE_COMMIT_MS = 250
+
+/**
  * 面部数据的有效期。
  *
  * 超过这个时间没收到新的嘴型/睁眼数据，就认为对方不再动捕，把参数还给
