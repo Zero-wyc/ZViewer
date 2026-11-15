@@ -18,6 +18,18 @@ export interface Live2DLibraryEntry {
   createdAt: string
   /** 服务端判定的「我能删这一条」 */
   deletable: boolean
+  /**
+   * 服务端有没有这个模型的缩略图（取第一张贴图缩到 160px）。
+   *
+   * 由服务端判而不是「总是请求图片再靠 onError 兜底」：没有缩略图是常态
+   * （加密贴图、纯 MOC3 模型），每次打开面板都打一圈 404 只是噪音。
+   */
+  hasThumb: boolean
+}
+
+/** 模型缩略图地址。只在 hasThumb 为真时用。 */
+export function libraryModelThumbUrl(id: string): string {
+  return `/uploads/live2d/${encodeURIComponent(id)}/__thumb.png`
 }
 
 export interface Live2DLibraryList {
@@ -49,6 +61,7 @@ function normalizeEntry(raw: unknown): Live2DLibraryEntry | null {
     bytes: typeof item.bytes === 'number' ? item.bytes : 0,
     createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
     deletable: item.deletable === true,
+    hasThumb: item.hasThumb === true,
   }
 }
 

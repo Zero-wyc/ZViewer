@@ -230,7 +230,7 @@ func (s *Server) handleImportLive2DModel(w http.ResponseWriter, r *http.Request)
 	httpx.OK(w, map[string]any{
 		"success": true,
 		"message": message,
-		"model":   meta,
+		"model":   s.live2dModelDTO(meta, claims),
 	})
 }
 

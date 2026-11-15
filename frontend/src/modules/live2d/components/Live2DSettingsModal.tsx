@@ -10,10 +10,12 @@ import type { Live2DModelEntry } from '../core/model-catalog'
 import type { ModelExpressionEntry } from '../core/model-meta'
 import {
   LIVE2D_UPLOAD_MAX_BYTES,
+  libraryModelThumbUrl,
   type Live2DLibraryEntry,
 } from '../core/model-library'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DModelPicker } from './Live2DModelPicker'
+import { ModelThumb } from './ModelThumb'
 
 // 角色设置：**唯一**的设置入口（右键菜单只留快捷动作，模型选择都指到这里）。
 //
@@ -168,6 +170,16 @@ export function Live2DSettingsModal({
         ? { kind: 'room', id: libraryModels[0].id }
         : null
   const canUnify = Boolean(policy.unifiedId || selectedModelId || fallbackModel)
+  // 统一模型的缩略图：只有它确实来自模型库（kind=room）时才可能有图。
+  // 内置模型是随部署包发的，服务端不管，也就没有缩略图。
+  const unifiedEntry =
+    policy.unifiedKind === 'room'
+      ? libraryModels.find((item) => item.id === policy.unifiedId)
+      : undefined
+  const unifiedThumb =
+    unifiedEntry && unifiedEntry.hasThumb
+      ? libraryModelThumbUrl(unifiedEntry.id)
+      : undefined
 
   return (
     <>
@@ -212,9 +224,12 @@ export function Live2DSettingsModal({
                     )}
                   </Note>
                   <Section label={t('统一使用的模型')}>
-                    <p className="truncate text-xs opacity-80">
-                      {unifiedLabel || t('未知模型')}
-                    </p>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ModelThumb label={unifiedLabel} src={unifiedThumb} />
+                      <span className="truncate text-xs opacity-80">
+                        {unifiedLabel || t('未知模型')}
+                      </span>
+                    </span>
                   </Section>
                 </>
               ) : (

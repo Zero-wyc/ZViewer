@@ -133,6 +133,25 @@ type live2dModelDTO struct {
 	Bytes     int64  `json:"bytes"`
 	CreatedAt string `json:"createdAt"`
 	Deletable bool   `json:"deletable"`
+	// HasThumb 表示服务端有没有这个模型的缩略图。前端据此决定是画图还是
+	// 退回首字方块——不做成「总是请求图片再靠 onError 兜底」，那会在每次
+	// 打开面板时给没有缩略图的模型各打一条 404。
+	HasThumb bool `json:"hasThumb"`
+}
+
+// live2dModelDTO 由 meta 与鉴权信息算出一条对外描述。
+//
+// 上传/导入的响应也走这里：让三处（列表、上传、导入）返回同一个形状，
+// 前端才不需要为「刚上传的那条」单独处理（少一个 hasThumb 就少一张缩略图）。
+func (s *Server) live2dModelDTO(meta live2dModelMeta, claims *auth.Claims) live2dModelDTO {
+	return live2dModelDTO{
+		ID:        meta.ID,
+		Label:     meta.Label,
+		Bytes:     meta.Bytes,
+		CreatedAt: meta.CreatedAt,
+		Deletable: live2dCanDelete(claims, meta.Owner),
+		HasThumb:  s.live2dHasThumb(meta.ID),
+	}
 }
 
 func (s *Server) registerLive2DModelRoutes(mux *http.ServeMux) {
@@ -187,13 +206,7 @@ func (s *Server) handleListLive2DModels(w http.ResponseWriter, r *http.Request) 
 	models := s.readLive2DModels()
 	out := make([]live2dModelDTO, 0, len(models))
 	for _, meta := range models {
-		out = append(out, live2dModelDTO{
-			ID:        meta.ID,
-			Label:     meta.Label,
-			Bytes:     meta.Bytes,
-			CreatedAt: meta.CreatedAt,
-			Deletable: live2dCanDelete(claims, meta.Owner),
-		})
+		out = append(out, s.live2dModelDTO(meta, claims))
 	}
 	httpx.OK(w, map[string]any{
 		"success": true,
@@ -311,7 +324,7 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 	httpx.OK(w, map[string]any{
 		"success": true,
 		"message": message,
-		"model":   meta,
+		"model":   s.live2dModelDTO(meta, claims),
 	})
 }
 
@@ -374,6 +387,10 @@ func (s *Server) installLive2DZip(claims *auth.Claims, files []*zip.File, filena
 		cleanup()
 		return live2dModelMeta{}, "", problem, nil
 	}
+
+	// 缩略图：取第一张贴图缩到 160px，写进模型目录。失败不阻断入库——
+	// 解不出图的原因很多（加密贴图、非标准格式），而模型本身照样能用。
+	_ = writeLive2DThumb(tmpDir)
 
 	label := modelLabelFromFilename(filename)
 	meta := live2dModelMeta{

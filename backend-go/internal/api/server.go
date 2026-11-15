@@ -168,6 +168,9 @@ func New(deps Deps) *Server {
 	// 模型库从「房间私有」改成「服务端公共」时的磁盘迁移：老布局
 	// live2d/<roomId>/<modelId>/ 会被列表整批跳过，启动时搬平一次。
 	s.migrateLegacyLive2DModels()
+	// 缩略图是后加的能力，老模型靠这条后台任务补齐：不能同步做——一张
+	// 4096² 贴图解一次要几百毫秒，几十个模型会让启动卡住十几秒。
+	go s.warmLive2DThumbs()
 	return s
 }
 

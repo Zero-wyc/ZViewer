@@ -9,9 +9,11 @@ import { validateModelUrl } from '../core/model-url'
 import {
   LIVE2D_LIBRARY_MAX_PER_OWNER,
   LIVE2D_LIBRARY_MAX_TOTAL,
+  libraryModelThumbUrl,
   type Live2DLibraryEntry,
 } from '../core/model-library'
 import type { Live2DModelKind } from '../types'
+import { ModelThumb } from './ModelThumb'
 
 // 模型来源选择：本服模型（随包 + 服务端上传库）、自定义地址，两段平铺。
 //
@@ -80,6 +82,9 @@ export function Live2DModelPicker({
       label: item.label,
       removable: false,
       bytes: 0,
+      // 内置模型是随部署包发的静态资源，服务端不接管它们，缩略图只能由
+      // 部署方在清单里登记（可选），没有就画首字。
+      thumb: item.thumb,
     })),
     ...libraryModels.map((item) => ({
       kind: 'room' as Live2DModelKind,
@@ -87,6 +92,7 @@ export function Live2DModelPicker({
       label: item.label,
       removable: removable.has(item.id),
       bytes: item.bytes,
+      thumb: item.hasThumb ? libraryModelThumbUrl(item.id) : undefined,
     })),
   ]
 
@@ -380,6 +386,8 @@ interface ChipItem {
   removable: boolean
   /** 大小（服务端已下发），管理态下显示，便于挑出占地方的那个 */
   bytes: number
+  /** 缩略图地址；没有就画首字方块 */
+  thumb?: string
 }
 
 function Chips({
@@ -423,7 +431,10 @@ function Chips({
                 : 'var(--md-sys-color-on-surface)',
             }}
           >
-            <span className="truncate">{item.label}</span>
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <ModelThumb label={item.label} src={item.thumb} />
+              <span className="truncate">{item.label}</span>
+            </span>
             {deleting ? (
               // 管理态显示大小：这一段就是为了"哪个模型占地方、要不要删"
               <span className="shrink-0 text-[9px] tabular-nums opacity-55">
