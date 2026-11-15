@@ -2,6 +2,8 @@
   "items": [
     "Failed to load the data source",
     "Failed to resolve the playback URL",
+    "Aggregated search failed",
+    "All sites (aggregated search)",
     "ani-subs source"
   ]
 }

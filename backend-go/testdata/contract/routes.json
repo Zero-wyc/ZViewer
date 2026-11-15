@@ -494,6 +494,10 @@
     },
     {
       "method": "GET",
+      "path": "/api/stream/anisubs/search-all"
+    },
+    {
+      "method": "GET",
       "path": "/api/stream/anisubs/sources"
     },
     {

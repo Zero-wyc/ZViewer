@@ -21,6 +21,14 @@ export interface AniSubsSearchResult {
   cover?: string
   description?: string
   source: string
+  /**
+   * 结果来自哪个站点（显示用）。
+   *
+   * 只有「全部站点」聚合搜索会带：单站点搜索时下拉里已经写明是哪个站了。
+   */
+  sourceName?: string
+  /** 同样命中这个标题的其他站点名（聚合搜索去重后剩下的那些） */
+  altSources?: string[]
 }
 
 /** 剧集信息 */

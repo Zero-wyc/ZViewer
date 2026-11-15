@@ -57,12 +57,26 @@ export function AnimeSourceBrowser({
   const [sourceId, setSourceId] = useState('')
   const [sourceError, setSourceError] = useState('')
   const [addingSeries, setAddingSeries] = useState(false)
-  const shows = useRef<AniSubsSearchResult[]>([])
+  /** 复合 path（站点 + 主体 id）→ 搜索结果。聚合模式下不同站点的 id 可能撞车。 */
+  const shows = useRef(new Map<string, AniSubsSearchResult>())
   const selections = useRef(new Map<string, AnimeEpisodeSelection>())
   const posters = useRef(new Map<string, { cover?: string; referer: string }>())
   const episodes = useRef(new Map<string, EmbyDirectoryEntry[]>())
   const sourceGeneration = useRef(0)
   const failedSeries = useRef(new Map<string, string[]>())
+
+  /**
+   * 搜索结果的复合标识（站点 key + 站内 id）。
+   *
+   * 聚合搜索的结果来自不同站点，站内 id（数字自增等）并不保证全局唯一，
+   * 直接拿 id 当 path 会让两张卡片撞 key、详情路由进错误的站点。
+   * 单站点搜索时结果不带 source，回落到当前下拉选中项。
+   */
+  const showKey = useCallback(
+    (show: AniSubsSearchResult): string =>
+      JSON.stringify([show.source || sourceId, show.id]),
+    [sourceId]
+  )
 
   useEffect(() => {
     if (!open) return
@@ -92,15 +106,24 @@ export function AnimeSourceBrowser({
   const mapShows = useCallback(
     (items: AniSubsSearchResult[]): EmbyDirectoryEntry[] =>
       items.map((show) => {
-        posters.current.set(show.id, { cover: show.cover, referer: show.id })
+        const path = showKey(show)
+        posters.current.set(path, { cover: show.cover, referer: show.id })
+        shows.current.set(path, show)
+        // 聚合搜索模式下卡片上标出来源站点，用户才知道这张卡来自哪里
+        const name = show.sourceName
+          ? t('{{title}}（{{source}}）', {
+              title: show.title,
+              source: show.sourceName,
+            })
+          : show.title
         return {
-          name: show.title,
-          path: show.id,
+          name,
+          path,
           type: 'directory',
           embyType: 'Series',
         }
       }),
-    []
+    [showKey]
   )
 
   const doSearch = useCallback(
@@ -108,7 +131,7 @@ export function AnimeSourceBrowser({
       const generation = ++sourceGeneration.current
       const items = await search(sourceId, keyword)
       if (generation !== sourceGeneration.current) return []
-      shows.current = items
+      shows.current = new Map()
       selections.current.clear()
       episodes.current.clear()
       failedSeries.current.clear()
@@ -120,16 +143,16 @@ export function AnimeSourceBrowser({
 
   const browse = useCallback(
     async (_mountId: number, path?: string): Promise<EmbyDirectoryEntry[]> => {
-      if (!path) return mapShows(shows.current)
+      if (!path) return mapShows([...shows.current.values()])
       const cached = episodes.current.get(path)
       if (cached) return cached
-      const show = shows.current.find((item) => item.id === path)
+      const show = shows.current.get(path)
       if (!show) return []
       // 聚合搜索模式下搜索结果自带真实站点 key（result.source），
       // 详情/选集必须路由到该站点而非当前下拉选中项（__all__）
       const siteKey = show.source || sourceId
       const generation = sourceGeneration.current
-      const items = await getEpisodes(siteKey, path)
+      const items = await getEpisodes(siteKey, show.id)
       if (generation !== sourceGeneration.current) return []
       const entries = items.map((episode): EmbyDirectoryEntry => {
         const key = JSON.stringify([path, episode.id])
@@ -239,7 +262,7 @@ export function AnimeSourceBrowser({
             onChange={(value) => {
               if (value === sourceId) return
               sourceGeneration.current++
-              shows.current = []
+              shows.current = new Map()
               selections.current.clear()
               episodes.current.clear()
               posters.current.clear()

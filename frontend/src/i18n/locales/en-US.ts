@@ -753,9 +753,11 @@ const enUS: Record<string, string> = {
   '已选 {{size}} 集': '{{size}} episodes selected',
   '暂无集数信息': 'No episode info',
 
-  // ===== modules/anisubs（3 条） =====
+  // ===== modules/anisubs（5 条） =====
   '获取数据源失败': 'Failed to load the data source',
   '解析播放地址失败': 'Failed to resolve the playback URL',
+  '聚合搜索失败': 'Aggregated search failed',
+  '全部站点（聚合搜索）': 'All sites (aggregated search)',
   'ani-subs 番剧源': 'ani-subs source',
 
   // ===== modules/bilibili（47 条） =====
@@ -807,11 +809,9 @@ const enUS: Record<string, string> = {
   'CLI 解析 B站 视频失败（HTTP {{status}}）': 'The CLI failed to resolve the Bilibili video (HTTP {{status}})',
   'Cookie 登录失败': 'Cookie sign-in failed',
 
-  // ===== modules/cms（8 条） =====
+  // ===== modules/cms（6 条） =====
   '获取采集源失败': 'Failed to load sources',
   '获取影片详情失败': 'Failed to load the movie details',
-  '聚合搜索失败': 'Aggregated search failed',
-  '全部站点（聚合搜索）': 'All sites (aggregated search)',
   '输入关键词开始搜索影片': 'Type a keyword to search movies',
   '输入影片名称搜索': 'Search by movie title',
   '未找到可用采集源，请管理员在后台「TVBox 采集源」添加配置接口': 'No source available, ask an admin to add a configuration endpoint under “TVBox sources” in the admin console',

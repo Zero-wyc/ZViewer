@@ -14,10 +14,11 @@ import (
 
 // ani-subs 路由，对应 routes/anisubs.ts（挂载在 /api/stream/anisubs）。
 //
-//   GET  /sources    列出数据源
-//   GET  /search     搜索
-//   GET  /episodes   取分集
-//   POST /resolve    解析播放地址（6 分钟缓存 + 单飞）
+//   GET  /sources     列出数据源
+//   GET  /search      搜索（单站点）
+//   GET  /search-all  聚合搜索（全部站点并发 + 标题去重）
+//   GET  /episodes    取分集
+//   POST /resolve     解析播放地址（6 分钟缓存 + 单飞）
 //
 // /proxy 在 proxy.go 里与另外三个数据源共用同一实现。
 
@@ -36,6 +37,7 @@ var anisubsResolveCache = ttlcache.New[*anisubs.PlaybackURL](anisubsResolveTTLMs
 func (s *Server) registerAniSubsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/stream/anisubs/sources", s.Auth.Require(s.handleAniSubsSources))
 	mux.HandleFunc("GET /api/stream/anisubs/search", s.Auth.Require(s.handleAniSubsSearch))
+	mux.HandleFunc("GET /api/stream/anisubs/search-all", s.Auth.Require(s.handleAniSubsSearchAll))
 	mux.HandleFunc("GET /api/stream/anisubs/episodes", s.Auth.Require(s.handleAniSubsEpisodes))
 	mux.HandleFunc("POST /api/stream/anisubs/resolve", s.Auth.Require(s.handleAniSubsResolve))
 }
@@ -83,6 +85,29 @@ func (s *Server) handleAniSubsSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if results == nil {
 		results = []anisubs.SearchResult{}
+	}
+	httpx.OK(w, map[string]any{"success": true, "results": results})
+}
+
+// handleAniSubsSearchAll 聚合搜索全部数据源。
+//
+// 与 /search 的区别只有一处：没有 source 参数。每入参与出参都不带站点，
+// 结果里各自带 source / sourceName，前端据此把选集路由回真实站点。
+func (s *Server) handleAniSubsSearchAll(w http.ResponseWriter, r *http.Request) {
+	keyword := strings.TrimSpace(r.URL.Query().Get("keyword"))
+	if keyword == "" {
+		httpx.Fail(w, http.StatusBadRequest, "缺少 keyword 参数")
+		return
+	}
+
+	results, err := s.AniSubs.SearchAllCoalesced(r.Context(), keyword)
+	if err != nil {
+		log.Printf("[anisubs] search-all error: %v", err)
+		httpx.Fail(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if results == nil {
+		results = []anisubs.AggregateResult{}
 	}
 	httpx.OK(w, map[string]any{"success": true, "results": results})
 }

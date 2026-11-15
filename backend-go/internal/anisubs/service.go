@@ -27,6 +27,11 @@ type Service struct {
 	// loaded 区分「还没构建过」与「构建出来是空的」——空注册表不缓存，
 	// 下次请求要重试（订阅源恢复后不该等重启）。
 	loaded bool
+
+	// aggregateMu / aggregateInflight 是聚合搜索的单飞表（见 aggregate.go）。
+	// 关键词 → 进行中的那次搜索。
+	aggregateMu       sync.Mutex
+	aggregateInflight map[string]*aggregateCall
 }
 
 // NewService 构造服务。

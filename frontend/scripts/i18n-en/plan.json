@@ -75,7 +75,7 @@
     {
       "id": "15-anisubs",
       "bucket": "modules/anisubs",
-      "count": 3
+      "count": 5
     },
     {
       "id": "16-bilibili",
@@ -85,7 +85,7 @@
     {
       "id": "17-cms",
       "bucket": "modules/cms",
-      "count": 8
+      "count": 6
     },
     {
       "id": "18-danmaku",

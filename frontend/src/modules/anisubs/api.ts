@@ -50,6 +50,29 @@ export async function searchAniSubs(
   return data.results
 }
 
+/**
+ * 聚合搜索全部数据源（服务端并发抓取 + 标题去重）。
+ *
+ * 每条结果自带真实站点 key（`source`）与站点名（`sourceName`）：详情/选集必须
+ * 路由回 `source`，不能沿用调用方当前选中的「全部站点」。
+ */
+export async function searchAllAniSubs(
+  keyword: string
+): Promise<AniSubsSearchResult[]> {
+  const res = await apiFetch(
+    `${getBaseUrl()}/search-all?keyword=${encodeURIComponent(keyword)}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    results?: AniSubsSearchResult[]
+  }
+  if (!res.ok || !data.success || !Array.isArray(data.results)) {
+    throw new Error(data.message || t('聚合搜索失败'))
+  }
+  return data.results
+}
+
 /** 获取集数列表 */
 export async function getAniSubsEpisodes(
   source: string,
