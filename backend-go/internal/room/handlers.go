@@ -360,12 +360,21 @@ func (s *Service) handleHostLeave(sc *sio.Socket, ack func(...any)) {
 		ackFail(ack, "离开房间失败")
 		return
 	}
+	if s.Live2DRemove(roomID, sc.ID) && s.Hub != nil {
+		s.Hub.EmitRoom(roomID, "live2d-patch", live2dPatchOut{
+			RoomID: roomID, Rem: []string{sc.ID},
+		})
+	}
 	if err := s.Playback.UpdateHostSocket(ctx, roomID, nil); err != nil {
 		s.Logger.Printf("[host-leave] 清空房主 socket 失败: %v", err)
 	}
 	s.hostControlDisconnected(ctx, roomID, sc.ID)
 
-	sc.Leave(roomID)
+	if s.Hub != nil {
+		s.Hub.Leave(sc.ID, roomID)
+	} else {
+		sc.Leave(roomID)
+	}
 	ackOK(ack, nil)
 }
 

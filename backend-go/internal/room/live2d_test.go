@@ -657,6 +657,50 @@ func TestLive2DReappearKeepsSlot(t *testing.T) {
 	}
 }
 
+func TestHostLeaveRemovesLive2DModel(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	const roomID = "ROOM_HOST_LEAVE_L2D"
+	const socketID = "host-l2d"
+	env.insertRoom(t, roomID, int64p(1), 10, false)
+	if _, err := env.svc.RegisterHost(ctx, socketID, roomID, 1); err != nil {
+		t.Fatalf("注册房主失败: %v", err)
+	}
+	if !env.svc.Live2DSet(roomID, live2dMember{
+		SocketID: socketID, Name: "Host", Kind: "builtin", ModelID: "hiyori", Scale: 1,
+	}) {
+		t.Fatal("设置房主模型失败")
+	}
+
+	var ack AckResponse
+	env.svc.handleHostLeave(&sio.Socket{ID: socketID}, func(values ...any) {
+		if len(values) > 0 {
+			ack, _ = values[0].(AckResponse)
+		}
+	})
+	if !ack.Success {
+		t.Fatalf("房主离开失败: %+v", ack)
+	}
+	if env.svc.Live2DHas(roomID, socketID) {
+		t.Fatal("房主主动离开后仍保留 Live2D 模型")
+	}
+	if !env.hub.hasRoomEvent(roomID, "live2d-patch") {
+		t.Fatal("未广播房主 Live2D 移除事件")
+	}
+	var patch live2dPatchOut
+	for _, payload := range env.hub.payloads[roomID+"|live2d-patch"] {
+		if value, ok := payload.(live2dPatchOut); ok {
+			patch = value
+		}
+	}
+	if len(patch.Rem) != 1 || patch.Rem[0] != socketID {
+		t.Fatalf("移除 patch 不正确: %+v", patch)
+	}
+	if len(env.hub.left) != 1 || env.hub.left[0] != socketID+"|"+roomID {
+		t.Fatalf("房主连接未离开房间: %v", env.hub.left)
+	}
+}
+
 // 10d) 中间空出来的排位要被下一个人复用。
 //
 // 否则长期运行的房间里 ord 只增不减：先是数字膨胀，更要紧的是"第 40 号"这种
