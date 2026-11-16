@@ -2,8 +2,11 @@ import { Application, Assets, Container, extensions } from 'pixi.js'
 import type { Texture } from 'pixi.js'
 import type { Live2DEngine, Live2DModelInstance } from './cubism-core'
 import {
+  LIVE2D_DEPTH_SCALE,
   LIVE2D_FACE_TTL_MS,
   LIVE2D_IDLE_MS,
+  LIVE2D_PARALLAX_X,
+  LIVE2D_PARALLAX_Y,
   LIVE2D_LOAD_TIMEOUT_MS,
   LIVE2D_MAX_RENDERED,
   LIVE2D_MODEL_HEIGHT_RATIO,
@@ -51,8 +54,14 @@ interface CubismParamIds {
   mouthForm: unknown
   browL: unknown
   browR: unknown
-  /** 歪头（度） */
+  /** 头部三轴旋转（度） */
+  angleX: unknown
+  angleY: unknown
+  /** 滚转/歪头（度） */
   angleZ: unknown
+  /** 眼球（-1~1） */
+  eyeBallX: unknown
+  eyeBallY: unknown
 }
 
 /** 引擎内部对象的最小可用面（只声明我们真的会碰的几个成员）。 */
@@ -658,6 +667,8 @@ export class Live2DRenderer {
     const dragAlpha = alphaForDelta(0.35, delta)
     // 歪头比表情更慢：头部有物理惯性，跟得太紧会像抽搐
     const rollAlpha = alphaForDelta(0.22, delta)
+    // 偏航/俯仰在两者之间：用户主动转头时希望跟手，静止时又要压住抖动
+    const headAlpha = alphaForDelta(0.32, delta)
 
     for (let i = 0; i < visible.length; i += 1) {
       const entry = visible[i]
@@ -696,7 +707,13 @@ export class Live2DRenderer {
         // 窗口变化后重算时会把上一帧的缩放再乘一遍，模型瞬间缩成一个小点。
         loaded.baseScale = loaded.localH > 0 ? targetH / loaded.localH : 1
       }
-      const scale = loaded.baseScale * this.scaleOf(entry)
+      // 6DOF 的"前后"用很小的缩放表达：真人前后晃 5cm，画面里就是几个百分点的
+      // 大小变化；再大就会看着像"整个角色在呼吸式缩放"，反而不像头在动。
+      const headFresh = isHeadFresh(entry)
+      const depthScale = headFresh
+        ? 1 + (entry.currentDepth - 0.5) * 2 * LIVE2D_DEPTH_SCALE
+        : 1
+      const scale = loaded.baseScale * this.scaleOf(entry) * depthScale
       model.scale.set(scale)
 
       // 像素尺寸与锚点位置都要按当前缩放算：约束是「包围盒至少留多少在画面里」，
@@ -713,10 +730,19 @@ export class Live2DRenderer {
       // 「角色设置 → 重置模型位置」——这条路径必须有，否则角色就找不回来了。
       //
       // px 记的是**不含抖动**的锚点：名字标签跟着它，被戳时不该跟着抖。
+      //
+      // 6DOF 平移只画在模型上（`parallax`），不进 px/py：头部左右晃时名字标签
+      // 跟着飘会非常晕，而且标签是 DOM，1px 的对不上都会被看成"错位"。
       const anchorX = baseX + entry.currentDragX * this.width
       const anchorY = baseY + entry.currentDragY * this.height
-      model.x = anchorX + pokeWobble(loaded)
-      model.y = anchorY
+      const parallaxX = headFresh
+        ? (entry.currentOffX - 0.5) * 2 * boxW * LIVE2D_PARALLAX_X
+        : 0
+      const parallaxY = headFresh
+        ? (entry.currentOffY - 0.5) * 2 * boxH * LIVE2D_PARALLAX_Y
+        : 0
+      model.x = anchorX + parallaxX + pokeWobble(loaded)
+      model.y = anchorY + parallaxY
       loaded.px = anchorX
       loaded.py = anchorY
 
@@ -727,6 +753,16 @@ export class Live2DRenderer {
         faceAlpha
       )
       entry.currentEyes = smooth(entry.currentEyes, entry.targetEyes, faceAlpha)
+      entry.currentEyeLeft = smooth(
+        entry.currentEyeLeft,
+        entry.targetEyeLeft,
+        faceAlpha
+      )
+      entry.currentEyeRight = smooth(
+        entry.currentEyeRight,
+        entry.targetEyeRight,
+        faceAlpha
+      )
       // 语音嘴型单独平滑：它不跟动捕那组一起被接管，但要和嘴一样连续，
       // 否则 15Hz 的响度读数会变成一开一合的"打点"。
       entry.currentVoiceMouth = smooth(
@@ -738,6 +774,36 @@ export class Live2DRenderer {
       entry.currentBrow = smooth(entry.currentBrow, entry.targetBrow, faceAlpha)
       // 歪头是慢动作（颈椎有惯性），用更慢的系数才自然
       entry.currentRoll = smooth(entry.currentRoll, entry.targetRoll, rollAlpha)
+      // 3D 头部同理但稍快一点：偏航/俯仰是用户主动做的动作，跟手比"稳"重要
+      entry.currentHeadX = smooth(
+        entry.currentHeadX,
+        entry.targetHeadX,
+        headAlpha
+      )
+      entry.currentHeadY = smooth(
+        entry.currentHeadY,
+        entry.targetHeadY,
+        headAlpha
+      )
+      // 平移视差跟着头走，用同一个系数，避免"头转了但影子没跟上"的割裂感
+      entry.currentOffX = smooth(entry.currentOffX, entry.targetOffX, headAlpha)
+      entry.currentOffY = smooth(entry.currentOffY, entry.targetOffY, headAlpha)
+      entry.currentDepth = smooth(
+        entry.currentDepth,
+        entry.targetDepth,
+        headAlpha
+      )
+      // 眼球最快：扫视是 30~80ms 级，和表情同档
+      entry.currentGazeX = smooth(
+        entry.currentGazeX,
+        entry.targetGazeX,
+        faceAlpha
+      )
+      entry.currentGazeY = smooth(
+        entry.currentGazeY,
+        entry.targetGazeY,
+        faceAlpha
+      )
       // focus 用的是画布坐标：canvas 铺满视口，所以归一化 × 画布尺寸即可
       model.focus(entry.currentX * this.width, entry.currentY * this.height)
 
@@ -777,7 +843,11 @@ export class Live2DRenderer {
       mouthForm: im.getIdSafe('ParamMouthForm'),
       browL: im.getIdSafe('ParamBrowLY'),
       browR: im.getIdSafe('ParamBrowRY'),
+      angleX: im.getIdSafe('ParamAngleX'),
+      angleY: im.getIdSafe('ParamAngleY'),
       angleZ: im.getIdSafe('ParamAngleZ'),
+      eyeBallX: im.getIdSafe('ParamEyeBallX'),
+      eyeBallY: im.getIdSafe('ParamEyeBallY'),
     }
     loaded.params = ids
     const setIf = (id: unknown, value: number) => {
@@ -796,16 +866,31 @@ export class Live2DRenderer {
       if (!faceFresh && !voiceFresh) return
       setIf(ids.mouth, faceFresh ? entry.currentMouth : entry.currentVoiceMouth)
       if (!faceFresh) return
-      setIf(ids.eyeL, entry.currentEyes)
-      setIf(ids.eyeR, entry.currentEyes)
+      // 左右眼分开写：wink 才能真的只闭一只。老服务端只给平均值时，两个
+      // 目标值都是那个平均值，效果与改造前完全一致。
+      setIf(ids.eyeL, entry.currentEyeLeft)
+      setIf(ids.eyeR, entry.currentEyeRight)
       // 协议里是 0~1 编码，Cubism 的嘴形/眉毛是 -1~1，中位 0
       setIf(ids.mouthForm, (entry.currentForm - 0.5) * 2)
       const brow = (entry.currentBrow - 0.5) * 2
       setIf(ids.browL, brow)
       setIf(ids.browR, brow)
-      // 歪头：0~1 编码 → ±30°。几何上 roll 正值是「画面里顺时针（被拍者向左歪）」，
+      // 滚转：0~1 编码 → ±30°。几何上 roll 正值是「画面里顺时针（被拍者向左歪）」，
       // 而 ParamAngleZ 正值让模型向左倒——同向，直接线性映射。
       setIf(ids.angleZ, (entry.currentRoll - 0.5) * 2 * 30)
+      // 偏航/俯仰只在**真的收到过 3D 数据**时写。没收到（对方关着 3D、或者是
+      // 老客户端）就让引擎的 focus() 继续按注视点带动头部——无条件写 0 会把
+      // 头部钉死在正前方，看着像"头不会动"。
+      if (isHeadFresh(entry)) {
+        setIf(ids.angleX, (entry.currentHeadX - 0.5) * 2 * 30)
+        setIf(ids.angleY, (entry.currentHeadY - 0.5) * 2 * 30)
+      }
+      // 眼球同理：没有虹膜数据的成员，眼球仍由 focus 驱动。
+      if (isEyeFresh(entry)) {
+        setIf(ids.eyeBallX, (entry.currentGazeX - 0.5) * 2)
+        // 协议里 gazeY 已经翻成"向上为正"，与 ParamEyeBallY 同向
+        setIf(ids.eyeBallY, (entry.currentGazeY - 0.5) * 2)
+      }
     })
   }
 
@@ -880,6 +965,21 @@ function isFaceFresh(entry: SceneEntry): boolean {
 /** 语音嘴型的有效期与动捕同一把尺：都是 15Hz 上报 + 短 TTL 释放。 */
 function isVoiceFresh(entry: SceneEntry): boolean {
   return entry.voiceAt > 0 && Date.now() - entry.voiceAt < LIVE2D_FACE_TTL_MS
+}
+
+/**
+ * 3D 头部数据是否新鲜。
+ *
+ * 老客户端（或本端关掉了 3D）永远不带这两项，headAt 一直是 0——此时渲染器
+ * 必须**放弃**写 ParamAngleX/Y，让引擎的 focus() 继续按注视点带动头部。
+ */
+function isHeadFresh(entry: SceneEntry): boolean {
+  return entry.headAt > 0 && Date.now() - entry.headAt < LIVE2D_FACE_TTL_MS
+}
+
+/** 眼球数据是否新鲜（没有虹膜 / 关掉眼球跟随时为 false）。 */
+function isEyeFresh(entry: SceneEntry): boolean {
+  return entry.eyeAt > 0 && Date.now() - entry.eyeAt < LIVE2D_FACE_TTL_MS
 }
 
 /**

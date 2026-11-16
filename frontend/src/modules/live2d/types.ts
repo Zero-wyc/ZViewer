@@ -8,7 +8,8 @@ export type Live2DModelKind = 'builtin' | 'url' | 'room'
 
 /**
  * 整行模型数据（快照的 models 与 patch 的 add 共用）：
- * [socketId, name, kind, modelId, scale, ord, x, y, aspectRatio, mouth, eyes, dragX, dragY, form, brow, roll]
+ * [socketId, name, kind, modelId, scale, ord, x, y, aspectRatio, mouth, eyes, dragX, dragY, form, brow, roll,
+ *  headX, headY, offX, offY, depth, gazeX, gazeY, eyeLeft, eyeRight, flags]
  *
  * ord 是服务端分配的排位序号，客户端据此等距摆位——位置本身不广播，
  * 只有序号同步，各端才会摆出同一幕。
@@ -20,9 +21,14 @@ export type Live2DModelKind = 'builtin' | 'url' | 'room'
  * 第 9、10 位是摄像头动捕算出的面部姿态（张嘴幅度 / 睁眼程度，0~1），
  * 没开动捕的成员一直是 0 / 1。
  *
- * 最后三位是动捕的**表情细节与歪头**：嘴形、眉毛、歪头，0~1 编码、0.5 为中性。
- * 它们与 m/e 同源同时效，放在这里让「刚进房的人」也能看到别人当下的表情，
- * 不必等下一帧增量。全部追加在末尾：少读几项的老客户端也能正常跑。
+ * 第 14~16 位是动捕的**表情细节与歪头**：嘴形、眉毛、滚转，0~1 编码、0.5 为中性。
+ *
+ * 第 17~25 位是**3D 头部与眼球**（本轮新增）：偏航、俯仰、视差 X/Y、深度、
+ * 眼球 X/Y、左右眼睁开程度。全部 0~1 编码。追加在末尾而不是插在中间：
+ * 老客户端按下标读前面的项不会错位，新客户端读不到就按中性处理。
+ *
+ * 第 26 位是**可用性位掩码**（LIVE2D_POSE_FLAG）：没有它，0.5 既可能是
+ * "正对镜头"也可能是"他没开 3D"，刚进房的人只能等下一帧增量。
  */
 export type Live2DRow = [
   string,
@@ -41,15 +47,26 @@ export type Live2DRow = [
   number,
   number,
   number,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
 ]
 
 /**
  * patch 里的指针增量（只有变动的那几个字段）：
- * [socketId, x, y, aspectRatio, mouth?, eyes?, form?, brow?, roll?]
+ * [socketId, x, y, aspectRatio, m?, e?, form?, brow?, roll?,
+ *  headX?, headY?, offX?, offY?, depth?, gazeX?, gazeY?, eyeL?, eyeR?, flags?]
  *
  * 和整行**不同形状**：这里每 100ms 就要发全体成员一遍，带 name/kind 纯属浪费。
  *
- * 后五位是**可选的**：服务端只在对方正在动捕时（600ms 内收到过面部数据）
+ * 第 5 项之后全是**可选的**：服务端只在对方正在动捕时（600ms 内收到过面部数据）
  * 才带上它们。这个区分很重要——没有它，所有模型都会被按成"不眨眼"。
  */
 export type Live2DStateRow = [
@@ -57,6 +74,16 @@ export type Live2DStateRow = [
   number,
   number,
   number,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
   number?,
   number?,
   number?,
@@ -72,6 +99,18 @@ export type Live2DStateRow = [
  * live2d-drag，服务端照旧转发），丢掉整段 `d` 字段即可。
  */
 export type Live2DDragRow = [string, number, number]
+
+/**
+ * 姿态数组尾部的可用性标志（`p[12]`）。
+ *
+ * 只有数字能进这条热路径，所以用位掩码而不是两个布尔字段：关掉 3D 的发送端
+ * 会带中值（0.5），接收端必须能区分"他没开 3D"和"他正对镜头"——前者要让
+ * 引擎的 focus 继续带动头部，后者要把头压回正中。
+ */
+export const LIVE2D_POSE_FLAG = {
+  HEAD: 1,
+  EYE: 2,
+} as const
 
 export interface Live2DPeer {
   sid: string
@@ -99,8 +138,27 @@ export interface Live2DPeer {
   form: number
   /** 眉毛 0~1，0.5 中性、>0.5 挑眉、<0.5 皱眉（动捕） */
   brow: number
-  /** 歪头 0~1，0.5 端正、<0.5 向左倒、>0.5 向右倒（动捕） */
+  /** 滚转 0~1，0.5 端正、<0.5 向左倒、>0.5 向右倒（动捕） */
   roll: number
+  /** 3D 偏航 0~1，0.5 正对镜头（动捕；老服务端没有这一项） */
+  headX: number
+  /** 3D 俯仰 0~1，0.5 平视 */
+  headY: number
+  /** 6DOF 平移视差 0~1，0.5 居中 */
+  offX: number
+  offY: number
+  /** 深度 0~1，0.5 为标定距离、>0.5 靠近镜头 */
+  depth: number
+  /** 眼球方向 0~1，0.5 居中 */
+  gazeX: number
+  gazeY: number
+  /** 左/右眼睁开程度 0~1（1 = 全睁） */
+  eyeLeft: number
+  eyeRight: number
+  /** 3D 头部这一帧是否有效（快照里的掩码位） */
+  headActive: boolean
+  /** 眼球跟随这一帧是否有效 */
+  eyeActive: boolean
 }
 
 export interface Live2DSnapshotPayload {
@@ -212,7 +270,29 @@ export function rowToPeer(row: Live2DRow): Live2DPeer {
     form: clampUnit(Number(row[13])),
     brow: clampUnit(Number(row[14])),
     roll: clampUnit(Number(row[15])),
+    // 3D 头部与眼球：老服务端没有这几项，clampUnit 的 NaN 兜底给 0.5（居中）。
+    // 眼睁开程度的中性是 1 而不是 0.5，单独兜底。
+    headX: clampUnit(Number(row[16])),
+    headY: clampUnit(Number(row[17])),
+    offX: clampUnit(Number(row[18])),
+    offY: clampUnit(Number(row[19])),
+    depth: clampUnit(Number(row[20])),
+    gazeX: clampUnit(Number(row[21])),
+    gazeY: clampUnit(Number(row[22])),
+    eyeLeft: clampOpen(Number(row[23])),
+    eyeRight: clampOpen(Number(row[24])),
+    // 第 26 位是可用性掩码：老服务端没有，按"都没开"处理
+    headActive: (Number(row[25] ?? 0) & LIVE2D_POSE_FLAG.HEAD) !== 0,
+    eyeActive: (Number(row[25] ?? 0) & LIVE2D_POSE_FLAG.EYE) !== 0,
   }
+}
+
+/** 睁眼程度：缺省（NaN）按全睁，不是 0.5。 */
+function clampOpen(v: number): number {
+  if (!Number.isFinite(v)) return 1
+  if (v < 0) return 0
+  if (v > 1) return 1
+  return v
 }
 
 function clampUnit(v: number): number {

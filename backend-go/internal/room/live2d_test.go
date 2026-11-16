@@ -439,6 +439,80 @@ func TestLive2DPoseClampedAndLengthChecked(t *testing.T) {
 	}
 }
 
+// 10c) 3D 头部/眼球：13 项才带掩码，越界逐项钳制；掩码为 0 时行回到 9 项。
+//
+// 这条同时锁住"老客户端口径不变"：只发 3 项姿态时行长必须还是 9，否则老
+// 客户端会收到一个自己不认识长度的行（它的解析按长度分派，多出来的项会被
+// 当成"语音 + 动捕同时存在"这类不存在的状态）。
+func TestLive2D3DHeadRowAndFlags(t *testing.T) {
+	env := newTestEnv(t)
+	env.hub.members["ROOM_3D"] = []string{"s1"}
+	env.svc.Live2DSet("ROOM_3D", live2dMember{
+		SocketID: "s1", Name: "Alice", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+	env.svc.FlushLive2D()
+
+	lastRow := func() []any {
+		t.Helper()
+		list := env.hub.payloads["ROOM_3D|live2d-patch"]
+		if len(list) == 0 {
+			t.Fatal("没有下发 patch")
+		}
+		patch, ok := list[len(list)-1].(live2dPatchOut)
+		if !ok {
+			t.Fatalf("payload 类型不对：%T", list[len(list)-1])
+		}
+		if len(patch.Upd) != 1 {
+			t.Fatalf("应有 1 行增量，实际 %v", patch.Upd)
+		}
+		return patch.Upd[0]
+	}
+
+	base := time.Now()
+	mouth, eyes := 0.4, 0.9
+	env.svc.Live2DUpdateState("ROOM_3D", "s1", live2dStateUpdate{
+		X: 0.5, Y: 0.5, AR: 1.7, Mouth: &mouth, Eyes: &eyes,
+		// [form, brow, roll, headX, headY, offX, offY, depth, gazeX, gazeY, eyeL, eyeR, flags]
+		Pose: []float64{0.5, 0.5, 0.5, 1.6, 0.2, 0.5, 0.5, 0.4, 0.7, 0.3, 0.2, 0.9, 3},
+	}, base)
+
+	m := env.svc.Live2DSnapshot("ROOM_3D")[0]
+	if m.HeadX != 1 {
+		t.Fatalf("偏航应钳到 1：%v", m.HeadX)
+	}
+	if m.PoseFlags != 3 {
+		t.Fatalf("掩码应为 3：%v", m.PoseFlags)
+	}
+
+	env.svc.FlushLive2D()
+	row := lastRow()
+	if len(row) != 19 {
+		t.Fatalf("开 3D 时 u 行应为 19 项，实际 %d 项：%v", len(row), row)
+	}
+	if got, ok := row[9].(float64); !ok || got != 1 {
+		t.Fatalf("偏航未钳制下发：%v", row[9])
+	}
+	if got, ok := row[12].(float64); !ok || got != 0.5 {
+		t.Fatalf("视差 X 应为 0.5：%v", row[12])
+	}
+	if got, ok := row[18].(int); !ok || got != 3 {
+		t.Fatalf("掩码未下发：%v", row[18])
+	}
+
+	// 只发 3 项（老客户端）：掩码归零，行长回到 9
+	env.svc.Live2DUpdateState("ROOM_3D", "s1", live2dStateUpdate{
+		X: 0.5, Y: 0.5, AR: 1.7, Pose: []float64{0.5, 0.5, 0.7},
+	}, base.Add(time.Second))
+	env.svc.FlushLive2D()
+	row = lastRow()
+	if len(row) != 9 {
+		t.Fatalf("老客户端姿态应下发 9 项，实际 %d 项：%v", len(row), row)
+	}
+	if m := env.svc.Live2DSnapshot("ROOM_3D")[0]; m.PoseFlags != 0 {
+		t.Fatalf("没带掩码时应归零，实际 %v", m.PoseFlags)
+	}
+}
+
 // 11) 房间角色策略：只有房主能改；只带一个字段时其余保持不动。
 func TestLive2DPolicyHostOnlyAndMerge(t *testing.T) {
 	env := newTestEnv(t)
@@ -603,14 +677,15 @@ func TestLive2DDragSync(t *testing.T) {
 			continue
 		}
 		row := live2dRow(m)
-		if len(row) != 16 {
-			t.Fatalf("整行应为 16 项（含拖拽偏移与三项姿态），实际 %d 项", len(row))
+		// 16 项是老形状；本轮在末尾追加了 3D 头部/眼球九项与可用性掩码
+		if len(row) != 26 {
+			t.Fatalf("整行应为 26 项（拖拽偏移 + 三项姿态 + 3D/眼球 + 掩码），实际 %d 项", len(row))
 		}
 		if row[11] != live2dDragXLimit || row[12] != live2dDragYMin {
 			t.Fatalf("整行第 11/12 项应是拖拽偏移，实际 %v", row[11:13])
 		}
 		if row[13] != live2dDefaultPose || row[14] != live2dDefaultPose || row[15] != live2dDefaultPose {
-			t.Fatalf("整行末尾应是中性姿态，实际 %v", row[13:])
+			t.Fatalf("整行第 13~15 项应是中性姿态，实际 %v", row[13:16])
 		}
 	}
 }

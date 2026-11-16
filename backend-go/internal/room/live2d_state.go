@@ -64,11 +64,18 @@ const (
 	// 这三项在协议里是 0~1 编码（0.5 = 中性），所以「没动捕」必须给 0.5 而不是
 	// 0——0 的含义是「撇嘴 + 皱眉 + 向左歪到底」，会让新进房的人一脸苦相。
 	live2dDefaultPose = 0.5
-	// live2dPoseLen 是姿态数组长度：嘴形、眉毛、歪头。
+	// 姿态数组的两种长度。
 	//
-	// 定长而不是对象：这条走 15Hz 热路径，三个字段名加起来比数据本身还长；
-	// 定长也省掉「缺字段怎么补」的分支——长度不对就整条丢弃。
-	live2dPoseLen = 3
+	// 定长而不是对象：这条走 15Hz 热路径，字段名加起来比数据本身还长。
+	// 老客户端只发前 3 项（嘴形/眉毛/滚转），新客户端追加 9 项（3D 头部与
+	// 眼球）：服务端按「≥ 3 就吃前 3 项，≥ 12 再吃后面的」解析，两种都能用。
+	//
+	// 为什么不用 map 或者定长 12 硬校验：老客户端仍在发 3 项，硬校验会让
+	// 它们升级前彻底失去表情——这是最不该出现的"升级即坏掉"。
+	live2dPoseBaseLen = 3
+	live2dPoseFullLen = 12
+	// live2dPoseFlagsLen 是「带位掩码」的长度：12 个值 + 1 个标记。
+	live2dPoseFlagsLen = 13
 	// live2dFaceTTL 是「多久没收到面部数据就不再转发 m/e」的时限。
 	//
 	// 不转发（而不是转发 0/1）是必须的：客户端收到 m/e 就会接管模型的嘴与眼，
@@ -137,6 +144,26 @@ type live2dMember struct {
 	Form float64
 	Brow float64
 	Roll float64
+	// HeadX/HeadY 是 3D 头部偏航/俯仰（0~1，0.5 = 正对镜头），
+	// OffX/OffY/Depth 是 6DOF 平移视差（0.5 = 标定位置），
+	// GazeX/GazeY 是眼球指向（0.5 = 居中），EyeL/EyeR 是左右眼睁开程度（1 = 全睁）。
+	//
+	// 这些是**追加字段**：老客户端不发，服务端保持默认中值，下发时也只按
+	// 数组长度决定带不带——不需要版本协商。
+	HeadX float64
+	HeadY float64
+	OffX  float64
+	OffY  float64
+	Depth float64
+	GazeX float64
+	GazeY float64
+	EyeL  float64
+	EyeR  float64
+	// PoseFlags 是「这两个通道这一帧有效」的位掩码（1 = 3D 头部，2 = 眼球）。
+	//
+	// 必须显式传：关掉 3D 的客户端仍会发中值 0.5，接收端若照写就会把头部钉死
+	// 在正前方；不传标记时接收端只能二选一，两种都会错。
+	PoseFlags int
 	// faceAt 是最近一次收到面部数据的时刻，只用于判断「要不要继续转发 m/e/p」。
 	faceAt time.Time
 
@@ -329,6 +356,34 @@ func (st *live2dStore) Set(roomID string, m live2dMember, now time.Time) bool {
 	if m.Roll == 0 {
 		m.Roll = live2dDefaultPose
 	}
+	// 3D/眼球同理：零值是"没填"，不是"转到极限"。眼睁开程度的中性是 1。
+	if m.HeadX == 0 {
+		m.HeadX = live2dDefaultPose
+	}
+	if m.HeadY == 0 {
+		m.HeadY = live2dDefaultPose
+	}
+	if m.OffX == 0 {
+		m.OffX = live2dDefaultPose
+	}
+	if m.OffY == 0 {
+		m.OffY = live2dDefaultPose
+	}
+	if m.Depth == 0 {
+		m.Depth = live2dDefaultPose
+	}
+	if m.GazeX == 0 {
+		m.GazeX = live2dDefaultPose
+	}
+	if m.GazeY == 0 {
+		m.GazeY = live2dDefaultPose
+	}
+	if m.EyeL <= 0 {
+		m.EyeL = live2dDefaultEyes
+	}
+	if m.EyeR <= 0 {
+		m.EyeR = live2dDefaultEyes
+	}
 	m.pendingAdd = true
 	m.dirty = true
 	m.updatedAt = now
@@ -428,16 +483,37 @@ func (st *live2dStore) UpdateState(roomID, socketID string, u live2dStateUpdate,
 	}
 	// 长度不对就整条忽略（而不是逐项尽力而为）：错位的数组会把嘴形写进眉毛，
 	// 用户看到的是"脸抽筋"，比不动捕难查得多。
-	if len(u.Pose) == live2dPoseLen {
+	//
+	// 前 3 项是老协议，必定在上面；后 9 项只在长度够时才读——只发 3 项的老
+	// 客户端不该把 3D 通道写成 0（0 的含义是"头向左转到底 + 贴左 + 贴镜头"）。
+	if len(u.Pose) >= live2dPoseBaseLen {
 		m.Form = clampFloat(u.Pose[0], 0, 1)
 		m.Brow = clampFloat(u.Pose[1], 0, 1)
 		m.Roll = clampFloat(u.Pose[2], 0, 1)
+		// 先归零：这一帧没带掩码就等于"3D/眼球都不接管"。不归零的话，用户
+		// 切回老客户端/关掉开关后，接收端会一直按上一帧的"有效"继续写头部。
+		m.PoseFlags = 0
+	}
+	if len(u.Pose) >= live2dPoseFullLen {
+		m.HeadX = clampFloat(u.Pose[3], 0, 1)
+		m.HeadY = clampFloat(u.Pose[4], 0, 1)
+		m.OffX = clampFloat(u.Pose[5], 0, 1)
+		m.OffY = clampFloat(u.Pose[6], 0, 1)
+		m.Depth = clampFloat(u.Pose[7], 0, 1)
+		m.GazeX = clampFloat(u.Pose[8], 0, 1)
+		m.GazeY = clampFloat(u.Pose[9], 0, 1)
+		m.EyeL = clampFloat(u.Pose[10], 0, 1)
+		m.EyeR = clampFloat(u.Pose[11], 0, 1)
+		// 第 13 位是可用性位掩码；老客户端没有这一位，按 0（都不接管）处理。
+		if len(u.Pose) >= live2dPoseFlagsLen {
+			m.PoseFlags = int(clampFloat(u.Pose[12], 0, 3))
+		}
 	}
 	if u.VoiceMouth != nil {
 		m.VoiceMouth = clampFloat(*u.VoiceMouth, 0, 1)
 		m.voiceAt = now
 	}
-	if u.Mouth != nil || u.Eyes != nil || len(u.Pose) == live2dPoseLen {
+	if u.Mouth != nil || u.Eyes != nil || len(u.Pose) >= live2dPoseBaseLen {
 		m.faceAt = now
 	}
 	m.dirty = true

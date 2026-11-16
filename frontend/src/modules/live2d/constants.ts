@@ -94,6 +94,19 @@ export const LIVE2D_MAX_RENDERED = 6
 /** 空闲多少毫秒后进入「轻摆」本地动画（不上行，纯观感）。 */
 export const LIVE2D_IDLE_MS = 3000
 
+/**
+ * 6DOF 平移视差的最大幅度（相对模型包围盒宽/高）。
+ *
+ * 为什么这么小：真人左右晃头 5cm，在 42% 视口高的半身像上也就几个百分点。
+ * 放大会变成"整个人在平移"，看着像窗口在抖；0.06/0.04 只够让侧面轮廓有
+ * 一点立体感，不会和拖拽抢戏。
+ */
+export const LIVE2D_PARALLAX_X = 0.06
+export const LIVE2D_PARALLAX_Y = 0.04
+
+/** 前后移动（深度）映射成缩放的最大幅度：±5%。 */
+export const LIVE2D_DEPTH_SCALE = 0.05
+
 /** 模型在画面里的高度占比（相对视口高），半身像的常见观感。 */
 export const LIVE2D_MODEL_HEIGHT_RATIO = 0.42
 

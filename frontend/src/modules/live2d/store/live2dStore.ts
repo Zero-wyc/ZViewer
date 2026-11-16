@@ -10,6 +10,9 @@ import {
 // 「我选了哪个模型」是本机偏好，「谁在场」与「房间策略」是房间实时状态
 // （不进持久化）。
 
+/** 与 core/face-tracker 的 Live2DFaceQuality 一致（这里不 import，避免 store 拖进 wasm 类型）。 */
+export type Live2DFaceQuality = 'smooth' | 'standard' | 'precise'
+
 interface Live2DStoreState {
   myKind: Live2DModelKind
   myModelId: string
@@ -29,6 +32,18 @@ interface Live2DStoreState {
    */
   removed: boolean
   /**
+   * 动捕精度档位（本机偏好）。
+   *
+   * 为什么默认 standard：smooth 的 320×240 在 1080p 屏幕上脸只有 ~90px，
+   * 3D 头部会明显抖；precise 的 30fps 在核显笔记本上会吃掉一整个核。
+   * standard（480×360 / 15fps）是"看不出抖、也不烫手"的折中。
+   */
+  faceQuality: Live2DFaceQuality
+  /** 3D 头部：三轴旋转 + 6DOF 平移视差 */
+  head3d: boolean
+  /** 眼球跟随：虹膜驱动 ParamEyeBall */
+  eyeTrack: boolean
+  /**
    * 语音口型：说话时用麦克风响度推动嘴型（不开摄像头也有口型）。
    *
    * 为什么默认开：这是「一起看片」场景里最自然的在场感——语音本来就开着，
@@ -43,6 +58,9 @@ interface Live2DStoreState {
 
   setMyModel: (kind: Live2DModelKind, modelId: string) => void
   setMyScale: (scale: number) => void
+  setFaceQuality: (quality: Live2DFaceQuality) => void
+  setHead3d: (enabled: boolean) => void
+  setEyeTrack: (enabled: boolean) => void
   setRemoved: (removed: boolean) => void
   setVoiceLipSync: (enabled: boolean) => void
   setPeers: (peers: Live2DPeer[]) => void
@@ -56,6 +74,9 @@ const DEFAULTS = {
   myScale: 1,
   removed: false,
   voiceLipSync: true,
+  faceQuality: 'standard' as Live2DFaceQuality,
+  head3d: true,
+  eyeTrack: true,
 }
 
 export const useLive2DStore = create<Live2DStoreState>()(
@@ -68,6 +89,9 @@ export const useLive2DStore = create<Live2DStoreState>()(
       setMyModel: (myKind, myModelId) =>
         set({ myKind, myModelId, removed: false }),
       setMyScale: (myScale) => set({ myScale }),
+      setFaceQuality: (faceQuality) => set({ faceQuality }),
+      setHead3d: (head3d) => set({ head3d }),
+      setEyeTrack: (eyeTrack) => set({ eyeTrack }),
       setRemoved: (removed) => set({ removed }),
       setVoiceLipSync: (voiceLipSync) => set({ voiceLipSync }),
       setPeers: (peers) => set({ peers }),
@@ -77,13 +101,15 @@ export const useLive2DStore = create<Live2DStoreState>()(
     }),
     {
       name: 'zviewer.live2d.v1',
-      version: 5,
+      version: 6,
       // v1 里有个「整个悬浮层开关」enabled，现在改成「右键角色 → 设置」，
       // 不再有全局开关（有开关却没有入口会把用户锁在外面）。
       // v2 的 hidden 是个布尔；v3 的 hidden 是带 roomId 的记录——两种都不
       // 迁移成 removed：它们表达的是"临时藏起来"，而删除是用户的明确动作，
       // 把旧的隐藏状态升级成"删除了角色"会让老用户升级后角色凭空消失。
       // v5 新增 voiceLipSync：老数据里没有这个键，按默认开启补齐。
+      // v6 新增动捕精度三件套（faceQuality/head3d/eyeTrack）：老用户升级后
+      // 直接拿到 standard + 全开，与"改造前 + 新能力"一致，不会突然降级。
       migrate: (persisted) => {
         const old = (persisted ?? {}) as Partial<Live2DStoreState>
         return {
@@ -92,6 +118,13 @@ export const useLive2DStore = create<Live2DStoreState>()(
           myScale: old.myScale ?? DEFAULTS.myScale,
           removed: false,
           voiceLipSync: old.voiceLipSync ?? DEFAULTS.voiceLipSync,
+          faceQuality: normalizeQuality(old.faceQuality),
+          head3d:
+            typeof old.head3d === 'boolean' ? old.head3d : DEFAULTS.head3d,
+          eyeTrack:
+            typeof old.eyeTrack === 'boolean'
+              ? old.eyeTrack
+              : DEFAULTS.eyeTrack,
         }
       },
       // 只持久化本机偏好：名册与策略是房间状态，写进 localStorage 只会让
@@ -102,7 +135,17 @@ export const useLive2DStore = create<Live2DStoreState>()(
         myScale: state.myScale,
         removed: state.removed,
         voiceLipSync: state.voiceLipSync,
+        faceQuality: state.faceQuality,
+        head3d: state.head3d,
+        eyeTrack: state.eyeTrack,
       }),
     }
   )
 )
+
+/** 老数据/手改的 localStorage 可能给一个不存在的档位，回退到标准。 */
+function normalizeQuality(value: unknown): Live2DFaceQuality {
+  return value === 'smooth' || value === 'precise' || value === 'standard'
+    ? value
+    : 'standard'
+}

@@ -1,5 +1,13 @@
 import { useState } from 'react'
-import { Camera, Mic, RotateCcw, Trash2, Users } from 'lucide-react'
+import {
+  Camera,
+  Eye,
+  Mic,
+  RotateCcw,
+  ScanFace,
+  Trash2,
+  Users,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmModal, Modal } from '@/components/ui/Modal'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
@@ -13,6 +21,7 @@ import {
   libraryModelThumbUrl,
   type Live2DLibraryEntry,
 } from '../core/model-library'
+import type { Live2DFaceQuality } from '../core/face-tracker'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DModelPicker } from './Live2DModelPicker'
 import { ModelThumb } from './ModelThumb'
@@ -71,6 +80,12 @@ export interface Live2DSettingsModalProps {
   faceTracking: { on: boolean; busy: boolean; error: string }
   /** 语音口型：说话时用麦克风响度推动嘴型（本机偏好） */
   voiceLipSync: boolean
+  /** 动捕精度档位（本机偏好） */
+  faceQuality: Live2DFaceQuality
+  /** 3D 头部 + 6DOF 视差 */
+  head3d: boolean
+  /** 眼球跟随 */
+  eyeTrack: boolean
   policy: Live2DPolicy
   /** 统一角色当前用的模型显示名（解析不到时给 id） */
   unifiedLabel: string
@@ -96,6 +111,9 @@ export interface Live2DSettingsModalProps {
   onMotion: (group: string, index: number) => void
   onToggleFaceTracking: () => void
   onToggleVoiceLipSync: () => void
+  onFaceQuality: (quality: Live2DFaceQuality) => void
+  onHead3d: (enabled: boolean) => void
+  onEyeTrack: (enabled: boolean) => void
   onRemove: () => void
   /* 房间设置（房主） */
   onPolicy: (patch: Partial<Live2DPolicy>) => void
@@ -135,6 +153,9 @@ export function Live2DSettingsModal({
   myScale,
   faceTracking,
   voiceLipSync,
+  faceQuality,
+  head3d,
+  eyeTrack,
   policy,
   unifiedLabel,
   hiddenByHost,
@@ -146,6 +167,9 @@ export function Live2DSettingsModal({
   onMotion,
   onToggleFaceTracking,
   onToggleVoiceLipSync,
+  onFaceQuality,
+  onHead3d,
+  onEyeTrack,
   onRemove,
   onPolicy,
   onUpload,
@@ -397,6 +421,60 @@ export function Live2DSettingsModal({
                   aria-label={t('摄像头动捕')}
                 />
               </div>
+
+              {/* 动捕精度：改变的是「检测多快、看多清、要不要用 3D」。
+                  做成三档而不是四个滑杆，是因为帧率和分辨率必须匹配——单独
+                  拉高帧率只会更抖，单独拉高分辨率只会更卡。
+                  两个开关放进同一个 Section：它们只在这一档之下才有意义，
+                  散在页面里会让人以为是和「大小」同级的独立设置。 */}
+              <Section label={t('动捕精度')}>
+                <SegmentedToggle
+                  options={[
+                    { value: 'smooth', label: t('流畅') },
+                    { value: 'standard', label: t('标准') },
+                    { value: 'precise', label: t('高精度') },
+                  ]}
+                  value={faceQuality}
+                  onChange={(value) =>
+                    onFaceQuality(value as Live2DFaceQuality)
+                  }
+                />
+                <p className="mt-2 text-[10px] leading-snug opacity-50">
+                  {faceQuality === 'precise'
+                    ? t('30fps / 640×480：跟手最好，核显笔记本可能掉帧')
+                    : faceQuality === 'smooth'
+                      ? t('10fps / 320×240：省电优先，快速转头会有点滞后')
+                      : t('15fps / 480×360：精度与占用均衡')}
+                  {!faceTracking.on && t('，下次开启动捕时生效')}
+                </p>
+                <div className="mt-2.5 flex flex-col gap-2">
+                  <Row
+                    icon={<ScanFace size={14} />}
+                    label={t('3D 头部（6DOF）')}
+                    hint={t('三轴旋转 + 前后左右视差；关掉退回 2D 近似')}
+                  >
+                    <Switch
+                      checked={head3d}
+                      disabled={removed && !unified}
+                      onChange={(event) => onHead3d(event.target.checked)}
+                      aria-label={t('3D 头部（6DOF）')}
+                    />
+                  </Row>
+
+                  <Row
+                    icon={<Eye size={14} />}
+                    label={t('眼球跟随')}
+                    hint={t('瞳孔跟着你转；有的模型眼球位移很夸张，可以关掉')}
+                  >
+                    <Switch
+                      checked={eyeTrack}
+                      disabled={removed && !unified}
+                      onChange={(event) => onEyeTrack(event.target.checked)}
+                      aria-label={t('眼球跟随')}
+                    />
+                  </Row>
+                </div>
+              </Section>
 
               {/* 语音口型：不需要摄像头也能有嘴型。刻意**不做**成房间策略——
                   它读的是本机麦克风电平（不上传音频），只影响"我的嘴怎么动"，

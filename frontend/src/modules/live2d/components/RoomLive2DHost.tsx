@@ -189,6 +189,12 @@ export function RoomLive2DHost({
   const setRemoved = useLive2DStore((s) => s.setRemoved)
   const voiceLipSync = useLive2DStore((s) => s.voiceLipSync)
   const setVoiceLipSync = useLive2DStore((s) => s.setVoiceLipSync)
+  const faceQuality = useLive2DStore((s) => s.faceQuality)
+  const setFaceQuality = useLive2DStore((s) => s.setFaceQuality)
+  const head3d = useLive2DStore((s) => s.head3d)
+  const setHead3d = useLive2DStore((s) => s.setHead3d)
+  const eyeTrack = useLive2DStore((s) => s.eyeTrack)
+  const setEyeTrack = useLive2DStore((s) => s.setEyeTrack)
 
   // 房主统一角色时，显示的模型不再是「我选的」而是房间定的；我自己的选择
   // 仍然留在 store 里，关掉统一角色就自动回来。
@@ -424,7 +430,12 @@ export function RoomLive2DHost({
     face,
     toggle: toggleFaceTracking,
     recalibrate: recalibrateFace,
-  } = useFaceTracker({ allowFace: policy.allowFace })
+  } = useFaceTracker({
+    allowFace: policy.allowFace,
+    quality: faceQuality,
+    head3d,
+    eyeTrack,
+  })
 
   const role = useAuthStore((s) => s.user?.role)
   const isServerAdmin = role === 'root' || role === 'admin'
@@ -1279,6 +1290,9 @@ export function RoomLive2DHost({
         myScale={scaleDraft ?? myScale}
         faceTracking={face}
         voiceLipSync={voiceLipSync}
+        faceQuality={faceQuality}
+        head3d={head3d}
+        eyeTrack={eyeTrack}
         policy={policy}
         unifiedLabel={unifiedLabel}
         hiddenByHost={!canShowLayer}
@@ -1290,6 +1304,9 @@ export function RoomLive2DHost({
         onMotion={handleMotion}
         onToggleFaceTracking={toggleFaceTracking}
         onToggleVoiceLipSync={toggleVoiceLipSync}
+        onFaceQuality={setFaceQuality}
+        onHead3d={setHead3d}
+        onEyeTrack={setEyeTrack}
         onRemove={handleRemove}
         onPolicy={handlePolicy}
         onUpload={handleUpload}

@@ -33,6 +33,17 @@ function peer(sid: string, patch: Partial<Live2DPeer> = {}): Live2DPeer {
     form: 0.5,
     brow: 0.5,
     roll: 0.5,
+    headX: 0.5,
+    headY: 0.5,
+    offX: 0.5,
+    offY: 0.5,
+    depth: 0.5,
+    gazeX: 0.5,
+    gazeY: 0.5,
+    eyeLeft: 1,
+    eyeRight: 1,
+    headActive: false,
+    eyeActive: false,
     ...patch,
   }
 }

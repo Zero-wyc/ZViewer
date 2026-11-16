@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  alignSign,
+  eyeGazeFromLandmarks,
   faceBlendFromScores,
   faceExtrasFromScores,
   faceMetrics,
   gazeFromMetrics,
+  headPoseFromMatrix,
+  headPoseFromRaw,
   headRollFromLandmarks,
   FACE_BLEND_NAME,
   FACE_LANDMARK,
@@ -225,4 +229,185 @@ test('嘴形与眉毛互不影响（一侧缺数据不拖累另一侧）', () =>
   assert.ok(onlySmile)
   assert.ok(onlySmile.form > 0)
   assert.equal(onlySmile.brow, 0)
+})
+
+// ---- 3D 头部 / 6DOF ----
+
+/**
+ * 造一个 4x4 位姿：绕 Y 轴转 yaw，再平移 t。
+ *
+ * `columnMajor` 控制铺开顺序——同一份姿态按两种布局各铺一遍，用来验证
+ * headPoseFromMatrix 的布局自动判定（真实运行时确实两种都存在）。
+ */
+function poseMatrix(
+  yawRad: number,
+  t: [number, number, number],
+  columnMajor = true
+): number[] {
+  const c = Math.cos(yawRad)
+  const s = Math.sin(yawRad)
+  const m = [
+    [c, 0, s, t[0]],
+    [0, 1, 0, t[1]],
+    [-s, 0, c, t[2]],
+    [0, 0, 0, 1],
+  ]
+  const data = new Array<number>(16).fill(0)
+  for (let i = 0; i < 4; i += 1) {
+    for (let j = 0; j < 4; j += 1) {
+      const index = columnMajor ? j * 4 + i : i * 4 + j
+      data[index] = m[i][j]
+    }
+  }
+  return data
+}
+
+test('位姿矩阵：列主序与行主序都能解出同一个偏航角', () => {
+  const yaw = Math.PI / 6
+  const col = headPoseFromMatrix(poseMatrix(yaw, [0, 0, 50], true))
+  const row = headPoseFromMatrix(poseMatrix(yaw, [0, 0, 50], false))
+  assert.ok(col)
+  assert.ok(row)
+  assert.ok(Math.abs(col.yaw - yaw) < 1e-6, `列主序 yaw=${col.yaw}`)
+  assert.ok(Math.abs(row.yaw - yaw) < 1e-6, `行主序 yaw=${row.yaw}`)
+  assert.ok(Math.abs(col.tz - 50) < 1e-9)
+  assert.ok(Math.abs(row.tz - 50) < 1e-9)
+  // 只绕 Y 转，俯仰与滚转都该是 0
+  assert.ok(Math.abs(col.pitch) < 1e-9)
+  assert.ok(Math.abs(col.roll) < 1e-9)
+})
+
+test('位姿矩阵：数据缺失/含 NaN/距离为 0 时返回 null', () => {
+  assert.equal(headPoseFromMatrix(null), null)
+  assert.equal(headPoseFromMatrix([1, 0, 0, 0]), null)
+  const bad = poseMatrix(0.2, [0, 0, 50])
+  bad[5] = Number.NaN
+  assert.equal(headPoseFromMatrix(bad), null)
+  // tz = 0：后面所有比例都无意义
+  assert.equal(headPoseFromMatrix(poseMatrix(0, [0, 0, 0])), null)
+})
+
+test('归一化：偏航 40° 拉满，减掉基线后正对镜头为 0', () => {
+  const raw = { yaw: 0.3, pitch: 0.1, roll: 0.05, tx: 0, ty: 0, tz: 50 }
+  const neutral = {
+    yaw: 0.1,
+    pitch: 0.08,
+    roll: 0.02,
+    txRatio: 0,
+    tyRatio: 0,
+    tz: 50,
+  }
+  const sample = headPoseFromRaw(raw, neutral, { yaw: 1, pitch: 1, roll: 1 })
+  assert.ok(sample)
+  // (0.3 - 0.1) / 0.698 ≈ 0.29
+  assert.ok(Math.abs(sample.yaw - 0.2865) < 1e-3)
+  // 超出 40° 会被钳到 1
+  const far = headPoseFromRaw({ ...raw, yaw: 0.1 + Math.PI }, neutral, {
+    yaw: 1,
+    pitch: 1,
+    roll: 1,
+  })
+  assert.equal(far?.yaw, 1)
+})
+
+test('归一化：平移用 tx/tz 比例，深度用相对距离', () => {
+  const neutral = {
+    yaw: 0,
+    pitch: 0,
+    roll: 0,
+    txRatio: 0,
+    tyRatio: 0,
+    tz: 50,
+  }
+  const sample = headPoseFromRaw(
+    { yaw: 0, pitch: 0, roll: 0, tx: 15, ty: -7.5, tz: 40 },
+    neutral,
+    { yaw: 1, pitch: 1, roll: 1 }
+  )
+  assert.ok(sample)
+  // tx/tz = 0.375 → /0.3 已超 1，钳满
+  assert.equal(sample.offX, 1)
+  // ty/tz = -0.1875 → /0.3 ≈ -0.625
+  assert.ok(Math.abs(sample.offY + 0.625) < 1e-3)
+  // 50/40 - 1 = 0.25 → /0.3 ≈ 0.833
+  assert.ok(Math.abs(sample.depth - 0.8333) < 1e-3)
+})
+
+test('符号对齐：同向为 +1，反向为 -1，样本为空时按 +1', () => {
+  assert.equal(
+    alignSign([
+      [0.2, 0.1],
+      [0.1, 0.3],
+    ]),
+    1
+  )
+  assert.equal(
+    alignSign([
+      [0.2, -0.1],
+      [0.1, -0.3],
+    ]),
+    -1
+  )
+  assert.equal(alignSign([]), 1)
+  // NaN 不参与：只剩一个有效样本，仍按它的方向判
+  assert.equal(
+    alignSign([
+      [Number.NaN, 1],
+      [-0.5, 0.5],
+    ]),
+    -1
+  )
+})
+
+// ---- 眼球（虹膜） ----
+
+/** 造 478 个点，只填两只眼与虹膜，其余堆在原点。 */
+function irisMarks(shiftX = 0, shiftY = 0) {
+  const list = new Array(478).fill(null).map(() => ({ x: 0, y: 0 }))
+  // 图像左侧眼睛：外眼角 0.40 → 内眼角 0.46，眼高 0.48~0.52
+  list[FACE_LANDMARK.EYE_LEFT_IN_IMAGE] = { x: 0.4, y: 0.5 }
+  list[FACE_LANDMARK.EYE_LEFT_INNER] = { x: 0.46, y: 0.5 }
+  list[FACE_LANDMARK.EYE_LEFT_UPPER] = { x: 0.43, y: 0.48 }
+  list[FACE_LANDMARK.EYE_LEFT_LOWER] = { x: 0.43, y: 0.52 }
+  list[FACE_LANDMARK.IRIS_LEFT] = { x: 0.43 + shiftX, y: 0.5 + shiftY }
+  // 图像右侧眼睛：内眼角 0.54 → 外眼角 0.60
+  list[FACE_LANDMARK.EYE_RIGHT_INNER] = { x: 0.54, y: 0.5 }
+  list[FACE_LANDMARK.EYE_RIGHT_IN_IMAGE] = { x: 0.6, y: 0.5 }
+  list[FACE_LANDMARK.EYE_RIGHT_UPPER] = { x: 0.57, y: 0.48 }
+  list[FACE_LANDMARK.EYE_RIGHT_LOWER] = { x: 0.57, y: 0.52 }
+  list[FACE_LANDMARK.IRIS_RIGHT] = { x: 0.57 + shiftX, y: 0.5 + shiftY }
+  return list
+}
+
+test('虹膜居中时眼球方向为 0，向右移时为正', () => {
+  const center = eyeGazeFromLandmarks(irisMarks())
+  assert.ok(center)
+  assert.ok(Math.abs(center.x) < 1e-9)
+  assert.ok(Math.abs(center.y) < 1e-9)
+
+  // 右移 0.012 = 眼宽的 20% → (0.7-0.5)*2*2.2 ≈ 0.88
+  const right = eyeGazeFromLandmarks(irisMarks(0.012, 0))
+  assert.ok(right)
+  assert.ok(right.x > 0.8 && right.x < 0.95, `实际 ${right?.x}`)
+  // 两眼对称：浮点末位会差 1e-15，按近似比
+  assert.ok(Math.abs(right.left.x - right.right.x) < 1e-9)
+})
+
+test('虹膜偏下时 y 为正（几何直觉：图像坐标向下）', () => {
+  const down = eyeGazeFromLandmarks(irisMarks(0, 0.008))
+  assert.ok(down)
+  assert.ok(down.y > 0)
+})
+
+test('没有虹膜（468 点模型）或眼睛太小/闭眼时返回 null', () => {
+  const short = irisMarks().slice(0, 468)
+  assert.equal(eyeGazeFromLandmarks(short), null)
+
+  const tiny = irisMarks()
+  // 把眼睛压成一条缝：高度不足阈值，比例不可信
+  tiny[FACE_LANDMARK.EYE_LEFT_UPPER] = { x: 0.43, y: 0.5 }
+  tiny[FACE_LANDMARK.EYE_LEFT_LOWER] = { x: 0.43, y: 0.5005 }
+  tiny[FACE_LANDMARK.EYE_RIGHT_UPPER] = { x: 0.57, y: 0.5 }
+  tiny[FACE_LANDMARK.EYE_RIGHT_LOWER] = { x: 0.57, y: 0.5005 }
+  assert.equal(eyeGazeFromLandmarks(tiny), null)
 })

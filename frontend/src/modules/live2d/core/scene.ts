@@ -39,6 +39,34 @@ export interface SceneEntry {
   targetBrow: number
   targetRoll: number
   /**
+   * 3D 头部与眼球（全部 0~1 编码，0.5 居中）。
+   *
+   * 单独一组而不是塞进 form/brow/roll：那三项是"表情形状"，语义是"偏离中性的
+   * 方向"；这一组里 eyeLeft/eyeRight 是"睁开程度"（中性是 1），混在一起很容易
+   * 在渲染端把 0.5 当成半睁。
+   *
+   * headX/headY = 偏航/俯仰，offX/offY = 6DOF 平移视差，depth = 前后位移，
+   * gazeX/gazeY = 眼球指向。老服务端不发这几项时保持中值，画面与改造前一致。
+   */
+  currentHeadX: number
+  currentHeadY: number
+  currentOffX: number
+  currentOffY: number
+  currentDepth: number
+  currentGazeX: number
+  currentGazeY: number
+  currentEyeLeft: number
+  currentEyeRight: number
+  targetHeadX: number
+  targetHeadY: number
+  targetOffX: number
+  targetOffY: number
+  targetDepth: number
+  targetGazeX: number
+  targetGazeY: number
+  targetEyeLeft: number
+  targetEyeRight: number
+  /**
    * 最近一次收到面部数据的时刻。
    *
    * 0 表示「这个成员没在动捕」。渲染器只在数据新鲜（FACE_TTL 内）时接管
@@ -46,6 +74,15 @@ export interface SceneEntry {
    * 保持最后一帧的张嘴表情。
    */
   faceAt: number
+  /**
+   * 最近一次收到 **3D 头部** 数据的时刻；0 表示这位成员没有 3D 头部。
+   *
+   * 与 faceAt 分开：协议里 3D 是可选追加项，老客户端/关掉 3D 的人永远不带。
+   * 渲染器据此决定「偏航/俯仰要不要接管」——无条件接管会把头钉死在正前方。
+   */
+  headAt: number
+  /** 最近一次收到**眼球**数据的时刻；同样只对支持的客户端有意义。 */
+  eyeAt: number
 
   // ---- 语音口型 ----
   // 只驱动嘴。与动捕的分工是硬的：动捕新鲜时这两个量完全不参与渲染，
@@ -103,16 +140,39 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
     currentEyes: 1,
     targetMouth: 0,
     targetEyes: 1,
-    // 中性：不笑不撇嘴、眉毛平、头端正
+    // 中性：不笑不撇嘴、眉毛平、头端正、眼球居中、眼全睁
     currentForm: 0.5,
     currentBrow: 0.5,
     currentRoll: 0.5,
     targetForm: 0.5,
     targetBrow: 0.5,
     targetRoll: 0.5,
+    currentHeadX: 0.5,
+    currentHeadY: 0.5,
+    currentOffX: 0.5,
+    currentOffY: 0.5,
+    currentDepth: 0.5,
+    currentGazeX: 0.5,
+    currentGazeY: 0.5,
+    currentEyeLeft: 1,
+    currentEyeRight: 1,
+    targetHeadX: 0.5,
+    targetHeadY: 0.5,
+    targetOffX: 0.5,
+    targetOffY: 0.5,
+    targetDepth: 0.5,
+    targetGazeX: 0.5,
+    targetGazeY: 0.5,
+    targetEyeLeft: 1,
+    targetEyeRight: 1,
     // 新条目先不接管面部参数：等这一路真的来了一帧动捕数据再说。
     // 否则"刚从快照里看到别人张着嘴"会让我们凭空替他张嘴。
+    //
+    // 3D/眼球例外：快照里带了掩码就说明"他现在确实在动捕 + 开着 3D"，
+    // 直接按新鲜处理，否则刚进房的人要等最多 100ms 才看到别人转头/斜眼。
     faceAt: 0,
+    headAt: peer.headActive ? now : 0,
+    eyeAt: peer.eyeActive ? now : 0,
     currentVoiceMouth: 0,
     targetVoiceMouth: 0,
     voiceAt: 0,
@@ -177,7 +237,27 @@ export function restoreSmooth(prev: Map<string, SceneEntry>): void {
     entry.targetForm = old.targetForm
     entry.targetBrow = old.targetBrow
     entry.targetRoll = old.targetRoll
+    entry.currentHeadX = old.currentHeadX
+    entry.currentHeadY = old.currentHeadY
+    entry.currentOffX = old.currentOffX
+    entry.currentOffY = old.currentOffY
+    entry.currentDepth = old.currentDepth
+    entry.currentGazeX = old.currentGazeX
+    entry.currentGazeY = old.currentGazeY
+    entry.currentEyeLeft = old.currentEyeLeft
+    entry.currentEyeRight = old.currentEyeRight
+    entry.targetHeadX = old.targetHeadX
+    entry.targetHeadY = old.targetHeadY
+    entry.targetOffX = old.targetOffX
+    entry.targetOffY = old.targetOffY
+    entry.targetDepth = old.targetDepth
+    entry.targetGazeX = old.targetGazeX
+    entry.targetGazeY = old.targetGazeY
+    entry.targetEyeLeft = old.targetEyeLeft
+    entry.targetEyeRight = old.targetEyeRight
     entry.faceAt = old.faceAt
+    entry.headAt = old.headAt
+    entry.eyeAt = old.eyeAt
     entry.currentVoiceMouth = old.currentVoiceMouth
     entry.targetVoiceMouth = old.targetVoiceMouth
     entry.voiceAt = old.voiceAt
@@ -218,6 +298,30 @@ export function setLocalPointer(sid: string, x: number, y: number): void {
 }
 
 /**
+ * 一帧面部姿态的可选部分（与嘴/眼分开传）。
+ *
+ * 全部 0~1；老服务端/老客户端只会给前三项，其余留空表示"这一帧没带"，
+ * 此时保持上一帧的值——不能按中性覆盖，否则对方的 3D 朝向会每收一包就归位。
+ */
+export interface FaceStateInput {
+  form: number
+  brow: number
+  roll: number
+  headX?: number
+  headY?: number
+  offX?: number
+  offY?: number
+  depth?: number
+  gazeX?: number
+  gazeY?: number
+  eyeLeft?: number
+  eyeRight?: number
+  /** 这一帧的 3D 头部/眼球是否有效（缺省按"带了值就算"处理） */
+  headActive?: boolean
+  eyeActive?: boolean
+}
+
+/**
  * 写入面部姿态（本机与远端共用一个入口：值已经是 0~1 的绝对值，
  * 不需要像坐标那样做宽高比换算）。
  *
@@ -228,18 +332,52 @@ export function setFace(
   sid: string,
   mouth: number,
   eyes: number,
-  extras?: { form: number; brow: number; roll: number }
+  extras?: FaceStateInput
 ): void {
   const entry = entries.get(sid)
   if (!entry) return
   if (Number.isFinite(mouth)) entry.targetMouth = clamp01(mouth)
   if (Number.isFinite(eyes)) entry.targetEyes = clamp01(eyes)
   if (extras) {
-    if (Number.isFinite(extras.form)) entry.targetForm = clamp01(extras.form)
-    if (Number.isFinite(extras.brow)) entry.targetBrow = clamp01(extras.brow)
-    if (Number.isFinite(extras.roll)) entry.targetRoll = clamp01(extras.roll)
+    assign(extras.form, (v) => (entry.targetForm = v))
+    assign(extras.brow, (v) => (entry.targetBrow = v))
+    assign(extras.roll, (v) => (entry.targetRoll = v))
+    assign(extras.headX, (v) => (entry.targetHeadX = v))
+    assign(extras.headY, (v) => (entry.targetHeadY = v))
+    assign(extras.offX, (v) => (entry.targetOffX = v))
+    assign(extras.offY, (v) => (entry.targetOffY = v))
+    assign(extras.depth, (v) => (entry.targetDepth = v))
+    assign(extras.gazeX, (v) => (entry.targetGazeX = v))
+    assign(extras.gazeY, (v) => (entry.targetGazeY = v))
+    assign(extras.eyeLeft, (v) => (entry.targetEyeLeft = v))
+    assign(extras.eyeRight, (v) => (entry.targetEyeRight = v))
+    // 时间戳单独打：3D 与眼球是可选通道，老客户端永远不带，渲染器靠它们
+    // 决定"要不要接管头部/眼球参数"。
+    // 可用性优先看显式标记：关掉 3D 的发送端会带中值，不能当成"他正对镜头"。
+    const headOk =
+      extras.headActive ?? (finite(extras.headX) || finite(extras.headY))
+    const eyeOk =
+      extras.eyeActive ?? (finite(extras.gazeX) || finite(extras.gazeY))
+    if (headOk) entry.headAt = Date.now()
+    if (eyeOk) entry.eyeAt = Date.now()
   }
   entry.faceAt = Date.now()
+}
+
+/**
+ * 只在字段真的带了值（有限数）时写目标。
+ *
+ * 逐字段判空而不是 `if (extras.headX !== undefined)` 一长串：这里要为 12 个
+ * 字段写同样的分支，写成循环表最不容易漏——漏一个的表现是"某个通道永远
+ * 停在中性"，很难从画面上看出来是协议解析的问题。
+ */
+function finite(value: number | undefined): boolean {
+  return value !== undefined && Number.isFinite(value)
+}
+
+function assign(value: number | undefined, set: (v: number) => void): void {
+  if (value === undefined || !Number.isFinite(value)) return
+  set(clamp01(value))
 }
 
 /** 姿态是否由动捕接管（数据新鲜）。渲染器与「是否需要平滑」共用同一判据。 */

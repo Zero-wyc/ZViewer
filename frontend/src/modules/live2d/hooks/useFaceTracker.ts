@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '@/i18n'
-import { FaceTracker } from '../core/face-tracker'
+import {
+  FaceTracker,
+  type FaceTrackerConfig,
+  type Live2DFaceQuality,
+} from '../core/face-tracker'
 
 // 摄像头动捕的启停。
 //
@@ -15,6 +19,12 @@ import { FaceTracker } from '../core/face-tracker'
 export interface UseFaceTrackerOptions {
   /** 房主是否允许成员动捕。变 false 时立刻停掉摄像头。 */
   allowFace: boolean
+  /** 精度档位（本机偏好） */
+  quality: Live2DFaceQuality
+  /** 3D 头部 + 6DOF */
+  head3d: boolean
+  /** 眼球跟随 */
+  eyeTrack: boolean
 }
 
 export interface FaceTrackerState {
@@ -33,8 +43,19 @@ export interface FaceTrackerState {
 
 export function useFaceTracker({
   allowFace,
+  quality,
+  head3d,
+  eyeTrack,
 }: UseFaceTrackerOptions): FaceTrackerState {
   const trackerRef = useRef<FaceTracker | null>(null)
+  /**
+   * 最新配置。
+   *
+   * start 是 useCallback([])（它只能在点击回调里发起，重建会让"进行中的启动"
+   * 失去引用），闭包里的 quality 永远是首次渲染时的值；所以配置走 ref，
+   * 由下面那个 effect 在每次变更时同步并应用到已运行的实例上。
+   */
+  const configRef = useRef<FaceTrackerConfig>({ quality, head3d, eyeTrack })
   // 卸载后摄像头还在跑是最糟的泄漏：启停都是异步的，必须在 await 之后复查
   const disposedRef = useRef(false)
   const [tracker, setTracker] = useState<FaceTracker | null>(null)
@@ -54,7 +75,7 @@ export function useFaceTracker({
     if (trackerRef.current) return
     setFace({ on: true, busy: true, error: '' })
     try {
-      const instance = await FaceTracker.create()
+      const instance = await FaceTracker.create({ config: configRef.current })
       // 启动期间用户可能已经关掉开关、离开了房间，或者组件已经被卸载
       if (disposedRef.current) {
         instance.stop()
@@ -81,6 +102,14 @@ export function useFaceTracker({
   const recalibrate = useCallback(() => {
     trackerRef.current?.recalibrate()
   }, [])
+
+  // 精度/3D/眼球变更：同步给已运行的实例。实例没开时只更新 ref，
+  // 下次启动直接用新配置（不用先开一次再改）。
+  useEffect(() => {
+    configRef.current = { quality, head3d, eyeTrack }
+    const current = trackerRef.current
+    if (current) void current.setConfig(configRef.current)
+  }, [quality, head3d, eyeTrack])
 
   // 房主关掉开关时立刻停。放进 setTimeout 是为了不在 effect 里同步 setState
   // （react-hooks 会判成级联渲染）。

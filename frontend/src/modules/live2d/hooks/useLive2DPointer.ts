@@ -13,6 +13,7 @@ import {
   micLevelToMouth,
 } from '../core/lip-sync'
 import { hasMicLevel, readMicLevel } from '@/modules/voice-chat/lib/mic-level'
+import { LIVE2D_POSE_FLAG } from '../types'
 import type { FaceTracker } from '../core/face-tracker'
 
 // 本机输入 → 15Hz 上行。
@@ -55,7 +56,14 @@ interface Live2DStatePayload {
   a: number
   m?: number
   e?: number
-  /** [嘴形, 眉毛, 歪头]，0~1 编码（0.5 = 中性） */
+  /**
+   * 面部姿态数组，0~1 编码。
+   *
+   * 前 3 项是老协议（嘴形/眉毛/滚转），后 9 项是 3D 头部与眼球：
+   * [form, brow, roll, headX, headY, offX, offY, depth, gazeX, gazeY, eyeL, eyeR, flags]。
+   * 最后一位是位掩码（LIVE2D_POSE_FLAG）：head/eye 是否有效。
+   * 追加在末尾而不是拆新字段：服务端按长度解析，老客户端发 3 项也照样能用。
+   */
   p?: number[]
 }
 
@@ -63,9 +71,36 @@ interface Live2DStatePayload {
 interface Live2DFaceSample {
   mouth: number
   eyes: number
+  eyeLeft: number
+  eyeRight: number
   form: number
   brow: number
   roll: number
+  headX: number
+  headY: number
+  offX: number
+  offY: number
+  depth: number
+  gazeX: number
+  gazeY: number
+  headActive: boolean
+  eyeActive: boolean
+}
+
+/** 一帧面部采样里的 3D/眼球字段（本地写场景与上行共用同一份编码）。 */
+interface Live2DFaceExtras {
+  headX: number
+  headY: number
+  offX: number
+  offY: number
+  depth: number
+  gazeX: number
+  gazeY: number
+  eyeLeft: number
+  eyeRight: number
+  /** 3D 头部/眼球这一帧是否有效（决定接收端要不要接管） */
+  headActive: boolean
+  eyeActive: boolean
 }
 
 /**
@@ -77,6 +112,14 @@ interface Live2DFaceSample {
 function encodeSigned(v: number): number {
   const n = Number.isFinite(v) ? v : 0
   return Math.min(1, Math.max(0, n / 2 + 0.5))
+}
+
+/** 把"这两个通道这一帧是否有效"压成 p 数组最后一位（见 LIVE2D_POSE_FLAG）。 */
+function poseFlags(face: Live2DFaceSample): number {
+  return (
+    (face.headActive ? LIVE2D_POSE_FLAG.HEAD : 0) |
+    (face.eyeActive ? LIVE2D_POSE_FLAG.EYE : 0)
+  )
 }
 
 export function useLive2DPointer({
@@ -103,6 +146,16 @@ export function useLive2DPointer({
     // 在句子中间合上（服务端的 voiceAt 600ms 就过期了）
     let lastVoiceAt = 0
 
+    /**
+     * 采样/上行间隔。
+     *
+     * 高精度档把本地采样提到 20Hz：检测是 30fps，但上行仍受服务端 40ms 门限
+     * 约束，20Hz（50ms）是留了余量的上限。标准/流畅档保持 15Hz——加密上行
+     * 只会让服务端更早触发门限丢弃，对观感没有收益。
+     */
+    const sendGap = () =>
+      tracker?.getConfig().quality === 'precise' ? 50 : LIVE2D_STATE_INTERVAL_MS
+
     const send = (
       x: number,
       y: number,
@@ -111,7 +164,7 @@ export function useLive2DPointer({
       voice: number | null
     ) => {
       const now = performance.now()
-      if (now - lastAt < LIVE2D_STATE_INTERVAL_MS) return
+      if (now - lastAt < sendGap()) return
       const pointerMoved =
         Math.abs(x - lastX) >= LIVE2D_STATE_EPSILON ||
         Math.abs(y - lastY) >= LIVE2D_STATE_EPSILON
@@ -144,6 +197,17 @@ export function useLive2DPointer({
           form: face.form,
           brow: face.brow,
           roll: face.roll,
+          headX: face.headX,
+          headY: face.headY,
+          offX: face.offX,
+          offY: face.offY,
+          depth: face.depth,
+          gazeX: face.gazeX,
+          gazeY: face.gazeY,
+          eyeLeft: face.eyeLeft,
+          eyeRight: face.eyeRight,
+          headActive: face.headActive,
+          eyeActive: face.eyeActive,
         })
         payload.m = roundCoord(face.mouth)
         payload.e = roundCoord(face.eyes)
@@ -151,6 +215,16 @@ export function useLive2DPointer({
           roundCoord(face.form),
           roundCoord(face.brow),
           roundCoord(face.roll),
+          roundCoord(face.headX),
+          roundCoord(face.headY),
+          roundCoord(face.offX),
+          roundCoord(face.offY),
+          roundCoord(face.depth),
+          roundCoord(face.gazeX),
+          roundCoord(face.gazeY),
+          roundCoord(face.eyeLeft),
+          roundCoord(face.eyeRight),
+          poseFlags(face),
         ]
       } else if (voice !== null) {
         // 只带 m、不带 e/p：服务端据此把它归到「语音口型」而不是「整脸动捕」
@@ -193,9 +267,20 @@ export function useLive2DPointer({
             {
               mouth: pose.mouth,
               eyes: pose.eyes,
+              eyeLeft: pose.eyeLeft,
+              eyeRight: pose.eyeRight,
               form: encodeSigned(pose.form),
               brow: encodeSigned(pose.brow),
               roll: encodeSigned(pose.roll),
+              headX: encodeSigned(pose.head.x),
+              headY: encodeSigned(pose.head.y),
+              offX: encodeSigned(pose.offset.x),
+              offY: encodeSigned(pose.offset.y),
+              depth: encodeSigned(pose.depth),
+              gazeX: encodeSigned(pose.eye.x),
+              gazeY: encodeSigned(pose.eye.y),
+              headActive: pose.headActive,
+              eyeActive: pose.eyeActive,
             },
             null
           )
@@ -214,7 +299,7 @@ export function useLive2DPointer({
           null,
           micLevelToMouth(readMicLevel())
         )
-      }, LIVE2D_STATE_INTERVAL_MS)
+      }, 33)
 
     const onPointer = (event: PointerEvent) =>
       emitPointer(event.clientX, event.clientY)
@@ -233,7 +318,22 @@ export function useLive2DPointer({
       // 关掉动捕的那一刻补一帧「闭嘴、睁眼、中性表情」：不发的话对方模型
       // 会一直停在最后一帧的表情上（服务端只在收到面部数据时才转发 m/e/p）。
       if (sentFace) {
-        setFace(sid, 0, 1, { form: 0.5, brow: 0.5, roll: 0.5 })
+        // 中性帧要把 3D/眼球也归位：只补三项的话，对方模型会停在你最后一次
+        // 转头/斜眼的角度上（这些参数一旦被接管，引擎就不会自己收回去）。
+        const neutral: Live2DFaceExtras = {
+          headX: 0.5,
+          headY: 0.5,
+          offX: 0.5,
+          offY: 0.5,
+          depth: 0.5,
+          gazeX: 0.5,
+          gazeY: 0.5,
+          eyeLeft: 1,
+          eyeRight: 1,
+          headActive: false,
+          eyeActive: false,
+        }
+        setFace(sid, 0, 1, { form: 0.5, brow: 0.5, roll: 0.5, ...neutral })
         socket.emit(LIVE2D_EVENT.STATE, {
           roomId,
           x: roundCoord(Math.max(0, lastX)),
@@ -241,7 +341,21 @@ export function useLive2DPointer({
           a: roundCoord(window.innerWidth / Math.max(1, window.innerHeight), 2),
           m: 0,
           e: 1,
-          p: [0.5, 0.5, 0.5],
+          p: [
+            0.5,
+            0.5,
+            0.5,
+            neutral.headX,
+            neutral.headY,
+            neutral.offX,
+            neutral.offY,
+            neutral.depth,
+            neutral.gazeX,
+            neutral.gazeY,
+            neutral.eyeLeft,
+            neutral.eyeRight,
+            0,
+          ],
         })
       } else if (sentVoice) {
         // 只发过语音嘴型的（没开过摄像头）：补一帧闭嘴，只带 m。

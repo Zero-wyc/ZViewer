@@ -3,6 +3,7 @@ import type { Socket } from 'socket.io-client'
 import { LIVE2D_EVENT } from '../constants'
 import {
   LIVE2D_DEFAULT_POLICY,
+  LIVE2D_POSE_FLAG,
   rowToPeer,
   type Live2DActionPayload,
   type Live2DConfigAck,
@@ -44,6 +45,11 @@ export interface UseLive2DSyncOptions {
    * 也不该知道 UI 该提示什么。
    */
   onModelRemoved?: (modelId: string) => void
+}
+
+/** 可选数值：缺项返回 undefined（让场景保持上一帧），有值才转成数字。 */
+function optional(value: number | undefined): number | undefined {
+  return value === undefined || value === null ? undefined : Number(value)
 }
 
 function aspectRatio(): number {
@@ -152,18 +158,34 @@ export function useLive2DSync({
           const mouth = row[4]
           const eyes = row[5]
           // 行长区分三种状态（见 live2dStateRow）：4 = 只有视线；
-          // 5 = 语音口型（只有嘴）；10 = 整脸动捕。
+          // 5 = 语音口型（只有嘴）；9 = 整脸动捕；19 = 整脸 + 3D + 眼球 + 掩码。
           if (mouth !== undefined && eyes === undefined) {
             // 只写嘴：语音没有睁眼/表情的对应物，动到那些参数就等于宣称
             // 对方的眼和眉毛也归我们管，模型会整段说话都不眨眼。
             setVoiceMouth(sid, Number(mouth))
           } else if (mouth !== undefined && eyes !== undefined) {
-            // 表情细节/歪头是可选的：老服务端只发 m/e，这时按「中性」处理
-            // 而不是保持上一帧——否则对方一说笑，旧端会永远停在笑脸上。
+            // 表情细节/歪头是**必填的老字段**：老服务端只发 m/e，这时按「中性」
+            // 处理而不是保持上一帧——否则对方一说笑，旧端会永远停在笑脸上。
+            //
+            // 3D 头部/眼球是**可选的新字段**：缺了必须保持上一帧（undefined），
+            // 不能填中性。填中性等于"这一帧他正对镜头"，头部会每收一包归位一次。
             setFace(sid, Number(mouth), Number(eyes), {
               form: row[6] === undefined ? 0.5 : Number(row[6]),
               brow: row[7] === undefined ? 0.5 : Number(row[7]),
               roll: row[8] === undefined ? 0.5 : Number(row[8]),
+              headX: optional(row[9]),
+              headY: optional(row[10]),
+              offX: optional(row[11]),
+              offY: optional(row[12]),
+              depth: optional(row[13]),
+              gazeX: optional(row[14]),
+              gazeY: optional(row[15]),
+              eyeLeft: optional(row[16]),
+              eyeRight: optional(row[17]),
+              // 最后一位是位掩码：只有真正开着 3D/眼球跟随的发送端才会置位。
+              // 缺这一位（老服务端）时按"没带"处理，头部继续交给 focus。
+              headActive: (Number(row[18] ?? 0) & LIVE2D_POSE_FLAG.HEAD) !== 0,
+              eyeActive: (Number(row[18] ?? 0) & LIVE2D_POSE_FLAG.EYE) !== 0,
             })
           }
         }

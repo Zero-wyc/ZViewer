@@ -8,12 +8,30 @@ export interface FaceLandmark {
   y: number
 }
 
-/** MediaPipe FaceMesh 的关键点下标（468 点模型，官方固定值）。 */
+/** MediaPipe FaceMesh 的关键点下标（468 点模型 + 10 点虹膜，官方固定值）。 */
 export const FACE_LANDMARK = {
   /** 图像左侧的外眼角（被拍者的右眼） */
   EYE_LEFT_IN_IMAGE: 33,
   /** 图像右侧的外眼角（被拍者的左眼） */
   EYE_RIGHT_IN_IMAGE: 263,
+  /** 图像左侧的内眼角 */
+  EYE_LEFT_INNER: 133,
+  /** 图像右侧的内眼角 */
+  EYE_RIGHT_INNER: 362,
+  /** 图像左侧眼睛的上/下眼睑（虹膜垂直比例用） */
+  EYE_LEFT_UPPER: 159,
+  EYE_LEFT_LOWER: 145,
+  /** 图像右侧眼睛的上/下眼睑 */
+  EYE_RIGHT_UPPER: 386,
+  EYE_RIGHT_LOWER: 374,
+  /**
+   * 虹膜中心（478 点模型才有）。
+   *
+   * 468 点模型在这里是 undefined——`eyeGazeFromLandmarks` 会先看长度再取，
+   * 老运行时不会因此拿到 NaN。
+   */
+  IRIS_LEFT: 468,
+  IRIS_RIGHT: 473,
   /** 鼻尖 */
   NOSE_TIP: 1,
   /** 下巴尖（预览绘制与俯仰备用） */
@@ -134,8 +152,17 @@ export const FACE_BLEND_NAME = {
 export interface FaceBlend {
   /** 张嘴幅度：0 = 闭着，1 = 张到最大 */
   mouth: number
-  /** 睁眼程度：0 = 闭眼，1 = 全睁 */
+  /** 睁眼程度：0 = 闭眼，1 = 全睁（左右眼的平均值，给只认单通道的老协议用） */
   eyes: number
+  /**
+   * 左右眼各自的睁眼程度。
+   *
+   * 与 eyes 平均值的差别只在单眼眨（wink）时有意义：平均值把 wink 磨成
+   * 半闭，看起来像眯眼；分开写才能真的眨一只。协议里仍然带平均值（`e`），
+   * 两只眼的独立值走扩展姿态数组——老客户端读到平均值也能正常跑。
+   */
+  eyeLeft: number
+  eyeRight: number
 }
 
 /** 闭嘴时 jawOpen 也有 0.02~0.1 的底噪，减掉它才不会一直半张嘴。 */
@@ -149,8 +176,8 @@ const MOUTH_SPAN = 0.5
  * 一个都没取到就返回 null：说明这一帧检测器没给出表情数据（老版本运行时不支持
  * blendshape），此时调用方应当整帧跳过，而不是把模型按成闭嘴。
  *
- * 左右眼取**平均**而不是取更闭的那只：单眼眨（wink）平均下来是半闭，看起来像
- * 眯一下；取 max 会把两只眼一起闭上，反而更怪。
+ * `eyes` 仍取**平均**（协议与老客户端的兼容口径），另外单独给出左右眼：
+ * 渲染器用独立值，wink 才能真的只闭一只。
  */
 export function faceBlendFromScores(
   scores: Record<string, number | undefined>
@@ -161,10 +188,13 @@ export function faceBlendFromScores(
   if (jaw === undefined && blinkL === undefined && blinkR === undefined) {
     return null
   }
-  const blink = ((clampScore(blinkL) ?? 0) + (clampScore(blinkR) ?? 0)) / 2
+  const eyeLeft = 1 - (clampScore(blinkL) ?? 0)
+  const eyeRight = 1 - (clampScore(blinkR) ?? 0)
   return {
     mouth: clamp01(((clampScore(jaw) ?? 0) - MOUTH_DEADZONE) / MOUTH_SPAN),
-    eyes: clamp01(1 - blink),
+    eyes: clamp01((eyeLeft + eyeRight) / 2),
+    eyeLeft: clamp01(eyeLeft),
+    eyeRight: clamp01(eyeRight),
   }
 }
 
@@ -307,5 +337,285 @@ function clampSigned(v: number): number {
   if (!Number.isFinite(v)) return 0
   if (v < -1) return -1
   if (v > 1) return 1
+  return v
+}
+
+// ---------------------------------------------------------------------------
+// 眼球跟随：虹膜相对眼窝的位置
+// ---------------------------------------------------------------------------
+
+/** 一只眼睛的方向，-1（图像左/下）~ 1（图像右/上）。 */
+export interface EyeDirection {
+  x: number
+  y: number
+}
+
+/**
+ * 虹膜在眼窝里的归一化位置映射成 -1~1 的增益。
+ *
+ * 虹膜自然活动范围只占眼窝宽度的中间约 40%（`0.3~0.7`），不放大就永远
+ * 走不到 Cubism 的 ±1，模型看着像"眼睛不动"；2.2 倍刚好把常见范围铺满，
+ * 再大就会让急促的扫视瞬间撞到钳制边界。
+ */
+const EYE_GAZE_GAIN = 2.2
+
+/**
+ * 从虹膜关键点算双眼指向（图像坐标系，x 右为正、y **下**为正）。
+ *
+ * 返回 null 的三种情况都要区分清楚：
+ *   - 关键点不足 478 个 → 运行时没给虹膜（老模型/老运行时），整条通路关掉；
+ *   - 眼宽不足 → 人离得太远，比例全是噪声；
+ *   - 数值非有限 → 这一帧检测崩了。
+ *
+ * 两眼的水平/垂直比例各自算完再平均：单眼被头发遮住时，另一只眼还能撑住
+ * 画面，而不是整只模型的眼睛突然停住。
+ */
+export function eyeGazeFromLandmarks(
+  landmarks: readonly FaceLandmark[]
+): { left: EyeDirection; right: EyeDirection; x: number; y: number } | null {
+  const left = eyeRatio(
+    landmarks,
+    FACE_LANDMARK.IRIS_LEFT,
+    FACE_LANDMARK.EYE_LEFT_IN_IMAGE,
+    FACE_LANDMARK.EYE_LEFT_INNER,
+    FACE_LANDMARK.EYE_LEFT_UPPER,
+    FACE_LANDMARK.EYE_LEFT_LOWER
+  )
+  const right = eyeRatio(
+    landmarks,
+    FACE_LANDMARK.IRIS_RIGHT,
+    FACE_LANDMARK.EYE_RIGHT_IN_IMAGE,
+    FACE_LANDMARK.EYE_RIGHT_INNER,
+    FACE_LANDMARK.EYE_RIGHT_UPPER,
+    FACE_LANDMARK.EYE_RIGHT_LOWER
+  )
+  if (!left && !right) return null
+  const xs = [left?.x, right?.x].filter((v): v is number => v !== undefined)
+  const ys = [left?.y, right?.y].filter((v): v is number => v !== undefined)
+  return {
+    left: left ?? { x: 0, y: 0 },
+    right: right ?? { x: 0, y: 0 },
+    x: xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length),
+    y: ys.reduce((a, b) => a + b, 0) / Math.max(1, ys.length),
+  }
+}
+
+/**
+ * 单眼：虹膜中心在「内外眼角 / 上下眼睑」之间的比例。
+ *
+ * 用 min/max 而不是固定"外→内"的顺序：左右眼的索引方向相反，靠坐标排序
+ * 取范围就不必在下标上做特判（写反了会得到一只眼睛反着转的经典 bug）。
+ */
+function eyeRatio(
+  landmarks: readonly FaceLandmark[],
+  irisIdx: number,
+  cornerA: number,
+  cornerB: number,
+  lidA: number,
+  lidB: number
+): EyeDirection | null {
+  const iris = landmarks[irisIdx]
+  const a = landmarks[cornerA]
+  const b = landmarks[cornerB]
+  const up = landmarks[lidA]
+  const down = landmarks[lidB]
+  if (!iris || !a || !b || !up || !down) return null
+  const values = [iris.x, iris.y, a.x, b.x, up.y, down.y]
+  if (!values.every(Number.isFinite)) return null
+
+  const xMin = Math.min(a.x, b.x)
+  const xMax = Math.max(a.x, b.x)
+  const yMin = Math.min(up.y, down.y)
+  const yMax = Math.max(up.y, down.y)
+  const eyeW = xMax - xMin
+  const eyeH = yMax - yMin
+  // 眼宽不足 0.4% 屏宽 ≈ 人已经退到镜头外；高度太小说明闭着眼（虹膜被压住）
+  if (eyeW < 0.004 || eyeH < 0.002) return null
+
+  const tx = (iris.x - xMin) / eyeW
+  const ty = (iris.y - yMin) / eyeH
+  return {
+    x: clampSigned((tx - 0.5) * 2 * EYE_GAZE_GAIN),
+    // 图像 y 向下：虹膜偏下 = 往下看。这里保持几何直觉，渲染时再翻符号。
+    y: clampSigned((ty - 0.5) * 2 * EYE_GAZE_GAIN),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 头部姿态：4x4 位姿矩阵 → 偏航/俯仰/滚转 + 三轴平移（6DOF）
+// ---------------------------------------------------------------------------
+
+/** 位姿矩阵解出来的原始量（未减基线、未归一化）。 */
+export interface RawHeadPose {
+  /** 偏航（绕 Y 轴），弧度，正负由具体运行时的坐标系决定 */
+  yaw: number
+  /** 俯仰（绕 X 轴），弧度 */
+  pitch: number
+  /** 滚转（绕 Z 轴），弧度 */
+  roll: number
+  /** 平移（与规范人脸模型同单位，量级约等于"离镜头多少厘米"） */
+  tx: number
+  ty: number
+  tz: number
+}
+
+/**
+ * 从 MediaPipe 的 `facialTransformationMatrixes[0].data` 解出 6DOF 姿态。
+ *
+ * **布局要自己判**：同一个 `Matrix` 结构在不同运行时里既有按列存（OpenGL
+ * 惯例）也有按行存的。旋转部分两种解释都"合法"（转置仍是旋转矩阵），所以
+ * 不能靠正交性区分；能区分的是**平移**——旋转项绝对值 ≤1，而人脸离镜头
+ * 几十厘米，平移项量级是 10~100。取两者中平移模长更大的那种解释。
+ */
+export function headPoseFromMatrix(
+  data: readonly number[] | null | undefined
+): RawHeadPose | null {
+  if (!data || data.length < 16) return null
+  if (!Array.from(data).every(Number.isFinite)) return null
+
+  const col = readMatrix(data, true)
+  const row = readMatrix(data, false)
+  const m = magnitude(row) > magnitude(col) ? row : col
+
+  // tz 是"脸到相机的距离"，为 0 或负数时后面的比例全无意义
+  if (!(Math.abs(m.tz) > 1e-6)) return null
+
+  const pitch = Math.asin(clampNum(-m.r12, -1, 1))
+  const yaw = Math.atan2(m.r02, m.r22)
+  const roll = Math.atan2(m.r10, m.r11)
+  return { yaw, pitch, roll, tx: m.tx, ty: m.ty, tz: m.tz }
+}
+
+interface MatrixPart {
+  r02: number
+  r10: number
+  r11: number
+  r12: number
+  r22: number
+  tx: number
+  ty: number
+  tz: number
+}
+
+/**
+ * 按指定布局读出需要的六个旋转项与平移。
+ *
+ * 只取计算用得到的分量：4x4 里我们不需要透视行，也不需要完整的 9 个
+ * 旋转项——少读几个数字，热路径上少一次索引换算。
+ */
+function readMatrix(data: readonly number[], columnMajor: boolean): MatrixPart {
+  const at = (r: number, c: number) =>
+    columnMajor ? data[c * 4 + r] : data[r * 4 + c]
+  return {
+    r02: at(0, 2),
+    r10: at(1, 0),
+    r11: at(1, 1),
+    r12: at(1, 2),
+    r22: at(2, 2),
+    tx: at(0, 3),
+    ty: at(1, 3),
+    tz: at(2, 3),
+  }
+}
+
+function magnitude(m: MatrixPart): number {
+  return Math.hypot(m.tx, m.ty, m.tz)
+}
+
+/** 归一化后的头部姿态，全部 -1~1（0 = 正对镜头）。 */
+export interface HeadPoseSample {
+  yaw: number
+  pitch: number
+  roll: number
+  /** 头部左右平移造成的视差（正 = 向右） */
+  offX: number
+  /** 上下平移造成的视差（正 = 向下） */
+  offY: number
+  /** 前后移动（正 = 靠近镜头） */
+  depth: number
+}
+
+/** 偏航 ±40°、俯仰 ±30° 就算"转到头"；滚转复用上面的 MAX_ROLL_RAD（±35°）。 */
+const MAX_YAW_RAD = 0.698
+const MAX_PITCH_RAD = 0.524
+/** 平移用「位移 / 距离」的比值归一化：换个人坐得远近不同，比例才对得上。 */
+const OFFSET_SPAN = 0.3
+/** 深度用相对变化量归一化：前后挪 30% 距离算"到头"。 */
+const DEPTH_SPAN = 0.3
+
+/** 标定基线：正对镜头时各项的原始值。 */
+export interface HeadPoseNeutral {
+  yaw: number
+  pitch: number
+  roll: number
+  /** tx/tz：与距离无关的水平偏移比例 */
+  txRatio: number
+  tyRatio: number
+  tz: number
+}
+
+/**
+ * 原始姿态 → -1~1。
+ *
+ * `signs` 是三个 ±1：不同运行时的坐标系朝向不一致（有的把"向左转"记为正），
+ * 靠标定期与几何量做相关自动对齐（见 face-tracker 的 alignSigns），这里只负责
+ * 乘上去。把它做成参数而不是三个 if，是因为符号错一次就会让"点头变成摇头"，
+ * 必须有单测锁住。
+ */
+export function headPoseFromRaw(
+  raw: RawHeadPose,
+  neutral: HeadPoseNeutral,
+  signs: { yaw: number; pitch: number; roll: number }
+): HeadPoseSample | null {
+  if (!(Math.abs(raw.tz) > 1e-6)) return null
+  const txRatio = raw.tx / raw.tz
+  const tyRatio = raw.ty / raw.tz
+  return {
+    yaw: clampSigned(
+      (signs.yaw * wrapAngle(raw.yaw - neutral.yaw)) / MAX_YAW_RAD
+    ),
+    pitch: clampSigned(
+      (signs.pitch * wrapAngle(raw.pitch - neutral.pitch)) / MAX_PITCH_RAD
+    ),
+    roll: clampSigned(
+      (signs.roll * wrapAngle(raw.roll - neutral.roll)) / MAX_ROLL_RAD
+    ),
+    offX: clampSigned((txRatio - neutral.txRatio) / OFFSET_SPAN),
+    offY: clampSigned((tyRatio - neutral.tyRatio) / OFFSET_SPAN),
+    depth: clampSigned((neutral.tz / raw.tz - 1) / DEPTH_SPAN),
+  }
+}
+
+/**
+ * 由标定样本与几何量的乘积和判断符号。
+ *
+ * 为什么能用乘积：标定期间用户基本正对镜头，微小的自然晃动里，几何量与
+ * 矩阵量测的是同一件事——同向则乘积为正，反向则乘积为负。12 个样本的
+ * 和足以压过噪声，又不需要用户刻意配合。
+ *
+ * 和为 0（几乎没动）时按 +1：这是"没有证据"而不是"证据指向反向"。
+ */
+export function alignSign(samples: ReadonlyArray<[number, number]>): number {
+  let sum = 0
+  for (const [a, b] of samples) {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) continue
+    sum += a * b
+  }
+  return sum < 0 ? -1 : 1
+}
+
+/** 角度差折到 -π~π：跨过 ±180° 时不能让差值突然变成 300°。 */
+function wrapAngle(rad: number): number {
+  if (!Number.isFinite(rad)) return 0
+  let v = rad
+  while (v > Math.PI) v -= Math.PI * 2
+  while (v < -Math.PI) v += Math.PI * 2
+  return v
+}
+
+function clampNum(v: number, min: number, max: number): number {
+  if (!Number.isFinite(v)) return 0
+  if (v < min) return min
+  if (v > max) return max
   return v
 }

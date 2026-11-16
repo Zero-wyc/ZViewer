@@ -95,7 +95,9 @@ type live2dStatePayload struct {
 	// Mouth/Eyes 是摄像头动捕的面部姿态，只在动捕开着时出现（见 live2dStateUpdate）。
 	Mouth *float64 `json:"m"`
 	Eyes  *float64 `json:"e"`
-	// Pose 是 [嘴形, 眉毛, 歪头]，0~1 编码。与 m/e 同时出现、同时缺席。
+	// Pose 是 [嘴形, 眉毛, 滚转, 偏航, 俯仰, 视差X, 视差Y, 深度, 眼球X, 眼球Y,
+	// 左眼睁开, 右眼睁开, 可用性位掩码]，0~1 编码（最后一位是整数位掩码）。前 3 项是老协议，后面的只在 3D/眼球
+	// 可用时追加——服务端按长度解析，不认识的项忽略。与 m/e 同时出现、同时缺席。
 	Pose []float64 `json:"p"`
 }
 
@@ -164,7 +166,11 @@ var (
 
 // live2dRow 把成员压成一行：
 // [sid, name, kind, modelId, scale, ord, x, y, ar, mouth, eyes, dragX, dragY,
-// form, brow, roll]。
+// form, brow, roll, headX, headY, offX, offY, depth, gazeX, gazeY, eyeL, eyeR,
+// poseFlags]。
+//
+// 末尾的掩码是必须的：没有它，刚进房的人拿到 headX..eyeR 也不知道该不该用
+// （0.5 既可能是"正对镜头"也可能是"他没开 3D"），只能等下一帧增量。
 // 快照的 models 与 patch 的 add 共用这个形状，前端只需要一个解析函数。
 //
 // 末尾两位是拖拽偏移（相对槽位基准的比例），再往后是动捕的表情细节与歪头
@@ -177,6 +183,11 @@ func live2dRow(m live2dMember) []any {
 		roundTo(m.Mouth, 2), roundTo(m.Eyes, 2),
 		roundTo(m.DragX, 3), roundTo(m.DragY, 3),
 		roundTo(m.Form, 2), roundTo(m.Brow, 2), roundTo(m.Roll, 2),
+		roundTo(m.HeadX, 2), roundTo(m.HeadY, 2),
+		roundTo(m.OffX, 2), roundTo(m.OffY, 2), roundTo(m.Depth, 2),
+		roundTo(m.GazeX, 2), roundTo(m.GazeY, 2),
+		roundTo(m.EyeL, 2), roundTo(m.EyeR, 2),
+		m.PoseFlags,
 	}
 }
 
@@ -189,7 +200,8 @@ func live2dRows(list []live2dMember) [][]any {
 }
 
 // live2dStateRow 是合并下行的**紧凑**行：[sid, x, y, ar]，后面按需追加：
-//   - 动捕（首选）：一路追加到 9 项 [m, e, p0, p1, p2]；
+//   - 动捕（首选）：9 项 [m, e, p0..p2]；开了 3D/眼球跟随再追加到 19 项
+//     [m, e, p0..p11, flags]；
 //   - 语音口型：只追加 1 项 [m]，行长 5。
 //
 // 可变长度是刻意的：客户端收到 m/e/p 就会接管模型的嘴、眼、表情与歪头，
@@ -197,7 +209,8 @@ func live2dRows(list []live2dMember) [][]any {
 // 整个房间的角色都不再眨眼、也不再有自己的小表情。
 //
 // 行长因此有三种含义，客户端按长度分派（见 useLive2DSync）：
-// 4 = 只有视线；5 = 语音张嘴；10 = 整脸动捕。动捕同时新鲜时只发整脸：
+// 4 = 只有视线；5 = 语音张嘴；9 = 整脸动捕；19 = 整脸 + 3D + 眼球 + 掩码。
+// 动捕同时新鲜时只发整脸：
 // 摄像头测出来的嘴比麦克风响度准，而且那时人就在镜头前，没有理由退化。
 func live2dStateRow(m live2dMember, now time.Time) []any {
 	row := []any{m.SocketID, roundTo(m.X, 3), roundTo(m.Y, 3), roundTo(m.AR, 2)}
@@ -206,6 +219,20 @@ func live2dStateRow(m live2dMember, now time.Time) []any {
 			roundTo(m.Mouth, 2), roundTo(m.Eyes, 2),
 			roundTo(m.Form, 2), roundTo(m.Brow, 2), roundTo(m.Roll, 2),
 		)
+		// 3D 头部/眼球只在发送端真的开了时追加（PoseFlags != 0）。
+		//
+		// 不无条件下发的原因有两个：一是老客户端的行长口径不变（仍是 9 项），
+		// 少一类"同一形状但语义不同"的边界；二是没开 3D 的人占多数，每人每帧
+		// 白带 9 个数字，在 10Hz × 12 人的房间里是实打实的带宽。
+		if m.PoseFlags != 0 {
+			row = append(row,
+				roundTo(m.HeadX, 2), roundTo(m.HeadY, 2),
+				roundTo(m.OffX, 2), roundTo(m.OffY, 2), roundTo(m.Depth, 2),
+				roundTo(m.GazeX, 2), roundTo(m.GazeY, 2),
+				roundTo(m.EyeL, 2), roundTo(m.EyeR, 2),
+				m.PoseFlags,
+			)
+		}
 		return row
 	}
 	if !m.voiceAt.IsZero() && now.Sub(m.voiceAt) < live2dFaceTTL {
@@ -365,7 +392,9 @@ func (s *Service) handleLive2DConfig(sc *sio.Socket, args []json.RawMessage, ack
 // handleLive2DState 是热路径（每客户端 15Hz），必须极轻：
 // 不 ack、不查库、不碰 Service.mu，只做一次 map 查表和数值钳制。
 func (s *Service) handleLive2DState(sc *sio.Socket, args []json.RawMessage) {
-	if len(args) == 0 || len(args[0]) > 256 {
+	// 512：13 个两位小数的姿态值加上其余字段约 200 字节，256 会把带 3D 的
+	// 合法帧判成超长丢掉（表现为"别人看我头不动"）。
+	if len(args) == 0 || len(args[0]) > 512 {
 		return
 	}
 	var payload live2dStatePayload
@@ -405,7 +434,7 @@ func (s *Service) handleLive2DState(sc *sio.Socket, args []json.RawMessage) {
 //
 // 反过来（只给 e 不给 m）不合法也不存在：客户端要么整脸一起发，要么只发嘴。
 func live2dVoiceMouth(p live2dStatePayload) *float64 {
-	if p.Mouth == nil || p.Eyes != nil || len(p.Pose) == live2dPoseLen {
+	if p.Mouth == nil || p.Eyes != nil || len(p.Pose) >= live2dPoseBaseLen {
 		return nil
 	}
 	return p.Mouth
