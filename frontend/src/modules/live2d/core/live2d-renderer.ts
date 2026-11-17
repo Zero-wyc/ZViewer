@@ -135,6 +135,42 @@ interface LoadedModel {
    * 它没有"当前值"，只是一个瞬时反应，所以不该占用名册的那种状态位。
    */
   pokeAt: number
+  /**
+   * 显示区域裁剪（相对包围盒的 0~1 比例）。默认全显示。
+   *
+   * 只作用于本机看自己角色的视角（拖拽模式里调），不上行、不影响别人。
+   */
+  crop: CropRange
+  /** 已安装的裁剪钩子；恢复全显示时要还原，否则每帧白设 scissor */
+  cropHook?: CropHook
+}
+
+/** 显示区域：相对模型包围盒，0 = 顶、1 = 底。 */
+export interface CropRange {
+  top: number
+  bottom: number
+}
+
+interface CropHook {
+  original: (renderer: unknown) => void
+  wrapped: (renderer: unknown) => void
+}
+
+/**
+ * 裁剪比例归一化：保证 0 ≤ top < bottom ≤ 1 且至少留一截。
+ *
+ * 不夹的话，拖过头会得到 top > bottom（负高度），scissor 拿到负数直接
+ * INVALID_VALUE，且下次进房间读回来也修不好。
+ */
+export function normalizeCrop(crop: {
+  top: number
+  bottom: number
+}): CropRange {
+  const t = Number.isFinite(crop.top) ? crop.top : 0
+  const b = Number.isFinite(crop.bottom) ? crop.bottom : 1
+  const top = Math.min(0.85, Math.max(0, Math.min(t, b)))
+  const bottom = Math.max(0.15, Math.min(1, Math.max(t, b)))
+  return { top, bottom: Math.max(top + 0.15, bottom) }
 }
 
 export interface RendererOptions {
@@ -167,6 +203,13 @@ export class Live2DRenderer {
   private models = new Map<string, LoadedModel>()
   private loading = new Set<string>()
   private failed = new Map<string, number>()
+  /**
+   * 模型还没加载完就收到的裁剪设置。
+   *
+   * 宿主恢复本机偏好早于模型落地（判据是"我出现在名册里"），没有这个中转，
+   * 偏好会被静默丢掉，用户下次进房发现裁剪又回到全显示。
+   */
+  private pendingCrop = new Map<string, CropRange>()
   /**
    * 每个 sid 最近一次要加载的地址。
    *
@@ -571,8 +614,33 @@ export class Live2DRenderer {
    *
    * 拖拽模式用它画虚线框，也用它判断"我点到的到底是不是自己"：`pick`
    * 只返回最上层那一个，两个人重叠时按它判断会把自己的拖拽拦下来。
+   *
+   * **返回的是裁剪之后的可见区域**：被裁掉的部分点不到、也画不出框，
+   * 否则把手会落在没有画面的地方。
    */
   boundsOf(sid: string): {
+    x: number
+    y: number
+    width: number
+    height: number
+  } | null {
+    const raw = this.rawBoundsOf(sid)
+    if (!raw) return null
+    const loaded = this.models.get(sid)
+    const crop = loaded?.crop ?? { top: 0, bottom: 1 }
+    if (crop.top <= 1e-4 && crop.bottom >= 1 - 1e-4) return raw
+    const top = raw.y + raw.height * crop.top
+    const height = Math.max(1, raw.height * (crop.bottom - crop.top))
+    return { x: raw.x, y: top, width: raw.width, height }
+  }
+
+  /**
+   * 未裁剪的完整包围盒。
+   *
+   * 拖拽模式需要它来画"这只角色本来多大、现在裁掉了哪一截"：只有可见框的话
+   * 用户拖过头就再也不知道原来还能拖回来多少。
+   */
+  rawBoundsOf(sid: string): {
     x: number
     y: number
     width: number
@@ -586,6 +654,120 @@ export class Live2DRenderer {
     return { x: box.x, y: box.y, width: box.width, height: box.height }
   }
 
+  /**
+   * 设置某个模型的显示区域（相对包围盒的比例）。
+   *
+   * 实现不是给 pixi 设 mask —— 这条路上踩过坑：引擎走的是自制的 render pipe
+   * （`Live2DModel.renderLive2D`），直接调 WebGL 画，**绕过了 Container 的
+   * stencil 应用**，所以 model.mask / 父容器 mask 一律无效（实测裁不动）。
+   *
+   * 真正有效的是 WebGL 的 scissor：它作用在光栅化阶段，谁也绕不过去。难点在于
+   * Cubism 自己在绘制过程中会保存/恢复 SCISSOR_TEST（它用 scissor 做内部
+   * clipping），所以在 renderLive2D 外面设一次会被它关掉。这里改成在每次
+   * drawElements 之前重设，绘制结束再还原 context 上的方法与 scissor 状态。
+   */
+  setCrop(sid: string, crop: CropRange): void {
+    const next = normalizeCrop(crop)
+    const loaded = this.models.get(sid)
+    if (!loaded) {
+      // 模型还在排队/加载：先记下来，等 load 完成后再套用。宿主是在「我出现在
+      // 名册里」的那一刻恢复偏好的，那时模型通常还没画出来。
+      this.pendingCrop.set(sid, next)
+      return
+    }
+    loaded.crop = next
+    const full = next.top <= 1e-4 && next.bottom >= 1 - 1e-4
+    if (full) this.uninstallCropHook(loaded)
+    else this.installCropHook(sid, loaded)
+  }
+
+  /** 读回当前裁剪（宿主刷新界面时用）。 */
+  cropOf(sid: string): CropRange {
+    return this.models.get(sid)?.crop ?? { top: 0, bottom: 1 }
+  }
+
+  private installCropHook(sid: string, loaded: LoadedModel): void {
+    if (loaded.cropHook) return
+    const model = loaded.model as unknown as {
+      renderLive2D: (renderer: unknown) => void
+    }
+    const original = model.renderLive2D
+    const wrapped = (renderer: unknown): void => {
+      const r = renderer as {
+        gl: WebGL2RenderingContext
+        resolution?: number
+      }
+      const gl = r?.gl
+      const box = this.boundsOf(sid)
+      // 拿不到 gl / 包围盒（模型刚被移除、或换成了非 WebGL 后端）就原样画，
+      // 宁可这帧不裁，也不能把整只模型画没了。
+      if (!gl || !box) {
+        original.call(model, renderer)
+        return
+      }
+      const res = r.resolution && r.resolution > 0 ? r.resolution : 1
+      const sx = Math.floor(box.x * res)
+      const sw = Math.max(1, Math.ceil(box.width * res))
+      const sh = Math.max(1, Math.ceil(box.height * res))
+      // WebGL 的 scissor 原点在左下，屏幕坐标要翻 y
+      const sy = Math.floor(gl.drawingBufferHeight - (box.y + box.height) * res)
+
+      const prevDraw = gl.drawElements
+      const patched = function (
+        this: WebGL2RenderingContext,
+        mode: number,
+        count: number,
+        type: number,
+        offset: number
+      ): void {
+        gl.enable(gl.SCISSOR_TEST)
+        gl.scissor(sx, sy, sw, sh)
+        prevDraw.call(gl, mode, count, type, offset)
+      }
+      gl.drawElements = patched as typeof gl.drawElements
+
+      // 有索引的网格走 drawElements，没有索引的走 drawArrays。Cubism 的
+      // drawable 两种都有（实测丝袜/鞋这类部件走的是 drawArrays），只包一种
+      // 会得到"身体裁了、腿还在"的半成品。
+      const prevDrawArrays = gl.drawArrays
+      const patchedArrays = function (
+        this: WebGL2RenderingContext,
+        mode: number,
+        first: number,
+        count: number
+      ): void {
+        gl.enable(gl.SCISSOR_TEST)
+        gl.scissor(sx, sy, sw, sh)
+        prevDrawArrays.call(gl, mode, first, count)
+      }
+      gl.drawArrays = patchedArrays as typeof gl.drawArrays
+
+      const prevEnabled = gl.isEnabled(gl.SCISSOR_TEST)
+      const prevBox = gl.getParameter(gl.SCISSOR_BOX) as Int32Array
+      gl.enable(gl.SCISSOR_TEST)
+      gl.scissor(sx, sy, sw, sh)
+      try {
+        original.call(model, renderer)
+      } finally {
+        gl.drawElements = prevDraw
+        gl.drawArrays = prevDrawArrays
+        gl.scissor(prevBox[0], prevBox[1], prevBox[2], prevBox[3])
+        if (!prevEnabled) gl.disable(gl.SCISSOR_TEST)
+      }
+    }
+    model.renderLive2D = wrapped
+    loaded.cropHook = { original, wrapped }
+  }
+
+  private uninstallCropHook(loaded: LoadedModel): void {
+    const hook = loaded.cropHook
+    if (!hook) return
+    ;(
+      loaded.model as unknown as { renderLive2D: (renderer: unknown) => void }
+    ).renderLive2D = hook.original
+    loaded.cropHook = undefined
+  }
+
   /** 同步移除场景里已经不存在的模型。 */
   prune(alive: Set<string>): void {
     for (const sid of [...this.models.keys()]) {
@@ -594,6 +776,9 @@ export class Live2DRenderer {
     // 离场的人不必留着"上次拉的是哪个地址"：那是为了重试，人都不在了没人点。
     for (const sid of [...this.lastUrl.keys()]) {
       if (!alive.has(sid)) this.lastUrl.delete(sid)
+    }
+    for (const sid of [...this.pendingCrop.keys()]) {
+      if (!alive.has(sid)) this.pendingCrop.delete(sid)
     }
   }
 
@@ -678,10 +863,17 @@ export class Live2DRenderer {
         px: 0,
         py: 0,
         pokeAt: 0,
+        crop: { top: 0, bottom: 1 },
       }
       this.applyMotionPolicy(sid, entry)
       this.bindFaceParams(sid, entry)
       this.models.set(sid, entry)
+      // 加载期间设过的裁剪在这里补上（见 pendingCrop 的说明）
+      const queuedCrop = this.pendingCrop.get(sid)
+      if (queuedCrop) {
+        this.pendingCrop.delete(sid)
+        this.setCrop(sid, queuedCrop)
+      }
     } catch (err) {
       this.failed.set(`${sid}|${url}`, Date.now())
       const reason = err instanceof Error ? err.message : String(err)

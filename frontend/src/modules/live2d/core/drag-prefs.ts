@@ -18,7 +18,26 @@ const STORAGE_KEY = 'zviewer.live2d.drag-prefs'
 /** 最多记这么多个模型：够用，也不至于让 localStorage 无限增长。 */
 const MAX_ENTRIES = 24
 
-type PrefMap = Record<string, DragOffset>
+/**
+ * 显示区域的裁剪比例（相对模型当前包围盒，0 在上、1 在下）。
+ *
+ * 和位置一起按模型记：同一个「裁到腰」的比例，对高模型是腰、对矮模型是胸，
+ * 但用户换模型后重新裁一次的成本，远低于一个全局比例带来的"看起来没生效"。
+ */
+export interface CropPref {
+  top: number
+  bottom: number
+}
+
+/** 至少留这么多高度，避免拖成一条线之后再也拖不回来。 */
+export const CROP_MIN_SPAN = 0.15
+
+interface PrefEntry extends DragOffset {
+  top: number
+  bottom: number
+}
+
+type PrefMap = Record<string, PrefEntry>
 
 /**
  * 存储的最小接口。
@@ -56,16 +75,32 @@ function readAll(storage: DragPrefStorage): PrefMap {
       parsed as Record<string, unknown>
     )) {
       if (!value || typeof value !== 'object') continue
-      const { x, y } = value as { x?: unknown; y?: unknown }
+      const { x, y, top, bottom } = value as {
+        x?: unknown
+        y?: unknown
+        top?: unknown
+        bottom?: unknown
+      }
       if (typeof x !== 'number' || typeof y !== 'number') continue
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue
       // 旧版本可能写过超出范围的数，读的时候再夹一次
-      out[key] = clampDragOffset(x, y)
+      const offset = clampDragOffset(x, y)
+      const crop = clampCrop(top, bottom)
+      out[key] = { ...offset, ...crop }
     }
     return out
   } catch {
     return {}
   }
+}
+
+/** 把裁剪比例夹到合法区间：0 ≤ top < bottom ≤ 1，且至少留 CROP_MIN_SPAN。 */
+export function clampCrop(top: unknown, bottom: unknown): CropPref {
+  const t = typeof top === 'number' && Number.isFinite(top) ? top : 0
+  const b = typeof bottom === 'number' && Number.isFinite(bottom) ? bottom : 1
+  const lo = Math.min(1 - CROP_MIN_SPAN, Math.max(0, Math.min(t, b)))
+  const hi = Math.max(CROP_MIN_SPAN, Math.min(1, Math.max(t, b)))
+  return { top: lo, bottom: Math.max(lo + CROP_MIN_SPAN, hi) }
 }
 
 function writeAll(storage: DragPrefStorage, map: PrefMap): void {
@@ -86,10 +121,23 @@ export function loadDragPref(
   const value = readAll(storage)[prefKey(kind, modelId)]
   if (!value) return null
   if (Math.abs(value.x) < 1e-4 && Math.abs(value.y) < 1e-4) return null
-  return value
+  return { x: value.x, y: value.y }
 }
 
-/** 记下某模型的偏移（拖拽松手时调用）。 */
+/** 读取某模型的裁剪比例；没记过、或记的是「全显示」时返回 null。 */
+export function loadCropPref(
+  kind: Live2DModelKind,
+  modelId: string,
+  storage: DragPrefStorage | null = defaultStorage()
+): CropPref | null {
+  if (!storage || !modelId) return null
+  const value = readAll(storage)[prefKey(kind, modelId)]
+  if (!value) return null
+  if (value.top < 1e-4 && value.bottom > 1 - 1e-4) return null
+  return { top: value.top, bottom: value.bottom }
+}
+
+/** 记下某模型的偏移（拖拽松手时调用）。裁剪比例原样保留。 */
 export function saveDragPref(
   kind: Live2DModelKind,
   modelId: string,
@@ -100,10 +148,47 @@ export function saveDragPref(
   if (!storage || !modelId) return
   const key = prefKey(kind, modelId)
   const map = readAll(storage)
+  const prev = map[key]
   // 先删再写：对象保持插入顺序，"最近用过的排最后"就够做淘汰了，
   // 不必再存一个时间戳。
   delete map[key]
-  map[key] = clampDragOffset(x, y)
+  map[key] = {
+    ...clampDragOffset(x, y),
+    top: prev?.top ?? 0,
+    bottom: prev?.bottom ?? 1,
+  }
+  const keys = Object.keys(map)
+  if (keys.length > MAX_ENTRIES) {
+    for (const stale of keys.slice(0, keys.length - MAX_ENTRIES)) {
+      delete map[stale]
+    }
+  }
+  writeAll(storage, map)
+}
+
+/**
+ * 记下某模型的裁剪比例（拖拽模式松手时调用）。
+ *
+ * 与位置分开两个函数而不是揉成一个：调用点本来就不在一处（拖动是每次 move
+ * 都可能落，裁剪只在松手时落），合成一个函数反而要求两边都记着对方的当前值。
+ */
+export function saveCropPref(
+  kind: Live2DModelKind,
+  modelId: string,
+  crop: CropPref,
+  storage: DragPrefStorage | null = defaultStorage()
+): void {
+  if (!storage || !modelId) return
+  const key = prefKey(kind, modelId)
+  const map = readAll(storage)
+  const prev = map[key]
+  const clamped = clampCrop(crop.top, crop.bottom)
+  delete map[key]
+  map[key] = {
+    x: prev?.x ?? 0,
+    y: prev?.y ?? 0,
+    ...clamped,
+  }
   const keys = Object.keys(map)
   if (keys.length > MAX_ENTRIES) {
     for (const stale of keys.slice(0, keys.length - MAX_ENTRIES)) {
