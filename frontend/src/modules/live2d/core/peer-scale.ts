@@ -12,9 +12,17 @@
 // 就是要给人区分的，重名时表现一致也好过完全记不住。没有名字（极端情况）退回
 // sid，只在本通连接内有效。
 
-/** 缩放范围，与滑杆一致。 */
+/**
+ * 缩放范围，与滑杆一致。
+ *
+ * 上限从 2 提到 3：2 倍时模型高度是视口高的 84%，但很多皮（官方 Haru 那种
+ * 全身模型）在这个尺寸下依然只是"一个小人"。用户要的「半身像」得放到超出
+ * 画面底部，让下半身自然被裁掉——那需要 3 倍的余量。
+ *
+ * 下限保持 0.5：人多时一排站六个人，还得能缩下去。
+ */
 export const PEER_SCALE_MIN = 0.5
-export const PEER_SCALE_MAX = 2
+export const PEER_SCALE_MAX = 3
 
 const STORAGE_KEY = 'zviewer.live2d.peer-scales'
 

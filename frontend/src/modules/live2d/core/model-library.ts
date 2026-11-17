@@ -36,6 +36,15 @@ export interface Live2DLibraryList {
   models: Live2DLibraryEntry[]
   /** 我能不能往库里上传 */
   canManage: boolean
+  /**
+   * 加载失败的原因；空串 = 成功（**清单为空也算成功**）。
+   *
+   * 必须把这两种情况分开：以前失败一律返回空清单，界面看起来就是"一个模型
+   * 都没有"，用户只能怀疑自己的模型被删了、然后重新上传一遍（反馈原话：
+   * "刷新后模型就不见了，点什么都没有，必须重新上传"）。空清单与加载失败
+   * 要用两张完全不同的脸对着用户。
+   */
+  error: string
 }
 
 /**
@@ -47,8 +56,6 @@ export interface Live2DLibraryList {
  */
 export const LIVE2D_LIBRARY_MAX_PER_OWNER = 8
 export const LIVE2D_LIBRARY_MAX_TOTAL = 64
-
-const EMPTY: Live2DLibraryList = { models: [], canManage: false }
 
 function normalizeEntry(raw: unknown): Live2DLibraryEntry | null {
   if (!raw || typeof raw !== 'object') return null
@@ -65,11 +72,22 @@ function normalizeEntry(raw: unknown): Live2DLibraryEntry | null {
   }
 }
 
-/** 读取模型库清单。失败一律返回空清单：面板照常可用，不阻塞房间。 */
+/** 读取模型库清单。失败时带上原因，由界面区分「空库」与「没拉到」。 */
 export async function loadLibraryModels(): Promise<Live2DLibraryList> {
   try {
     const res = await apiFetch('/api/live2d/models')
-    if (!res.ok) return EMPTY
+    if (!res.ok) {
+      // 后端拒绝时会说明原因（未登录、权限），比前端猜的准
+      const data = (await res.json().catch(() => null)) as {
+        message?: unknown
+      } | null
+      const reason = typeof data?.message === 'string' ? data.message : ''
+      return {
+        models: [],
+        canManage: false,
+        error: reason || t('模型库加载失败'),
+      }
+    }
     const data = (await res.json()) as {
       models?: unknown
       canManage?: unknown
@@ -81,9 +99,9 @@ export async function loadLibraryModels(): Promise<Live2DLibraryList> {
         if (entry) models.push(entry)
       }
     }
-    return { models, canManage: data.canManage === true }
+    return { models, canManage: data.canManage === true, error: '' }
   } catch {
-    return EMPTY
+    return { models: [], canManage: false, error: t('模型库加载失败') }
   }
 }
 

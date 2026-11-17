@@ -167,6 +167,13 @@ export class Live2DRenderer {
   private models = new Map<string, LoadedModel>()
   private loading = new Set<string>()
   private failed = new Map<string, number>()
+  /**
+   * 每个 sid 最近一次要加载的地址。
+   *
+   * 加载失败后队列里那一条已经被取走，再想重试就只能靠这里记着地址；
+   * 否则「重新加载」按钮无从知道该拉什么。
+   */
+  private lastUrl = new Map<string, string>()
   private queue: Array<{ sid: string; url: string }> = []
   private inFlight = 0
   private destroyed = false
@@ -307,9 +314,37 @@ export class Live2DRenderer {
     return clampDragOffset(x, y)
   }
 
+  /** 重试某个成员的角色加载（用户点「重新加载」，或页面重新可见时自动调用）。 */
+  retry(sid: string): boolean {
+    if (this.destroyed || !sid) return false
+    const url = this.lastUrl.get(sid)
+    if (!url) return false
+    if (this.models.has(sid) || this.loading.has(sid)) return false
+    // 失败缓存本来就是"别在 60 秒内反复拉一个挂掉的地址"，但**用户主动重试**
+    // 是明确的"现在再试一次"，必须把它清掉，否则点了没反应，看着像按钮坏了。
+    for (const key of [...this.failed.keys()]) {
+      if (key.startsWith(`${sid}|`)) this.failed.delete(key)
+    }
+    this.queue = this.queue.filter((item) => item.sid !== sid)
+    this.sync(sid, url)
+    return true
+  }
+
+  /** 重试所有失败过的地址（页面重新可见时用）。返回真正排进队列的数量。 */
+  retryFailed(): number {
+    if (this.destroyed) return 0
+    let count = 0
+    for (const [sid, url] of [...this.lastUrl]) {
+      if (!this.failed.has(`${sid}|${url}`)) continue
+      if (this.retry(sid)) count += 1
+    }
+    return count
+  }
+
   /** 声明一个模型；同一 sid 换模型会替换，同一个模型不重复加载。 */
   sync(sid: string, url: string): void {
     if (this.destroyed) return
+    this.lastUrl.set(sid, url)
     const loaded = this.models.get(sid)
     if (loaded) {
       if (loaded.url === url) return
@@ -555,6 +590,10 @@ export class Live2DRenderer {
   prune(alive: Set<string>): void {
     for (const sid of [...this.models.keys()]) {
       if (!alive.has(sid)) this.remove(sid)
+    }
+    // 离场的人不必留着"上次拉的是哪个地址"：那是为了重试，人都不在了没人点。
+    for (const sid of [...this.lastUrl.keys()]) {
+      if (!alive.has(sid)) this.lastUrl.delete(sid)
     }
   }
 

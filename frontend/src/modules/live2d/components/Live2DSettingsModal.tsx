@@ -22,6 +22,7 @@ import {
   type Live2DLibraryEntry,
 } from '../core/model-library'
 import type { Live2DFaceQuality } from '../core/face-tracker'
+import { PEER_SCALE_MAX, PEER_SCALE_MIN } from '../core/peer-scale'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DModelPicker } from './Live2DModelPicker'
 import { ModelThumb } from './ModelThumb'
@@ -39,6 +40,19 @@ import { ModelThumb } from './ModelThumb'
 // 会盖住画面且容易误触。
 
 type Tab = 'me' | 'room'
+
+/**
+ * 模型大小的快捷档。
+ *
+ * 「半身像」取 2.2：模型高度按视口 42% 缩放（LIVE2D_MODEL_HEIGHT_RATIO），
+ * 2.2 倍约等于 92%，而模型是**底部对齐**向上生长的——脚下那一截自然被画面
+ * 裁掉，观感正好停在腰以上。想微调再用上面的滑杆。
+ */
+const SCALE_PRESETS = [
+  { label: '小', value: 0.7 },
+  { label: '标准', value: 1 },
+  { label: '半身像', value: 2.2 },
+] as const
 
 export interface Live2DSettingsModalProps {
   open: boolean
@@ -96,6 +110,18 @@ export interface Live2DSettingsModalProps {
    * 空设置面板等于让人以为功能坏了——必须有一句话解释「你看不到是因为什么」。
    */
   hiddenByHost: boolean
+  /** 模型库清单加载失败的原因（空串 = 正常取到） */
+  libraryError: string
+  /**
+   * 我选的模型已经不在服务端模型库里。
+   *
+   * 三种来源都会造成这件事：被别人删了、服务端重启后 uploads 丢了、模型包
+   * 损坏被清理。以前的表现是画面只剩一个占位卡，用户只能重新上传一遍——
+   * 这里要明说"不是你选错了，是它不在了"。
+   */
+  missingModel: boolean
+  /** 重新拉一次模型库清单 */
+  onReloadLibrary: () => void
   uploading: boolean
   /* 我的角色 */
   onSelect: (kind: Live2DModelKind, modelId: string) => void
@@ -159,6 +185,9 @@ export function Live2DSettingsModal({
   policy,
   unifiedLabel,
   hiddenByHost,
+  libraryError,
+  missingModel,
+  onReloadLibrary,
   uploading,
   onSelect,
   onScale,
@@ -253,6 +282,31 @@ export function Live2DSettingsModal({
                   )}
                 </Note>
               )}
+              {/* 「拉不到清单」与「库里确实没有模型」必须分开说：前者重试就好，
+                  后者才需要重新上传。混在一起时用户唯一能做的就是重传一遍。 */}
+              {libraryError && (
+                <Note
+                  action={
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disableAnimation
+                      onClick={onReloadLibrary}
+                    >
+                      {t('重试')}
+                    </Button>
+                  }
+                >
+                  {t('模型库没能加载：{{reason}}', { reason: libraryError })}
+                </Note>
+              )}
+              {missingModel && (
+                <Note>
+                  {t(
+                    '你选的模型已经不在服务器上了（可能被删除或服务端重置）。在下面重新选一个即可恢复，重新上传同一个模型包也可以'
+                  )}
+                </Note>
+              )}
               {unified ? (
                 <>
                   <Note>
@@ -312,8 +366,8 @@ export function Live2DSettingsModal({
                   尺寸、观看距离根本不同。 */}
               <Section label={t('大小')}>
                 <Slider
-                  min={0.5}
-                  max={2}
+                  min={PEER_SCALE_MIN}
+                  max={PEER_SCALE_MAX}
                   step={0.05}
                   value={myScale}
                   onChange={onScale}
@@ -321,6 +375,36 @@ export function Live2DSettingsModal({
                   valueFormatter={(value) => `${Math.round(value * 100)}%`}
                   aria-label={t('模型大小')}
                 />
+                {/* 快捷档：滑杆要精确停在"半身像"那一档不太现实，而这是绝大多数
+                    人想一次性要到的效果（放大到下半身被画面裁掉）。
+                    样式与模型选择器的小按钮同源，避免在一个面板里出现两套 chip。 */}
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  {SCALE_PRESETS.map((preset) => {
+                    const active = Math.abs(myScale - preset.value) < 0.03
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => onScale(preset.value)}
+                        aria-pressed={active}
+                        className="rounded-md border px-2 py-0.5 text-[10px] transition-opacity hover:opacity-80"
+                        style={{
+                          background: active
+                            ? 'color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface))'
+                            : 'var(--md-sys-color-surface)',
+                          borderColor: active
+                            ? 'var(--md-sys-color-primary)'
+                            : 'var(--md-sys-color-outline-variant)',
+                          color: active
+                            ? 'var(--md-sys-color-primary)'
+                            : 'var(--md-sys-color-on-surface)',
+                        }}
+                      >
+                        {t(preset.label)}
+                      </button>
+                    )
+                  })}
+                </div>
               </Section>
 
               {/* 位置也是本机的。这里必须有一个「放回去」的出口：角色可以
@@ -722,16 +806,24 @@ function Row({
   )
 }
 
-function Note({ children }: { children: React.ReactNode }) {
+function Note({
+  children,
+  action,
+}: {
+  children: React.ReactNode
+  /** 右侧的动作（例如「重试」）：用 div 而不是 p，按钮才不会被浏览器强制闭合 */
+  action?: React.ReactNode
+}) {
   return (
-    <p
-      className="rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed"
+    <div
+      className="flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed"
       style={{
         background: 'var(--md-sys-color-surface-container)',
         color: 'var(--md-sys-color-on-surface-variant)',
       }}
     >
-      {children}
-    </p>
+      <span className="min-w-0 flex-1">{children}</span>
+      {action}
+    </div>
   )
 }

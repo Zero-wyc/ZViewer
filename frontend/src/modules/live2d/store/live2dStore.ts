@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { PEER_SCALE_MAX, PEER_SCALE_MIN } from '../core/peer-scale'
 import {
   LIVE2D_DEFAULT_POLICY,
   type Live2DModelKind,
@@ -88,7 +89,9 @@ export const useLive2DStore = create<Live2DStoreState>()(
       // 换模型 = 明确想看到它：顺手取消删除状态，否则用户点了模型却没反应。
       setMyModel: (myKind, myModelId) =>
         set({ myKind, myModelId, removed: false }),
-      setMyScale: (myScale) => set({ myScale }),
+      // 夹一遍：滑杆、快捷档、以及被手改过的 localStorage 都从这里过，
+      // 一个 NaN 或 50 会让模型直接消失（baseScale 乘出来是 0 或溢出视口）。
+      setMyScale: (myScale) => set({ myScale: clampMyScale(myScale) }),
       setFaceQuality: (faceQuality) => set({ faceQuality }),
       setHead3d: (head3d) => set({ head3d }),
       setEyeTrack: (eyeTrack) => set({ eyeTrack }),
@@ -115,7 +118,7 @@ export const useLive2DStore = create<Live2DStoreState>()(
         return {
           myKind: old.myKind ?? DEFAULTS.myKind,
           myModelId: old.myModelId ?? DEFAULTS.myModelId,
-          myScale: old.myScale ?? DEFAULTS.myScale,
+          myScale: clampMyScale(old.myScale),
           removed: false,
           voiceLipSync: old.voiceLipSync ?? DEFAULTS.voiceLipSync,
           faceQuality: normalizeQuality(old.faceQuality),
@@ -148,4 +151,12 @@ function normalizeQuality(value: unknown): Live2DFaceQuality {
   return value === 'smooth' || value === 'precise' || value === 'standard'
     ? value
     : 'standard'
+}
+
+/** 模型大小的合法区间，与滑杆/右键菜单同源（core/peer-scale）。 */
+function clampMyScale(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULTS.myScale
+  }
+  return Math.min(PEER_SCALE_MAX, Math.max(PEER_SCALE_MIN, value))
 }

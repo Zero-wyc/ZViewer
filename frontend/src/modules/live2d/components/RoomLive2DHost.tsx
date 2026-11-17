@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Socket } from 'socket.io-client'
 import { t } from '@/i18n'
-import { Camera, Loader2, Sparkles } from 'lucide-react'
+import { Camera, Loader2, RotateCcw, Sparkles } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
+import type { RoomMode } from '@/store/roomStore'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
 import {
   loadModelMeta,
@@ -103,17 +104,21 @@ const EMPTY_PEER_STATE: PeerLoadState = {}
  * 45 秒）画面上只有名字，用户分不清是在等还是坏了。同形状也意味着状态切换
  * 时不会跳一下（原来是「什么都没有 → 突然一张卡」）。
  *
+ * 失败态**必须自己带一个重试入口**：以前只画名字首字母，用户看到的就是一个
+ * 写着"r"的白方块，完全不知道发生了什么，也不知道点一下就能再试——只能去
+ * 重新上传模型（反馈原话："刷新后模型就不见了，点什么都没有，必须重新上传"）。
+ *
  * 两种状态都可以右键：这时候模型没画出来，`renderer.pick` 打不中，这张卡
  * 是唯一能打开菜单的地方。
  */
 function Live2DSlotPlaceholder({
-  name,
   failureReason,
+  onRetry,
   onContextMenu,
 }: {
-  name: string
   /** 有值 = 加载失败（带原因）；为空 = 仍在加载 */
   failureReason?: string
+  onRetry: () => void
   onContextMenu: (event: React.MouseEvent) => void
 }) {
   const failed = Boolean(failureReason)
@@ -121,32 +126,46 @@ function Live2DSlotPlaceholder({
     <div
       title={
         failed
-          ? t('模型加载失败：{{reason}}（右键可以换一个模型）', {
+          ? t('模型加载失败：{{reason}}\n点一下重新加载，右键可以换一个模型', {
               reason: failureReason,
             })
           : t('角色模型加载中…')
       }
+      onClick={failed ? onRetry : undefined}
       onContextMenu={onContextMenu}
       style={{
         pointerEvents: 'auto',
         width: 44,
         height: 64,
         borderRadius: 10,
+        cursor: failed ? 'pointer' : 'default',
         // 加载中用虚线框：同样是空位，但「还在等」和「已经坏了」要一眼分开
         border: failed
-          ? '1px solid var(--md-sys-color-outline-variant)'
+          ? '1px solid var(--md-sys-color-error)'
           : '1px dashed var(--md-sys-color-outline-variant)',
         background: 'var(--md-sys-color-surface-container)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         fontSize: 14,
-        opacity: failed ? 0.85 : 0.6,
-        color: 'var(--md-sys-color-on-surface-variant)',
+        opacity: failed ? 0.95 : 0.6,
+        color: failed
+          ? 'var(--md-sys-color-error)'
+          : 'var(--md-sys-color-on-surface-variant)',
       }}
     >
       {failed ? (
-        (name || '?').slice(0, 1)
+        <span
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 3,
+          }}
+        >
+          <RotateCcw size={13} />
+          <span style={{ fontSize: 9, lineHeight: 1 }}>{t('重试')}</span>
+        </span>
       ) : (
         <Loader2 size={14} className="animate-spin" />
       )}
@@ -158,6 +177,12 @@ export interface RoomLive2DHostProps {
   roomId: string
   socket: Socket | null
   isHost: boolean
+  /**
+   * 房间模式。只影响入口按钮停在哪一侧：一起听在左下角（右侧被工具坞和
+   * 播放条占满），一起看 / 投屏在右下角。缺省按「一起看」处理，探针页与
+   * 未来的单测不必都补这个字段。
+   */
+  mode?: RoomMode
 }
 
 /**
@@ -177,6 +202,7 @@ export function RoomLive2DHost({
   roomId,
   socket,
   isHost,
+  mode = 'watch-together',
 }: RoomLive2DHostProps) {
   const myKind = useLive2DStore((s) => s.myKind)
   const myModelId = useLive2DStore((s) => s.myModelId)
@@ -413,6 +439,35 @@ export function RoomLive2DHost({
       peerStateSinkRef.current.loading(sid, loading),
   })
 
+  /**
+   * 重新拉一次某个成员的角色。
+   *
+   * 两件事缺一不可：清占位卡状态（否则错误卡会一直挂到下一次加载回调）与
+   * 清渲染器的失败缓存（它在 60 秒内会直接拒绝同一个地址，用户点了没反应）。
+   */
+  const handleRetryModel = useCallback(
+    (sid: string) => {
+      if (!sid) return
+      clearPeerState(sid)
+      renderer?.retry(sid)
+    },
+    [clearPeerState, renderer]
+  )
+
+  // 页面重新可见时，把之前失败过的角色再试一次。
+  //
+  // 手机切后台回来、笔记本合盖唤醒、地铁里断网又恢复——网络已经好了，但
+  // 渲染器里的失败记录还压着 60 秒（而且房间不重连就没人再调 sync），
+  // 用户只能刷新页面。这条把"回来了就自动重试"补上，不需要用户去点。
+  useEffect(() => {
+    if (!renderer) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') renderer.retryFailed()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [renderer])
+
   // 表情与动作来自同一次 model3.json 读取，放在一个状态里：分成两份会让
   // 「刚换模型」的那一帧出现表情是新的、动作还是旧的。
   // 连带 url 一起存：换模型时旧清单不能先闪一下。
@@ -500,6 +555,10 @@ export function RoomLive2DHost({
   // 也满足 react-hooks 对「effect 内不要同步 setState」的要求。
   const [libraryVersion, setLibraryVersion] = useState(0)
   const refreshLibrary = useCallback(() => setLibraryVersion((v) => v + 1), [])
+  /** 清单加载失败的原因（空串 = 正常）。与「库里一个模型都没有」是两件事。 */
+  const [libraryError, setLibraryError] = useState('')
+  /** 清单至少成功取过一次：没有它就没法判断"我的模型是不是被删了" */
+  const [libraryLoaded, setLibraryLoaded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -507,6 +566,8 @@ export function RoomLive2DHost({
       if (cancelled) return
       setLibraryModels(list.models)
       setCanUploadModels(list.canManage)
+      setLibraryError(list.error)
+      if (!list.error) setLibraryLoaded(true)
     })
     return () => {
       cancelled = true
@@ -1110,8 +1171,8 @@ export function RoomLive2DHost({
             >
               {(slotState.failed || slotState.loading) && (
                 <Live2DSlotPlaceholder
-                  name={peer.name}
                   failureReason={slotState.failed}
+                  onRetry={() => handleRetryModel(peer.sid)}
                   onContextMenu={(event) => {
                     // 占位卡是 DOM，直接自己收右键；否则这个角色就成了唯一
                     // 没有入口的那一格（模型没画出来时 pick 打不中）。
@@ -1136,24 +1197,37 @@ export function RoomLive2DHost({
         })}
 
       {canShowLayer && hiddenCount > 0 && (
-        <Live2DBadge className="absolute right-3 bottom-2.5 max-w-[40vw]">
+        // 一起听时底部中央是悬浮播放条（桌面 35~100、手机贴边），贴底的
+        // 提示会被压在里面，所以抬到播放条之上；一起看 / 投屏仍贴画布底边。
+        <Live2DBadge
+          className={cn(
+            'absolute right-3 max-w-[40vw]',
+            mode === 'listen-together'
+              ? 'bottom-[108px] max-md:bottom-[calc(84px+env(safe-area-inset-bottom))]'
+              : 'bottom-2.5'
+          )}
+        >
           <span className="truncate">
             {t('另有 {{count}} 个角色未显示', { count: hiddenCount })}
           </span>
         </Live2DBadge>
       )}
 
-      {/* 角色设置入口：常驻。与右下角语音聊天悬浮按钮同一列、同一规格
-          （h-12 w-12 glass-card 圆钮）：语音面板固定在 bottom-6 right-6
-          （48px 高）并带 gap-3，所以这里抬到 84px = 24 + 48 + 12，
-          两个圆钮才对齐成一条竖列而不是错位。 */}
       {canShowLayer && engineError && (
-        // 挪到左下角：右下角是「角色设置 / 动捕监视窗」的竖列，引擎失败时
+        // 引擎失败提示：右下角是「角色设置 / 动捕监视窗」的竖列，引擎失败时
         // 监视窗仍然可能被打开（动捕与渲染是两条独立的链路），压在它下面
         // 等于把这条唯一的线索藏起来。
+        //
+        // 一起听时本来落在左下角，但底部播放条（bottom 35~100）会把它盖住，
+        // 而左下角此时正是入口按钮列，所以抬到按钮列之上。
         <Live2DBadge
           alert
-          className="absolute bottom-16 left-3 max-w-[50vw]"
+          className={cn(
+            'absolute max-w-[50vw]',
+            mode === 'listen-together'
+              ? 'bottom-[176px] left-4'
+              : 'bottom-16 left-3'
+          )}
           style={{ pointerEvents: 'auto' }}
           title={t('Live2D 引擎加载失败：{{reason}}', { reason: engineError })}
         >
@@ -1161,46 +1235,28 @@ export function RoomLive2DHost({
         </Live2DBadge>
       )}
 
-      {/* 动捕监视窗 / 收起后的入口。与角色按钮同一列（bottom-6 语音 → 84
-          角色设置 → 这里 144），展开时向上生长，不会盖住下面两个圆钮。 */}
-      {canShowLayer && tracker && (
-        <div
-          className="absolute right-6 bottom-[144px]"
-          style={{ pointerEvents: 'auto' }}
-        >
-          {faceMonitor ? (
-            <Live2DFaceMonitor
-              tracker={tracker}
-              onRecalibrate={recalibrateFace}
-              onClose={() => setFaceMonitor(false)}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setFaceMonitor(true)}
-              aria-label={t('动捕预览')}
-              title={t('动捕预览')}
-              className={cn(
-                'glass-card relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-200',
-                'hover:scale-105 hover:shadow-xl active:scale-95'
-              )}
-              style={{
-                backgroundColor: 'var(--glass-bg)',
-                color: 'var(--md-sys-color-on-surface)',
-              }}
-            >
-              <Camera className="h-5 w-5" />
-              {/* 绿点：动捕还在跑，只是预览收起来了 */}
-              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-400" />
-            </button>
-          )}
-        </div>
-      )}
-
+      {/* 入口竖列：**按房间模式分两侧**。
+          - 一起听：左下角。右侧是 MusicSideDock 的工具坞（语音/房间状态/
+            流量三条竖线把手），右下角还有播放条的右端，只有左侧是空的。
+          - 一起看 / 投屏：右下角原位（语音钮 bottom-6 → 这里 84 → 动捕
+            预览 144），与改造前一致。
+          列方向用 flex-col-reverse：DOM 里角色设置在前、动捕预览在后，
+          视觉上预览在上、角色在下，与原来「从语音钮往上接」的层次相同，
+          锚点改成 bottom 后也不会因为预览展开而顶到顶栏。 */}
       <div
-        className="absolute right-6 bottom-[84px]"
-        style={{ pointerEvents: 'auto' }}
+        className={cn(
+          'absolute flex flex-col-reverse gap-3',
+          mode === 'listen-together'
+            ? // 一起听的底部中央是 65px 高的悬浮播放条（桌面底距 35px、手机
+              // 10px + 安全区），从 112px 起才不压住它；手机上播放条几乎
+              // 贴边，按钮同步退到 84px + 安全区。
+              'left-4 bottom-[112px] items-start max-md:bottom-[calc(94px+env(safe-area-inset-bottom))]'
+            : 'right-6 bottom-[84px] items-end'
+        )}
+        style={{ pointerEvents: 'none' }}
       >
+        {/* 入口常驻（含房主关掉「对观众显示角色」时）：那是唯一能换/删模型、
+            能知道"为什么看不到角色"的地方，见上面那段说明。 */}
         <button
           type="button"
           onClick={openSettings}
@@ -1213,10 +1269,45 @@ export function RoomLive2DHost({
           style={{
             backgroundColor: 'var(--glass-bg)',
             color: 'var(--md-sys-color-on-surface)',
+            pointerEvents: 'auto',
           }}
         >
           <Sparkles className="h-5 w-5" />
         </button>
+
+        {/* 动捕监视窗 / 收起后的入口：与角色设置同一列，锚在 bottom 上，
+            展开时**向上**生长（容器是 flex-col-reverse），不会顶到顶栏，
+            也不会盖住下面的角色设置钮。 */}
+        {canShowLayer && tracker && (
+          <div style={{ pointerEvents: 'auto' }}>
+            {faceMonitor ? (
+              <Live2DFaceMonitor
+                tracker={tracker}
+                onRecalibrate={recalibrateFace}
+                onClose={() => setFaceMonitor(false)}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setFaceMonitor(true)}
+                aria-label={t('动捕预览')}
+                title={t('动捕预览')}
+                className={cn(
+                  'glass-card relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-200',
+                  'hover:scale-105 hover:shadow-xl active:scale-95'
+                )}
+                style={{
+                  backgroundColor: 'var(--glass-bg)',
+                  color: 'var(--md-sys-color-on-surface)',
+                }}
+              >
+                <Camera className="h-5 w-5" />
+                {/* 绿点：动捕还在跑，只是预览收起来了 */}
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-400" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 拖拽模式：套在自己角色身上的抓取层 + 底部提示条。
@@ -1260,6 +1351,7 @@ export function RoomLive2DHost({
         onOpenSettings={openSettings}
         onToggleDrag={toggleDragMode}
         onResetPosition={handleResetPosition}
+        onReloadModel={() => handleRetryModel(mySid)}
         peer={
           menu.peer
             ? {
@@ -1296,6 +1388,17 @@ export function RoomLive2DHost({
         policy={policy}
         unifiedLabel={unifiedLabel}
         hiddenByHost={!canShowLayer}
+        libraryError={libraryError}
+        // 「我选的那个模型不在服务端库里了」：只有清单确实取到过才敢下这个
+        // 结论（加载失败时会误判成"你的模型被删了"，那比不说更吓人）。
+        missingModel={
+          libraryLoaded &&
+          !libraryError &&
+          myKind === 'room' &&
+          Boolean(myModelId) &&
+          !libraryModels.some((item) => item.id === myModelId)
+        }
+        onReloadLibrary={refreshLibrary}
         uploading={uploading}
         onSelect={handleSelect}
         onScale={handleScale}

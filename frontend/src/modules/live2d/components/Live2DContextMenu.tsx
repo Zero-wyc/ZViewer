@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   Hand,
   Move,
+  RefreshCw,
   RotateCcw,
   Settings2,
   Sparkles,
@@ -13,6 +14,7 @@ import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
 import type { ModelExpressionEntry, ModelMotionGroup } from '../core/model-meta'
+import { PEER_SCALE_MAX, PEER_SCALE_MIN } from '../core/peer-scale'
 
 // 右键角色弹出的**快捷菜单**。
 //
@@ -79,6 +81,13 @@ export interface Live2DContextMenuProps {
   onOpenSettings: () => void
   onToggleDrag: () => void
   onResetPosition: () => void
+  /**
+   * 重新拉一次自己的模型。
+   *
+   * 用户要的「刷新的开关」：模型加载失败、或者换网络之后一直停在占位卡上，
+   * 这里是最短的出口（另一个入口是直接点画面上那张失败卡）。
+   */
+  onReloadModel: () => void
   onRemove: () => void
   /**
    * 右键的是**别人的**角色。
@@ -126,6 +135,7 @@ export function Live2DContextMenu({
   onOpenSettings,
   onToggleDrag,
   onResetPosition,
+  onReloadModel,
   onRemove,
   peer = null,
 }: Live2DContextMenuProps) {
@@ -208,8 +218,8 @@ export function Live2DContextMenu({
           <span className="tabular-nums">{Math.round(peer.scale * 100)}%</span>
         </div>
         <Slider
-          min={0.5}
-          max={2}
+          min={PEER_SCALE_MIN}
+          max={PEER_SCALE_MAX}
           step={0.05}
           value={peer.scale}
           showValue={false}
@@ -365,8 +375,8 @@ export function Live2DContextMenu({
         <span className="tabular-nums">{Math.round(myScale * 100)}%</span>
       </div>
       <Slider
-        min={0.5}
-        max={2}
+        min={PEER_SCALE_MIN}
+        max={PEER_SCALE_MAX}
         step={0.05}
         value={myScale}
         showValue={false}
@@ -408,6 +418,20 @@ export function Live2DContextMenu({
           {faceTracking.error}
         </p>
       )}
+
+      <Divider />
+
+      {/* 重新加载：模型卡在占位卡上时最短的出口。成功后点也无害——它只是
+          重新走一遍加载（会先清掉旧实例），不改变房间里的任何状态。 */}
+      <div className="mb-1 flex items-center gap-1">
+        <MenuAction
+          onClick={onReloadModel}
+          icon={<RefreshCw size={13} />}
+          title={t('卡住或加载失败时，重新拉一次模型')}
+        >
+          {t('重新加载模型')}
+        </MenuAction>
+      </div>
 
       <Divider />
 

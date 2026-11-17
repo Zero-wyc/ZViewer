@@ -640,7 +640,12 @@ function RoomPage() {
           用条件挂载而不是在宿主内部提前 return：后者仍会把模块拉下来。 */}
       {live2dEnabled && (
         <Suspense fallback={null}>
-          <RoomLive2DHost roomId={roomId} socket={socket} isHost={isHost} />
+          <RoomLive2DHost
+            roomId={roomId}
+            socket={socket}
+            isHost={isHost}
+            mode={mode}
+          />
         </Suspense>
       )}
     </>
