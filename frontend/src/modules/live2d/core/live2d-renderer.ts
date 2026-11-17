@@ -23,6 +23,14 @@ import { peerScaleOf } from './peer-scale'
 import { pickPokeGroup } from './motion-pick'
 import { releaseTextureRefs, retainTextureRefs } from './texture-refs'
 import { pickVisiblePeers } from './visibility'
+import {
+  FACE_PARAM_SLOTS,
+  resolveFaceParam,
+  signedToParam,
+  unitToParam,
+  type FaceParamBindings,
+  type ParamBinding,
+} from './face-params'
 import { t as translate } from '@/i18n'
 
 // PIXI 渲染封装。React 完全不参与这里：宿主组件只负责创建/销毁，
@@ -45,29 +53,23 @@ import { t as translate } from '@/i18n'
 // 模型/离开房间，另一个人当场变白（source 已销毁）。所以下面所有释放路径
 // 都走 `disposeModel()`，按引用计数决定"最后一个人走的时候才真正释放"。
 
-/** Cubism 参数 id 句柄。引擎不给类型（内部是 CubismId），只当作不透明值传递。 */
-interface CubismParamIds {
-  mouth: unknown
-  eyeL: unknown
-  eyeR: unknown
-  /** 嘴形（笑/撇嘴），中位 0 */
-  mouthForm: unknown
-  browL: unknown
-  browR: unknown
-  /** 头部三轴旋转（度） */
-  angleX: unknown
-  angleY: unknown
-  /** 滚转/歪头（度） */
-  angleZ: unknown
-  /** 眼球（-1~1） */
-  eyeBallX: unknown
-  eyeBallY: unknown
-}
+// 面部参数绑定全部在 face-params（纯函数、可单测）：候选名、模型行程、
+// 语义量 → 参数值。这里只保留「什么时候写」的判断。
 
 /** 引擎内部对象的最小可用面（只声明我们真的会碰的几个成员）。 */
 interface InternalModelLike {
   coreModel: {
     setParameterValueById(id: unknown, value: number, weight?: number): void
+    /**
+     * 参数行程的读取（Cubism 标准接口，按**下标**取）。
+     *
+     * 声明成可选：不同引擎版本的暴露情况未必一致，缺了就退回
+     * `NOMINAL_RANGE`，不能因为读不到范围就整条面部通路不工作。
+     */
+    getParameterIndex?(id: unknown): number
+    getParameterMinimumValue?(index: number): number
+    getParameterDefaultValue?(index: number): number
+    getParameterMaximumValue?(index: number): number
   }
   getIdSafe(id: string): unknown
   motionManager?: {
@@ -92,8 +94,13 @@ interface LoadedModel {
   url: string
   /** 首次布局是否已经做过（避免每帧算一次 baseScale） */
   baseScale: number
-  /** 嘴/眼参数句柄；模型里没有这些参数时各项为 undefined，写入无副作用 */
-  params: CubismParamIds | null
+  /**
+   * 面部参数绑定（句柄 + 该模型自己的行程）。
+   *
+   * 模型里没有某个参数时对应槽位是 null，写入无副作用——给不存在的 id
+   * 写值在 Cubism 核里会抛错并中断整帧，所以必须提前判掉。
+   */
+  params: FaceParamBindings | null
   /**
    * 上一帧看到的动作（`group#index`），用来发现「切换了」。
    * 空串表示当前没有动作在播（动作之间的空档）。
@@ -827,8 +834,9 @@ export class Live2DRenderer {
    * 只在数据新鲜时接管（见 LIVE2D_FACE_TTL_MS）：对方关掉动捕、或者干脆断流了，
    * 就把这些参数还给引擎自己的眨眼与表情，不会永远停在最后一帧的怪表情上。
    *
-   * 参数**存在才写**：眉毛、嘴形不是每个模型都有（很多免费模型只绑了
-   * ParamMouthOpenY），给不存在的 id 写值在 Cubism 核里会抛错并中断整帧。
+   * 绑定期做两件事：**按候选名找参数**（模型不一定用标准名），**读它的行程**
+   * （见 ParamRange 的说明）。写入时一律交给 `unitToParam` / `signedToParam`
+   * 换算，不再出现硬编码的 ±30 与 0~1。
    */
   private bindFaceParams(sid: string, loaded: LoadedModel): void {
     const im = loaded.model.internalModel as unknown as InternalModelLike
@@ -836,24 +844,12 @@ export class Live2DRenderer {
     const core = im.coreModel
     if (!core || typeof core.setParameterValueById !== 'function') return
 
-    const ids: CubismParamIds = {
-      mouth: im.getIdSafe('ParamMouthOpenY'),
-      eyeL: im.getIdSafe('ParamEyeLOpen'),
-      eyeR: im.getIdSafe('ParamEyeROpen'),
-      mouthForm: im.getIdSafe('ParamMouthForm'),
-      browL: im.getIdSafe('ParamBrowLY'),
-      browR: im.getIdSafe('ParamBrowRY'),
-      angleX: im.getIdSafe('ParamAngleX'),
-      angleY: im.getIdSafe('ParamAngleY'),
-      angleZ: im.getIdSafe('ParamAngleZ'),
-      eyeBallX: im.getIdSafe('ParamEyeBallX'),
-      eyeBallY: im.getIdSafe('ParamEyeBallY'),
+    const bindings = {} as FaceParamBindings
+    for (const slot of FACE_PARAM_SLOTS) {
+      bindings[slot] = resolveFaceParam(im, core, slot)
     }
-    loaded.params = ids
-    const setIf = (id: unknown, value: number) => {
-      if (id === undefined || id === null) return
-      core.setParameterValueById(id, value)
-    }
+    loaded.params = bindings
+
     loaded.model.internalModel.on('beforeModelUpdate', () => {
       const entry = getEntry(sid)
       if (!entry) return
@@ -864,32 +860,36 @@ export class Live2DRenderer {
       const faceFresh = isFaceFresh(entry)
       const voiceFresh = isVoiceFresh(entry)
       if (!faceFresh && !voiceFresh) return
-      setIf(ids.mouth, faceFresh ? entry.currentMouth : entry.currentVoiceMouth)
+      setUnitParam(
+        core,
+        bindings.mouth,
+        faceFresh ? entry.currentMouth : entry.currentVoiceMouth
+      )
       if (!faceFresh) return
       // 左右眼分开写：wink 才能真的只闭一只。老服务端只给平均值时，两个
       // 目标值都是那个平均值，效果与改造前完全一致。
-      setIf(ids.eyeL, entry.currentEyeLeft)
-      setIf(ids.eyeR, entry.currentEyeRight)
+      setUnitParam(core, bindings.eyeL, entry.currentEyeLeft)
+      setUnitParam(core, bindings.eyeR, entry.currentEyeRight)
       // 协议里是 0~1 编码，Cubism 的嘴形/眉毛是 -1~1，中位 0
-      setIf(ids.mouthForm, (entry.currentForm - 0.5) * 2)
+      setSignedParam(core, bindings.mouthForm, (entry.currentForm - 0.5) * 2)
       const brow = (entry.currentBrow - 0.5) * 2
-      setIf(ids.browL, brow)
-      setIf(ids.browR, brow)
-      // 滚转：0~1 编码 → ±30°。几何上 roll 正值是「画面里顺时针（被拍者向左歪）」，
-      // 而 ParamAngleZ 正值让模型向左倒——同向，直接线性映射。
-      setIf(ids.angleZ, (entry.currentRoll - 0.5) * 2 * 30)
+      setSignedParam(core, bindings.browL, brow)
+      setSignedParam(core, bindings.browR, brow)
+      // 滚转：0~1 编码 → -1~1 语义量。几何上 roll 正值是「画面里顺时针
+      // （被拍者向左歪）」，而 ParamAngleZ 正值让模型向左倒——同向，直接映射。
+      setSignedParam(core, bindings.angleZ, (entry.currentRoll - 0.5) * 2)
       // 偏航/俯仰只在**真的收到过 3D 数据**时写。没收到（对方关着 3D、或者是
       // 老客户端）就让引擎的 focus() 继续按注视点带动头部——无条件写 0 会把
       // 头部钉死在正前方，看着像"头不会动"。
       if (isHeadFresh(entry)) {
-        setIf(ids.angleX, (entry.currentHeadX - 0.5) * 2 * 30)
-        setIf(ids.angleY, (entry.currentHeadY - 0.5) * 2 * 30)
+        setSignedParam(core, bindings.angleX, (entry.currentHeadX - 0.5) * 2)
+        setSignedParam(core, bindings.angleY, (entry.currentHeadY - 0.5) * 2)
       }
       // 眼球同理：没有虹膜数据的成员，眼球仍由 focus 驱动。
       if (isEyeFresh(entry)) {
-        setIf(ids.eyeBallX, (entry.currentGazeX - 0.5) * 2)
+        setSignedParam(core, bindings.eyeBallX, (entry.currentGazeX - 0.5) * 2)
         // 协议里 gazeY 已经翻成"向上为正"，与 ParamEyeBallY 同向
-        setIf(ids.eyeBallY, (entry.currentGazeY - 0.5) * 2)
+        setSignedParam(core, bindings.eyeBallY, (entry.currentGazeY - 0.5) * 2)
       }
     })
   }
@@ -980,6 +980,26 @@ function isHeadFresh(entry: SceneEntry): boolean {
 /** 眼球数据是否新鲜（没有虹膜 / 关掉眼球跟随时为 false）。 */
 function isEyeFresh(entry: SceneEntry): boolean {
   return entry.eyeAt > 0 && Date.now() - entry.eyeAt < LIVE2D_FACE_TTL_MS
+}
+
+/** 开合程度 0~1 → 参数值（模型没有这个参数时静默跳过）。 */
+function setUnitParam(
+  core: InternalModelLike['coreModel'],
+  binding: ParamBinding | null,
+  value: number
+): void {
+  if (!binding) return
+  core.setParameterValueById(binding.id, unitToParam(binding, value))
+}
+
+/** 有符号量 -1~1 → 参数值（同上）。 */
+function setSignedParam(
+  core: InternalModelLike['coreModel'],
+  binding: ParamBinding | null,
+  value: number
+): void {
+  if (!binding) return
+  core.setParameterValueById(binding.id, signedToParam(binding, value))
 }
 
 /**

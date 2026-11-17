@@ -205,6 +205,66 @@ function clampScore(v: number | undefined): number | undefined {
   return v
 }
 
+// ---------------------------------------------------------------------------
+// 侧脸眨眼补偿
+// ---------------------------------------------------------------------------
+
+/**
+ * 归一化偏航超过这个值开始补偿（≈18°），超过 `BLINK_OCCLUDE_FULL`（≈36°）完全补偿。
+ *
+ * 为什么不从 0 就开始：正脸时两侧眼的分都很准，任何插值都是在凭空抹信息——
+ * 一个真 wink 会被磨成半闭。
+ */
+export const BLINK_OCCLUDE_START = 0.45
+export const BLINK_OCCLUDE_FULL = 0.9
+
+/**
+ * 侧脸时把**远侧那只眼**的睁眼程度往近侧那只眼拉。
+ *
+ * 要解决的问题：头转过 35° 之后，靠里那只眼会被鼻梁和脸颊挡住大半，
+ * MediaPipe 给出的 `eyeBlink*` 对这只眼就不可信了——最常见的形态是**一直
+ * 判成闭着**（模型上一只眼永远闭着），次要形态是随角度抖动（看起来像抽搐）。
+ * 检测器层面修不了，但几何上这件事是明摆着的：偏航越大，远侧眼越不可信。
+ *
+ * **单向**补偿（远侧比近侧闭得更多时才拉），不做无条件覆盖：
+ *   - 用户真的在 wink 时远侧未必更闭，此时不动，wink 保留；
+ *   - 近侧眼闭（正常眨眼）时远侧跟着闭，符合「眨眼是双侧的」这一先验。
+ *
+ * @param blend 原始（未平滑）表情
+ * @param yaw 归一化头部偏航 -1~1，正值 = 脸朝图像右侧（与 head.x 同向）
+ */
+export function stabilizeBlinkByYaw(blend: FaceBlend, yaw: number): FaceBlend {
+  const weight = occlusionWeight(yaw)
+  if (weight <= 0) return blend
+  // 脸朝图像右（yaw > 0）→ 图像左侧那只眼离镜头更远；而图像左侧的眼正是
+  // 被拍者的右眼（镜像），也就是协议里的 eyeRight。
+  const faceTowardRight = yaw > 0
+  const near = faceTowardRight ? blend.eyeLeft : blend.eyeRight
+  const far = faceTowardRight ? blend.eyeRight : blend.eyeLeft
+  if (far >= near) return blend
+  const fixed = far + (near - far) * weight
+  const eyeLeft = faceTowardRight ? near : fixed
+  const eyeRight = faceTowardRight ? fixed : near
+  return {
+    mouth: blend.mouth,
+    // 平均值要跟着改：它单独走协议里的 `e` 通道，不改就会和左右眼对不上
+    eyes: clamp01((eyeLeft + eyeRight) / 2),
+    eyeLeft: clamp01(eyeLeft),
+    eyeRight: clamp01(eyeRight),
+  }
+}
+
+/** 偏航 → 补偿权重：0（正脸，不动）~ 1（侧到看不见远侧眼，完全跟随）。 */
+function occlusionWeight(yaw: number): number {
+  const mag = Math.abs(yaw)
+  if (!Number.isFinite(mag)) return 0
+  if (mag <= BLINK_OCCLUDE_START) return 0
+  if (mag >= BLINK_OCCLUDE_FULL) return 1
+  return (
+    (mag - BLINK_OCCLUDE_START) / (BLINK_OCCLUDE_FULL - BLINK_OCCLUDE_START)
+  )
+}
+
 function clamp01(v: number): number {
   if (!Number.isFinite(v)) return 0.5
   if (v < 0) return 0

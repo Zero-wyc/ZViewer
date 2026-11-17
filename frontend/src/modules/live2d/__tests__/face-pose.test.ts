@@ -10,6 +10,7 @@ import {
   headPoseFromMatrix,
   headPoseFromRaw,
   headRollFromLandmarks,
+  stabilizeBlinkByYaw,
   FACE_BLEND_NAME,
   FACE_LANDMARK,
 } from '../core/face-pose.ts'
@@ -410,4 +411,65 @@ test('没有虹膜（468 点模型）或眼睛太小/闭眼时返回 null', () =
   tiny[FACE_LANDMARK.EYE_RIGHT_UPPER] = { x: 0.57, y: 0.5 }
   tiny[FACE_LANDMARK.EYE_RIGHT_LOWER] = { x: 0.57, y: 0.5005 }
   assert.equal(eyeGazeFromLandmarks(tiny), null)
+})
+
+// ---------------------------------------------------------------------------
+// 侧脸眨眼补偿
+// ---------------------------------------------------------------------------
+
+/** 造一组表情：mouth 固定，只关心两眼。 */
+function blend(eyeLeft: number, eyeRight: number) {
+  return {
+    mouth: 0.3,
+    eyes: (eyeLeft + eyeRight) / 2,
+    eyeLeft,
+    eyeRight,
+  }
+}
+
+test('正脸不动：wink 必须原样保留', () => {
+  const wink = blend(0.2, 1)
+  const out = stabilizeBlinkByYaw(wink, 0)
+  assert.deepEqual(out, wink)
+})
+
+test('偏航未到阈值时也不动（避免把 wink 磨成半闭）', () => {
+  const wink = blend(0.2, 1)
+  const out = stabilizeBlinkByYaw(wink, 0.3)
+  assert.deepEqual(out, wink)
+})
+
+test('脸朝图像右侧：远侧（被拍者右眼）闭着时被拉到近侧', () => {
+  // eyeRight 是图像左侧那只眼，头向右转时它离镜头更远
+  const out = stabilizeBlinkByYaw(blend(1, 0.2), 0.9)
+  assert.equal(out.eyeRight, 1)
+  assert.equal(out.eyeLeft, 1)
+  // 平均值要跟着改，否则协议里的 `e` 与左右眼对不上
+  assert.equal(out.eyes, 1)
+  assert.equal(out.mouth, 0.3)
+})
+
+test('脸朝图像左侧：远侧换成左眼（镜像同一个规则）', () => {
+  const out = stabilizeBlinkByYaw(blend(0.2, 1), -0.9)
+  assert.equal(out.eyeLeft, 1)
+  assert.equal(out.eyeRight, 1)
+})
+
+test('阈值中点只补偿一半', () => {
+  // 0.675 落在 0.45~0.9 的正中 → 权重 0.5
+  const out = stabilizeBlinkByYaw(blend(1, 0.4), 0.675)
+  assert.ok(Math.abs(out.eyeRight - 0.7) < 1e-9, `实际 ${out.eyeRight}`)
+  assert.ok(Math.abs(out.eyes - 0.85) < 1e-9)
+})
+
+test('远侧不比近侧闭时不动：真 wink 在侧脸也不该被抹掉', () => {
+  // 近侧闭（0.2）、远侧睁（1）→ 没有「遮挡导致误判闭合」的证据
+  const wink = blend(0.2, 1)
+  const out = stabilizeBlinkByYaw(wink, 0.9)
+  assert.deepEqual(out, wink)
+})
+
+test('偏航是非有限值时按正脸处理', () => {
+  const wink = blend(0.2, 1)
+  assert.deepEqual(stabilizeBlinkByYaw(wink, Number.NaN), wink)
 })

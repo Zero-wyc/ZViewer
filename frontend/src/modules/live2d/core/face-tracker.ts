@@ -13,6 +13,7 @@ import {
   headPoseFromMatrix,
   headPoseFromRaw,
   headRollFromLandmarks,
+  stabilizeBlinkByYaw,
   type FaceBlend,
   type FaceExtras,
   type FaceLandmark,
@@ -218,6 +219,14 @@ export class FaceTracker {
 
   // ---- 3D 头部（6DOF）----
   private head: { x: number; y: number } = { x: 0, y: 0 }
+  /**
+   * 上一帧的**未平滑**偏航目标（-1~1）。
+   *
+   * 单独存一份是因为眨眼的侧脸补偿要用它，而补偿发生在 `trackBlend` 里、
+   * 早于本帧的 `trackHead`。用未平滑值而不是 `head.x`：快速转头时平滑值
+   * 落后两三帧，补偿会明显来迟——那恰好是远侧眼最不可信的瞬间。
+   */
+  private headYawTarget = 0
   private offset: { x: number; y: number } = { x: 0, y: 0 }
   private depth = 0
   private neutralHead: HeadPoseNeutral | null = null
@@ -654,8 +663,11 @@ export class FaceTracker {
     for (const item of categories) {
       if (item.categoryName) scores[item.categoryName] = item.score
     }
-    const target = faceBlendFromScores(scores)
-    if (!target) return
+    const raw = faceBlendFromScores(scores)
+    if (!raw) return
+    // 侧脸补偿放在平滑**之前**：补偿量本身要跟着平滑，否则偏航跨过阈值那
+    // 一帧会跳一下。偏航取上一帧的未平滑目标（见 headYawTarget 的注释）。
+    const target = stabilizeBlinkByYaw(raw, this.headYawTarget)
     const a = this.preset.blendAlpha
     this.blend = {
       mouth: this.blend.mouth + (target.mouth - this.blend.mouth) * a,
@@ -789,6 +801,8 @@ export class FaceTracker {
     if (this.neutralHead && rawHead) {
       const sample = headPoseFromRaw(rawHead, this.neutralHead, this.signs)
       if (sample) {
+        // 眨眼补偿要用它，先于平滑落一份
+        this.headYawTarget = sample.yaw
         this.head = {
           x: this.head.x + (sample.yaw - this.head.x) * a,
           y: this.head.y + (sample.pitch - this.head.y) * a,
@@ -809,6 +823,7 @@ export class FaceTracker {
       this.roll = this.roll + (target - this.roll) * a
     }
     const yaw = clampSigned((metrics.yaw - (this.neutral?.yaw ?? 0)) * 1.2)
+    this.headYawTarget = yaw
     const pitch = clampSigned(-(metrics.vert - (this.neutral?.vert ?? 0)) * 1.6)
     this.head = {
       x: this.head.x + (yaw - this.head.x) * a,
@@ -864,6 +879,7 @@ export class FaceTracker {
     this.head = { x: 0, y: 0 }
     this.offset = { x: 0, y: 0 }
     this.depth = 0
+    this.headYawTarget = 0
   }
 }
 
