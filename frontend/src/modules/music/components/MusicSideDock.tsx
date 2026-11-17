@@ -107,11 +107,15 @@ export function MusicSideDock({
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         className={cn(
-          'lt-blur-surface fixed right-1.5 top-1/2 z-[45] flex w-[344px] max-w-[calc(100vw-1.5rem)] -translate-y-1/2 flex-col overflow-hidden',
+          'lt-blur-surface fixed right-1.5 top-1/2 flex w-[344px] max-w-[calc(100vw-1.5rem)] -translate-y-1/2 flex-col overflow-hidden',
           'rounded-[var(--md-sys-shape-corner)] transition-all duration-300',
+          // 滑出后必须压过 Live2D 宿主层（fixed inset-0，z-60）：一起听时
+          // 左下角是角色设置/动捕预览的入口列，344px 宽的面板在窄屏上会
+          // 伸到那一列上，层级低了按钮就会"浮"在面板上面（面板被挡）。
+          // 收起时留 45，只是右侧一条把手，不必参与层级竞争。
           open
-            ? 'pointer-events-auto translate-x-0 opacity-100'
-            : 'pointer-events-none translate-x-6 opacity-0'
+            ? 'pointer-events-auto z-[70] translate-x-0 opacity-100'
+            : 'pointer-events-none z-[45] translate-x-6 opacity-0'
         )}
         style={{
           maxHeight: 'min(760px, calc(100vh - 100px))',

@@ -421,7 +421,13 @@ export function VoiceChatPanel({
   return createPortal(
     <div
       className={cn(
-        'fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3',
+        'fixed bottom-6 right-6 flex flex-col items-end gap-3',
+        // 展开时要压过 Live2D 的宿主层（fixed inset-0，z-60）：那一层虽然
+        // pointer-events 为 none，但它的入口圆钮（右下 right-6/bottom-84）
+        // 正好落在面板右上角，层级低一点就会被圆钮"贴"在面板上，看着像
+        // 面板被戳了个洞。折叠时只是个 48px 圆钮，不跟任何东西抢，保持
+        // 原来的 40，不必压过角色画布。
+        expanded ? 'z-[70]' : 'z-40',
         'transition-all duration-300'
       )}
     >
