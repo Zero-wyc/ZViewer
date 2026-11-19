@@ -1,5 +1,5 @@
 {
-  "total": 2788,
+  "total": 2814,
   "chunk": 120,
   "parts": [
     {
@@ -35,7 +35,7 @@
     {
       "id": "07-store",
       "bucket": "store",
-      "count": 8
+      "count": 7
     },
     {
       "id": "08-pages",
@@ -125,7 +125,7 @@
     {
       "id": "25-live2d",
       "bucket": "modules/live2d",
-      "count": 2
+      "count": 28
     },
     {
       "id": "26-mounts",
@@ -170,7 +170,7 @@
     {
       "id": "34-music",
       "bucket": "modules/music",
-      "count": 6
+      "count": 5
     },
     {
       "id": "35-openlist",
@@ -200,7 +200,7 @@
     {
       "id": "40-player",
       "bucket": "modules/player",
-      "count": 100
+      "count": 103
     },
     {
       "id": "41-room",
@@ -230,7 +230,7 @@
     {
       "id": "46-screen-sharing",
       "bucket": "modules/screen-sharing",
-      "count": 59
+      "count": 58
     },
     {
       "id": "47-server-files",

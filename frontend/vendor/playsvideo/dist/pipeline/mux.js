@@ -34,9 +34,19 @@ export async function muxToFmp4(input) {
         target: new NullTarget(),
     });
     const videoSource = new EncodedVideoPacketSource(input.videoCodec);
-    const audioSource = new EncodedAudioPacketSource(input.audioCodec);
     output.addVideoTrack(videoSource);
-    output.addAudioTrack(audioSource);
+    // [本地补丁] 只有在「有音频包 且 有 decoderConfig」时才建音轨。
+    // mediabunny 在建轨时用 decoderConfig 生成 mp4a/avcC 之类的 box，
+    // 缺 metadata 会抛 `TypeError: Audio chunk metadata must be provided.`
+    // 并让整个分段（进而整部影片）失败。宁可产出纯视频 fMP4：画面能播，
+    // 上层据 demux 的 audioDropped 给出提示，远好过黑屏报错。
+    const hasAudio = input.audioPackets.length > 0 && !!input.audioDecoderConfig;
+    const audioSource = hasAudio
+        ? new EncodedAudioPacketSource(input.audioCodec)
+        : null;
+    if (audioSource) {
+        output.addAudioTrack(audioSource);
+    }
     await output.start();
     // Feed video packets — pass decoder config on first packet
     const videoMeta = {
@@ -46,11 +56,11 @@ export async function muxToFmp4(input) {
         await videoSource.add(input.videoPackets[i], i === 0 ? videoMeta : undefined);
     }
     // Feed audio packets — pass decoder config on first packet
-    const audioMeta = input.audioDecoderConfig
-        ? { decoderConfig: input.audioDecoderConfig }
-        : undefined;
-    for (let i = 0; i < input.audioPackets.length; i++) {
-        await audioSource.add(input.audioPackets[i], i === 0 ? audioMeta : undefined);
+    if (audioSource) {
+        const audioMeta = { decoderConfig: input.audioDecoderConfig };
+        for (let i = 0; i < input.audioPackets.length; i++) {
+            await audioSource.add(input.audioPackets[i], i === 0 ? audioMeta : undefined);
+        }
     }
     await output.finalize();
     const init = concatBuffers(initParts);

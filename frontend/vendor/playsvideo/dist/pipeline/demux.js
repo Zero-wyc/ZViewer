@@ -28,18 +28,78 @@ class SourceAdapter extends MBSource {
 export async function demuxSource(source) {
     return demuxInput(new Input({ formats: ALL_FORMATS, source: new SourceAdapter(source) }));
 }
+/**
+ * [本地补丁] 从一组音轨里挑出「能真正被 muxer 使用」的第一条。
+ *
+ * 判据是让 muxer 能建轨的两个硬条件：`codec` 可识别、`getDecoderConfig()`
+ * 能返回非空配置。任一不满足即跳过——上游把「轨道存在」当成「可用」，
+ * 对 Dolby TrueHD/Atmos（A_TRUEHD）、MLP、ALAC 等 mediabunny 未登记的
+ * 容器 CodecID 不成立，会一路把空配置送进 muxer 触发
+ * `TypeError: Audio chunk metadata must be provided.`，整片失败。
+ *
+ * 单独导出便于单测：入参是鸭子类型的音轨数组（codec / internalCodecId /
+ * getDecoderConfig），不需要真实容器。
+ */
+export async function pickPlayableAudioTrack(tracks) {
+    const unsupportedCodecIds = [];
+    for (const track of tracks) {
+        if (!track.codec) {
+            // mediabunny 未登记的容器 CodecID（如 A_TRUEHD）
+            unsupportedCodecIds.push(track.internalCodecId ?? null);
+            continue;
+        }
+        let config = null;
+        try {
+            config = await track.getDecoderConfig();
+        }
+        catch {
+            config = null;
+        }
+        if (!config) {
+            unsupportedCodecIds.push(track.internalCodecId ?? track.codec);
+            continue;
+        }
+        return { track, config, unsupportedCodecIds };
+    }
+    return { track: null, config: null, unsupportedCodecIds };
+}
 async function demuxInput(input) {
     const videoTrack = await input.getPrimaryVideoTrack();
     if (!videoTrack) {
         throw new Error('No video track found');
     }
-    let audioTrack = null;
+    // [本地补丁] 音轨择优 + 不可处理音轨的显式降级。
+    //
+    // 上游只取 primary 音轨，并假定「轨道存在 ⇒ codec 与 decoderConfig 可用」。
+    // 该假定对 TrueHD/Atmos（A_TRUEHD）、MLP、ALAC、WavPack 等 mediabunny
+    // 未登记的 CodecID 不成立：轨道仍会出现在 getAudioTracks() 里，但
+    // info.codec 为 null → getDecoderConfig() 返回 null → 上游后续以
+    // `audioCodec !== null` 为前置条件的 doTranscode 判定为 false，于是把
+    // 「没有 decoderConfig 的音频包」直接送进 fMP4 muxer，mediabunny 在
+    // 建轨时抛 `TypeError: Audio chunk metadata must be provided.`，
+    // 整部影片随之播放失败（视频本身完好）。
+    //
+    // 处理：按容器顺序挑选第一条「codec 可识别且能取到 decoderConfig」的音轨。
+    // 主音轨不可用时自动退到后续兼容轨（remux 常见 TrueHD 7.1 + AC-3 5.1），
+    // 全部不可用则按「无音轨」降级——视频照播，audioDropped 透出原因供上层提示。
+    let audioTracks = [];
     try {
-        audioTrack = await input.getPrimaryAudioTrack();
+        audioTracks = await input.getAudioTracks();
     }
     catch {
-        // No audio track — that's fine
+        // 音轨枚举失败按无音轨处理，不能拖垮视频
+        audioTracks = [];
     }
+    const picked = await pickPlayableAudioTrack(audioTracks);
+    const audioTrack = picked.track;
+    const audioDecoderConfig = picked.config;
+    const audioDropped = audioTracks.length > 0 && !audioTrack
+        ? {
+            reason: 'unsupported-codec',
+            trackCount: audioTracks.length,
+            codecIds: picked.unsupportedCodecIds,
+        }
+        : null;
     const videoCodec = videoTrack.codec;
     if (!videoCodec) {
         throw new Error('Could not determine video codec');
@@ -50,10 +110,6 @@ async function demuxInput(input) {
     const videoDecoderConfig = await videoTrack.getDecoderConfig();
     if (!videoDecoderConfig) {
         throw new Error('Could not get video decoder config');
-    }
-    let audioDecoderConfig = null;
-    if (audioTrack) {
-        audioDecoderConfig = await audioTrack.getDecoderConfig();
     }
     let subtitleTracks = [];
     try {
@@ -75,6 +131,8 @@ async function demuxInput(input) {
         audioDecoderConfig,
         videoSink,
         audioSink,
+        audioTrackCount: audioTracks.length,
+        audioDropped,
         subtitleTracks,
         dispose: () => input.dispose(),
     };

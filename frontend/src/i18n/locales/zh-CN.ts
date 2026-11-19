@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2811 条。
+ * 当前共 2814 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -1960,7 +1960,7 @@ const zhCN: Record<string, string> = {
   '状态恢复失败': '状态恢复失败',
   'B站 URL 已过期，请等待房主重新解析': 'B站 URL 已过期，请等待房主重新解析',
 
-  // ===== modules/player（100 条） =====
+  // ===== modules/player（103 条） =====
   '  缓冲范围: {{buffered}}\n': '  缓冲范围: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js 错误: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] 总大小: video={{value}}MB, ',
@@ -1994,6 +1994,7 @@ const zhCN: Record<string, string> = {
   '[playsvideo-subtitles] 解析 worker 出错，回退主线程:': '[playsvideo-subtitles] 解析 worker 出错，回退主线程:',
   '[playsvideo-subtitles] 解析 worker 创建失败，回退主线程解析:': '[playsvideo-subtitles] 解析 worker 创建失败，回退主线程解析:',
   '[playsvideo-subtitles] worker 解析失败:': '[playsvideo-subtitles] worker 解析失败:',
+  '[playsvideo] 音轨不可用，已降级为静音播放：{{value}}': '[playsvideo] 音轨不可用，已降级为静音播放：{{value}}',
   '[url-proxy] 直播 CLI 线路但 URL 未包装，退回服务器中转:': '[url-proxy] 直播 CLI 线路但 URL 未包装，退回服务器中转:',
   '[url-proxy] 走服务器代理(headers):': '[url-proxy] 走服务器代理(headers):',
   '[url-proxy] https 页面下的 http 跨域源（源站不支持 TLS，配置期已探测），走服务器代理:': '[url-proxy] https 页面下的 http 跨域源（源站不支持 TLS，配置期已探测），走服务器代理:',
@@ -2014,6 +2015,7 @@ const zhCN: Record<string, string> = {
   '当前设备无法解码该视频编码（{{videoCodec}}），请更换播放设备或转码后再试': '当前设备无法解码该视频编码（{{videoCodec}}），请更换播放设备或转码后再试',
   '当前设备无法解码该视频编码（{{videoCodec}}），请切换更低清晰度或更换支持硬解的设备': '当前设备无法解码该视频编码（{{videoCodec}}），请切换更低清晰度或更换支持硬解的设备',
   '等待媒体 metadata 超时（30s）': '等待媒体 metadata 超时（30s）',
+  '该片音轨（{{codec}}）无法在浏览器端解码，已静音播放。可切换其它音轨，或改用服务器中转 / CLI 客户端播放': '该片音轨（{{codec}}）无法在浏览器端解码，已静音播放。可切换其它音轨，或改用服务器中转 / CLI 客户端播放',
   '轨道 {{value}}': '轨道 {{value}}',
   '缓冲模式需要 DASH 源的 audioUrl 和 cid': '缓冲模式需要 DASH 源的 audioUrl 和 cid',
   '加载超时：该 MKV 的编码（如 HEVC 视频 / FLAC 音轨）大概率不被当前浏览器原生支持，': '加载超时：该 MKV 的编码（如 HEVC 视频 / FLAC 音轨）大概率不被当前浏览器原生支持，',
@@ -2034,6 +2036,7 @@ const zhCN: Record<string, string> = {
   '网络错误：无法连接到源站，请检查网络或源站可达性': '网络错误：无法连接到源站，请检查网络或源站可达性',
   '未挂载': '未挂载',
   '未命名轨道': '未命名轨道',
+  '未知编码': '未知编码',
   '未知错误': '未知错误',
   '未知媒体错误': '未知媒体错误',
   '下载失败: HTTP {{status}} {{statusText}}': '下载失败: HTTP {{status}} {{statusText}}',

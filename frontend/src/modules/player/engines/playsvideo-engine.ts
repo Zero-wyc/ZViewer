@@ -62,6 +62,7 @@ import {
 } from '../services/url-proxy'
 import { assertDirectLinkReachable } from './direct-route'
 import { canDecodeCodecs } from '../hdr-capability'
+import { message } from '@/components/ui/message'
 import { t } from '@/i18n'
 
 /**
@@ -77,6 +78,25 @@ import { t } from '@/i18n'
  */
 const ACTIVITY_TIMEOUT_MS = 45_000
 const ABSOLUTE_TIMEOUT_MS = 300_000
+
+/**
+ * 容器原始 CodecID → 用户可读名。
+ *
+ * playsvideo 的 `audioDropped.codecIds` 来自 mediabunny 的
+ * `internalCodecId`，即容器里的原始标识（Matroska 为 `A_TRUEHD` 这类，
+ * ISOBMFF 为 Sample Entry 四字符码 `mlpa`）。仅列出浏览器端确实无法
+ * 处理的几个常见项，其余原样展示，避免猜错。
+ */
+const AUDIO_CODEC_ID_LABEL: Record<string, string> = {
+  A_TRUEHD: 'Dolby TrueHD / Atmos',
+  mlpa: 'Dolby TrueHD',
+  A_MLP: 'MLP',
+  A_ALAC: 'ALAC',
+  alac: 'ALAC',
+  A_WAVPACK4: 'WavPack',
+  A_TAK: 'TAK',
+  A_TTA1: 'TTA',
+}
 
 /**
  * 诊断 hook：定位 endOfStream 调用来源。
@@ -251,6 +271,15 @@ class PlaysVideoController implements PlayerController {
    * 剩余等待时长），既误报错误又长时间占用 attach 串行队列。
    */
   private pendingReadyReject: ((err: Error) => void) | null = null
+  /**
+   * 本次 attach 中被引擎丢弃的音轨（见 playsvideo ReadyDetail.audioDropped）。
+   *
+   * 容器里有音轨、但没有任何一条能取到 mediabunny 可用的 codec +
+   * decoderConfig 时（Dolby TrueHD/Atmos、MLP、ALAC 等未登记 CodecID），
+   * 引擎丢弃音轨、继续产出纯视频 fMP4。这里记下来，起播后给用户一条
+   * 明确提示——否则表现为「画面正常但没有声音」，用户无从判断。
+   */
+  private audioDropped: { codecIds: (string | null)[] } | null = null
 
   constructor(video: HTMLVideoElement, source: PlayerSource) {
     this.video = video
@@ -357,6 +386,9 @@ class PlaysVideoController implements PlayerController {
     // 直接赋值 currentTime 会被浏览器丢弃（与 waitForMetadata 的注释同理）。
     await waitForMetadata(this.video)
 
+    // 起播后再提示：音轨被丢弃时画面正常但没有声音，需要明确告知
+    this.notifyAudioDropped()
+
     const start = startTime ?? this.source.startTime ?? 0
     if (start > 0) {
       try {
@@ -368,6 +400,32 @@ class PlaysVideoController implements PlayerController {
 
     // 无 blob URL：playsvideo 直接接管 video.src
     return ''
+  }
+
+  /**
+   * 音轨被丢弃时的用户提示。
+   *
+   * 引擎能重封装任何容器，但音轨必须有 mediabunny 认可的 CodecID 才能
+   * 拿到 decoderConfig；Dolby TrueHD/Atmos（A_TRUEHD）、MLP、ALAC 这类
+   * 未登记编码拿不到，ffmpeg.wasm 轻量构建也没有对应解码器，浏览器端
+   * 无从转码。此时宁可静音播放（画面可用），也不让整部影片失败。
+   */
+  private notifyAudioDropped(): void {
+    const dropped = this.audioDropped
+    this.audioDropped = null
+    if (!dropped) return
+    const raw = dropped.codecIds.find((id): id is string => !!id) ?? null
+    const codec = raw ? (AUDIO_CODEC_ID_LABEL[raw] ?? raw) : t('未知编码')
+    console.warn(
+      `[playsvideo] 音轨不可用，已降级为静音播放：${dropped.codecIds.join(', ') || 'unknown'}`
+    )
+    message.warning(
+      t(
+        '该片音轨（{{codec}}）无法在浏览器端解码，已静音播放。可切换其它音轨，或改用服务器中转 / CLI 客户端播放',
+        { codec }
+      ),
+      { duration: 9000 }
+    )
   }
 
   /**
@@ -422,7 +480,12 @@ class PlaysVideoController implements PlayerController {
           )
         }, ACTIVITY_TIMEOUT_MS)
       }
-      const onReady = () => {
+      const onReady = (
+        e: CustomEvent<{
+          audioDropped?: { codecIds: (string | null)[] } | null
+        }>
+      ) => {
+        this.audioDropped = e.detail?.audioDropped ?? null
         cleanup()
         resolve()
       }
@@ -614,6 +677,7 @@ class PlaysVideoController implements PlayerController {
     this.subtitleAbort?.abort()
     this.subtitleAbort = null
     this.publishedSubtitleCount = 0
+    this.audioDropped = null
     // 递增桥接世代：否则旧会话迟到的字幕会串到下一部片。
     // 尤其切到 direct 引擎的片源时不会走 attach，不在这里作废就会污染新轨道。
     resetPlaysVideoSubtitles()

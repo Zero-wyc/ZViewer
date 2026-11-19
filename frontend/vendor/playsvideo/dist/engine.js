@@ -68,6 +68,8 @@ export class PlaysVideoEngine extends EventTarget {
     _sourcePlaybackPolicy = 'auto';
     _lastInternalErrorMessage = null;
     _lastInternalErrorAt = 0;
+    /** [本地补丁] demux 阶段丢弃的音轨信息（TrueHD/Atmos 等无法识别/无解码配置），随 ready 透出 */
+    _audioDropped = null;
     get phase() {
         return this._phase;
     }
@@ -268,6 +270,7 @@ export class PlaysVideoEngine extends EventTarget {
         this._segmentStates.clear();
         this._lastInternalErrorMessage = null;
         this._lastInternalErrorAt = 0;
+        this._audioDropped = null;
         this.dispatchEvent(new CustomEvent('loading', { detail }));
         this.dispatchSegmentStateChange();
     }
@@ -622,6 +625,9 @@ export class PlaysVideoEngine extends EventTarget {
             this.logPlaybackDiagnostics('playback selection', evaluation);
             this.dispatchPlaybackDecision(media, evaluation);
             this._subtitleTracks = msg.subtitleTracks ?? [];
+            // [本地补丁] 不可处理的音轨（TrueHD/Atmos 等）在 demux 阶段被丢弃，
+            // 这里先记住，随 ready 事件一并透出，供上层提示「已静音播放」。
+            this._audioDropped = msg.audioDropped ?? null;
             const blobUrl = this._blobUrl;
             const usePassthrough = evaluation.recommended?.option.mode === 'direct-bytes' && blobUrl !== null;
             this._codecPath = this.makeCodecPathFromSource(media, usePassthrough ? 'passthrough' : 'pipeline');
@@ -706,12 +712,15 @@ export class PlaysVideoEngine extends EventTarget {
             for (const track of this._subtitleTracks) {
                 this.requestEmbeddedSubtitleTrack(track);
             }
+            this._audioDropped = msg.audioDropped ?? this._audioDropped ?? null;
             this.dispatchEvent(new CustomEvent('ready', {
                 detail: {
                     totalSegments: this._totalSegments,
                     durationSec: this._durationSec,
                     subtitleTracks: this._subtitleTracks,
                     codecPath: this.codecPath,
+                    audioTrackCount: msg.audioTrackCount ?? 0,
+                    audioDropped: this._audioDropped,
                 },
             }));
             this.startHls();
@@ -896,12 +905,15 @@ export class PlaysVideoEngine extends EventTarget {
             this._subtitleTracks = demux.subtitleTracks;
             this._phase = 'ready';
             mlog(`source pipeline: ready segments=${this._totalSegments} dur=${this._durationSec.toFixed(1)}s`);
+            this._audioDropped = demux.audioDropped ?? null;
             this.dispatchEvent(new CustomEvent('ready', {
                 detail: {
                     totalSegments: this._totalSegments,
                     durationSec: this._durationSec,
                     subtitleTracks: this._subtitleTracks,
                     codecPath: this.codecPath,
+                    audioTrackCount: demux.audioTrackCount ?? 0,
+                    audioDropped: this._audioDropped,
                 },
             }));
             void this.extractEmbeddedSubtitlesFromDemux(demux);

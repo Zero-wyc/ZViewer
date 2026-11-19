@@ -400,7 +400,7 @@ async function handleProbe(demuxFn) {
     }
     const tDemux = performance.now();
     demux = await withHeartbeat('probe', demuxFn);
-    wlog(`demux done ${elapsed(tDemux)} codec=${demux.videoCodec}/${demux.audioCodec} dur=${demux.duration.toFixed(1)}s`);
+    wlog(`demux done ${elapsed(tDemux)} codec=${demux.videoCodec}/${demux.audioCodec} dur=${demux.duration.toFixed(1)}s${demux.audioDropped ? ` audio-dropped=${demux.audioDropped.codecIds.join(',')}` : ''}`);
     // Send codec info so engine can check canPlayType on the main thread
     self.postMessage({
         type: 'probed',
@@ -408,6 +408,8 @@ async function handleProbe(demuxFn) {
         sourceAudioCodec: demux.audioCodec,
         videoCodec: demux.videoDecoderConfig.codec,
         audioCodec: demux.audioDecoderConfig?.codec ?? null,
+        audioTrackCount: demux.audioTrackCount ?? 0,
+        audioDropped: demux.audioDropped ?? null,
         durationSec: demux.duration,
         subtitleTracks: demux.subtitleTracks,
     });
@@ -488,6 +490,8 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
         sourceVideoCodecFull: demux.videoDecoderConfig.codec,
         sourceAudioCodec: demux.audioCodec,
         sourceAudioCodecFull: demux.audioDecoderConfig?.codec ?? null,
+        audioTrackCount: demux.audioTrackCount ?? 0,
+        audioDropped: demux.audioDropped ?? null,
         outputVideoCodec: demux.videoCodec,
         outputVideoCodecFull: demux.videoDecoderConfig.codec,
         outputAudioCodec: doTranscode ? 'aac' : demux.audioCodec,
