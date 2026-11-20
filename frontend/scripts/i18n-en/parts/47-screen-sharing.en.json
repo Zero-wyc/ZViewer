@@ -119,6 +119,6 @@
     "Video resolution",
     "Enter the room password",
     "Refresh the connection",
-    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing."
+    "Tip: stop the stream in OBS with “Stop Streaming”. Switching to another share method does not interrupt the stream, so OBS can keep streaming."
   ]
 }

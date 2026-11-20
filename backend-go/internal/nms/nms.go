@@ -210,6 +210,11 @@ type Service struct {
 	embedded         *embeddedServer
 	authorizePublish func(context.Context, string) bool
 	authorizeWatch   func(context.Context, string, string) bool
+	// authorizePublishKeepAlive 校验「已经在推的这条流还能不能继续推」。
+	// 与 authorizePublish 的差别：后者决定能否开始推流（房间必须正处于
+	// OBS 推流模式），前者只要求房间还活着、密钥还属于它——房主在推流中
+	// 切到 WebRTC 共享或一起看时，OBS 不该被服务端踢掉。
+	authorizePublishKeepAlive func(context.Context, string) bool
 }
 
 // New 构造探测器。
@@ -247,6 +252,7 @@ func (s *Service) Start() error {
 
 	srv := newEmbeddedServer(cfg, logf)
 	srv.publishAllowed = s.publishAllowed
+	srv.publishKeepAlive = s.publishKeepAlive
 	srv.watchAllowed = s.watchAllowed
 	if err := srv.start(); err != nil {
 		logf("[nms] 内置媒体服务启动失败（%v），改为探测外部媒体服务 %s", err, cfg.HTTPFLVBase)
@@ -411,11 +417,33 @@ func (s *Service) SetAuthorizers(publish func(context.Context, string) bool, wat
 	defer s.mu.Unlock()
 	s.authorizePublish, s.authorizeWatch = publish, watch
 }
+
+// SetPublishKeepAlive 设置「推流中」的续期校验（可选）。
+//
+// 不设置时回落到 SetAuthorizers 的 publish 校验，也就是旧行为：房间一
+// 切走就断流。
+func (s *Service) SetPublishKeepAlive(fn func(context.Context, string) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.authorizePublishKeepAlive = fn
+}
+
 func (s *Service) publishAllowed(ctx context.Context, key string) bool {
 	s.mu.Lock()
 	fn := s.authorizePublish
 	s.mu.Unlock()
 	return fn != nil && fn(ctx, key)
+}
+
+// publishKeepAlive 供推流看门狗周期调用：true 表示可以继续推。
+func (s *Service) publishKeepAlive(ctx context.Context, key string) bool {
+	s.mu.Lock()
+	fn := s.authorizePublishKeepAlive
+	s.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, key)
+	}
+	return s.publishAllowed(ctx, key)
 }
 func (s *Service) watchAllowed(ctx context.Context, key, ticket string) bool {
 	s.mu.Lock()

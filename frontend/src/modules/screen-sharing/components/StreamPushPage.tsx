@@ -188,7 +188,7 @@ export function StreamPushPage({
         </ol>
         <Paragraph type="secondary" className="m-0 mt-2 text-xs">
           {t(
-            '提示：结束推流请在 OBS 中点击「停止推流」。切换回 WebRTC 共享前请先停止 OBS 推流。'
+            '提示：结束推流请在 OBS 中点击「停止推流」。切换到其他共享方式不会中断推流，OBS 可以继续推。'
           )}
         </Paragraph>
       </Card>

@@ -251,7 +251,13 @@ func (c *rtmpConn) onPublish(streamID uint32, streamName string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if !c.srv.publishAllowed(ctx, key) {
+				// 续期校验与「能否开始推流」分开：房主在推流中切换到
+				// WebRTC 共享或一起看只改房间字段，这里仍应放行，否则
+				// OBS 会被服务端静默断开（用户看到的就是「切模式打断 RTMP」）。
+				if !c.srv.publishKeepAlive(ctx, key) {
+					if c.srv.logf != nil {
+						c.srv.logf("[nms] 推流授权已失效，关闭连接（key=%s）", key)
+					}
 					_ = c.conn.Close()
 					return
 				}

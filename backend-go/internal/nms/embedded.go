@@ -26,7 +26,9 @@ type embeddedServer struct {
 	hub            *streamHub
 	logf           func(string, ...any)
 	publishAllowed func(context.Context, string) bool
-	watchAllowed   func(context.Context, string, string) bool
+	// publishKeepAlive 是推流看门狗的续期校验（可为空，空则回落 publishAllowed）。
+	publishKeepAlive func(context.Context, string) bool
+	watchAllowed     func(context.Context, string, string) bool
 
 	rtmpLn net.Listener
 

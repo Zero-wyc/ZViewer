@@ -2795,7 +2795,7 @@ const enUS: Record<string, string> = {
   '视频分辨率': 'Video resolution',
   '输入房间密码': 'Enter the room password',
   '刷新连接': 'Refresh the connection',
-  '提示：结束推流请在 OBS 中点击「停止推流」。切换回 WebRTC 共享前请先停止 OBS 推流。': 'Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing.',
+  '提示：结束推流请在 OBS 中点击「停止推流」。切换到其他共享方式不会中断推流，OBS 可以继续推。': 'Tip: stop the stream in OBS with “Stop Streaming”. Switching to another share method does not interrupt the stream, so OBS can keep streaming.',
   '推流地址已复制（不含流密钥）': 'Stream URL copied (without the stream key)',
   '推流状态': 'Stream status',
   '退出画中画': 'Exit picture-in-picture',

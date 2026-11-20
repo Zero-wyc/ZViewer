@@ -426,6 +426,7 @@ export const AnnotationLayer = forwardRef<
     >
       <canvas
         ref={canvasRef}
+        data-annotation-canvas=""
         className="absolute inset-0 touch-none"
         style={{ cursor, opacity: 0.95 }}
         onPointerDown={handlePointerDown}
