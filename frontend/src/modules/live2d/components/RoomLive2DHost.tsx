@@ -521,14 +521,30 @@ export function RoomLive2DHost({
   const overlayBarHeight = useFullscreenOverlayStore(
     (store) => store.controlBarHeight
   )
+  // 全屏分屏评论区：竖屏是上下分屏（画面在上、评论在下），浮球要跟着往上让
+  // 出评论区高度；横屏是左右分屏（评论在右），浮球整体左移贴住画面右边界。
+  // 否则展开/收起评论区时入口列不动，会落到评论面板上（用户报「展开收起
+  // 评论区时三个悬浮按钮要跟着动」）。
+  const commentPaneOrientation = useFullscreenOverlayStore(
+    (store) => store.commentPaneOrientation
+  )
+  const commentPaneSize = useFullscreenOverlayStore(
+    (store) => store.commentPaneSize
+  )
+  const paneShift =
+    overlayActive && commentPaneOrientation === 'stacked' ? commentPaneSize : 0
+  const paneRight =
+    overlayActive && commentPaneOrientation === 'side'
+      ? commentPaneSize + 24
+      : null
   const columnBottom =
-    mode === 'listen-together'
+    (mode === 'listen-together'
       ? overlayActive
         ? (overlayBarHeight || 88) + 8
         : 112
       : overlayActive
         ? (overlayBarHeight || 88) + 8 + 48 + 12
-        : 84
+        : 84) + paneShift
   const live2dColumnTop =
     mode === 'listen-together'
       ? 0
@@ -1315,6 +1331,7 @@ export function RoomLive2DHost({
           ...(mode === 'listen-together' && !overlayActive
             ? null
             : { bottom: columnBottom }),
+          ...(paneRight !== null ? { right: paneRight } : null),
         }}
       >
         {/* 入口常驻（含房主关掉「对观众显示角色」时）：那是唯一能换/删模型、
