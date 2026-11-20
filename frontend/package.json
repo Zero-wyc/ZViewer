@@ -18,7 +18,8 @@
     "i18n:plan": "node scripts/i18n-translate.mjs --plan --force",
     "i18n:build": "node scripts/i18n-translate.mjs --build",
     "i18n:check": "node scripts/i18n-extract.mjs --check && node scripts/i18n-translate.mjs --check",
-    "prebuild": "node scripts/prepare-live2d-face.mjs"
+    "prebuild": "node scripts/prepare-live2d-face.mjs",
+    "postbuild": "node scripts/precompress-assets.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
