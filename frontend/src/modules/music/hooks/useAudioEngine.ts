@@ -24,6 +24,11 @@ const PRELOAD_EAGER_WINDOW_SEC = 45
 interface UseAudioEngineOptions {
   /** 本地音量镜像（创建音频元素时应用；音量本身由调用方持有状态） */
   volumeRef: MutableRefObject<number>
+  /**
+   * 本地静音镜像（可选）：一起听开关关闭时置 true——元素仍然同步播放，
+   * 只是不出声，重新打开无需重载/重连。创建元素与写音量时都会读它。
+   */
+  mutedRef?: MutableRefObject<boolean>
   /** ended 处理器的最新实现（handleEnded 随依赖重建，经 ref 间接调用） */
   endedHandlerRef: MutableRefObject<() => void>
   /**
@@ -99,6 +104,7 @@ export interface AudioEngine {
  */
 export function useAudioEngine({
   volumeRef,
+  mutedRef,
   endedHandlerRef,
   onErrorRef,
   onStreamErrorRef,
@@ -121,7 +127,7 @@ export function useAudioEngine({
     if (!audioRef.current) {
       const audio = new Audio()
       audio.preload = 'auto'
-      audio.muted = volumeRef.current === 0
+      audio.muted = volumeRef.current === 0 || mutedRef?.current === true
       audio.volume = volumeRef.current
       mountMediaElement(audio)
       // 响度均衡：登记元素（真正开始播时才建立 captureStream 分析支路）
@@ -129,7 +135,7 @@ export function useAudioEngine({
       audioRef.current = audio
     }
     return audioRef.current
-  }, [volumeRef])
+  }, [volumeRef, mutedRef])
 
   /**
    * 六个音频生命周期事件的稳定 handler 集合（useState 惰性初始化，仅创建一次；

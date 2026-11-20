@@ -17,6 +17,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { useRoomStore, type RoomMode } from '@/store/roomStore'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
+import { useListenLyricsSlot } from '@/modules/music/hooks/useListenLyricsSlot'
 import { SharingStatusPanel } from '@/modules/room/components/SharingStatusPanel'
 import {
   getFullscreenElement,
@@ -136,6 +137,8 @@ export function RoomLayout({
   isModeSwitching = false,
 }: RoomLayoutProps) {
   const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
+  // 一起听歌词插槽：非全屏时歌词渲染在播放器正下方（全屏走浮层，见 ListenTogetherLyrics）
+  const lyricsSlotRef = useListenLyricsSlot()
   // defaultBack 由 guardNavigate 统一处理：
   // 在房间内时弹出确认对话框，确认后仅导航离开——房间保持运行，
   // activeRoomId 保留，右上角显示「回到房间」入口；
@@ -161,9 +164,6 @@ export function RoomLayout({
   }, [])
 
   const roomMode = useRoomStore((state) => state.mode)
-  // 一起听模式：无评论区/弹幕轨道/实时弹幕——整个右侧面板与展开按钮
-  // 一并隐藏（房主/观众两侧共用本布局，一处生效）
-  const hideRightPanel = roomMode === 'listen-together'
   const storeIsSharing = useRoomStore((state) => state.isSharing)
 
   const isSharing =
@@ -228,8 +228,7 @@ export function RoomLayout({
   //   的 translateX 与占位区 width 共同完成，避免直接对 panel 做 width/scale。
   // - 移动端：从右侧滑入的全宽抽屉，覆盖在视频区域上方，避免 320px 超出窄屏。
   // - 原生全屏：悬浮卡片从右侧滑入，带圆角和强阴影。
-  // - 一起听模式：不渲染（hideRightPanel）。
-  const rightPanelNode = hideRightPanel ? null : (
+  const rightPanelNode = (
     <div
       className={cn(
         'flex min-h-0 min-w-0 flex-col overflow-hidden',
@@ -323,34 +322,29 @@ export function RoomLayout({
           {t('返回')}
         </Button>
 
-        {/* 顶部模式切换栏（玻璃拟态 + Monet 主题变量，当前模式高亮）：
-            一起听模式下移至音乐顶导航，此处隐藏（返回按钮独占左，右侧操作收尾） */}
-        {!hideRightPanel && (
-          <div className="flex flex-1 justify-center px-2">{modeSwitchBar}</div>
-        )}
+        {/* 顶部模式切换栏（玻璃拟态 + Monet 主题变量，当前模式高亮） */}
+        <div className="flex flex-1 justify-center px-2">{modeSwitchBar}</div>
 
         <div className="flex flex-shrink-0 items-center gap-2">
-          {!hideRightPanel && (
-            <button
-              onClick={toggleRightPanel}
-              aria-label={isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')}
-              aria-expanded={isRightPanelOpen}
-              title={isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')}
-              className="glass hidden h-9 w-9 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95 md:flex"
-              style={{
-                borderColor: 'var(--md-sys-color-outline-variant)',
-                color: isRightPanelOpen
-                  ? 'var(--md-sys-color-primary)'
-                  : 'var(--md-sys-color-on-surface-variant)',
-              }}
-            >
-              {isRightPanelOpen ? (
-                <PanelRightClose className="h-4 w-4" />
-              ) : (
-                <PanelRight className="h-4 w-4" />
-              )}
-            </button>
-          )}
+          <button
+            onClick={toggleRightPanel}
+            aria-label={isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')}
+            aria-expanded={isRightPanelOpen}
+            title={isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')}
+            className="glass hidden h-9 w-9 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95 md:flex"
+            style={{
+              borderColor: 'var(--md-sys-color-outline-variant)',
+              color: isRightPanelOpen
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--md-sys-color-on-surface-variant)',
+            }}
+          >
+            {isRightPanelOpen ? (
+              <PanelRightClose className="h-4 w-4" />
+            ) : (
+              <PanelRight className="h-4 w-4" />
+            )}
+          </button>
           {headerActions}
         </div>
       </div>
@@ -377,10 +371,7 @@ export function RoomLayout({
           </div>
         </div>
         {/* 移动端抽屉背景遮罩：点击可关闭侧栏 */}
-        {!isNativeFullscreen &&
-          !webFullscreen &&
-          !hideRightPanel &&
-          isRightPanelOpen && (
+        {!isNativeFullscreen && !webFullscreen && isRightPanelOpen && (
             <div
               className="absolute inset-0 z-10 bg-black/50 md:hidden"
               aria-hidden="true"
@@ -388,7 +379,7 @@ export function RoomLayout({
             />
           )}
         {/* 右侧占位区：仅桌面端显示，宽度动画与绝对定位面板同步滑动 */}
-        {!isNativeFullscreen && !webFullscreen && !hideRightPanel && (
+        {!isNativeFullscreen && !webFullscreen && (
           <div
             className={cn(
               'hidden flex-shrink-0 overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block',
@@ -398,7 +389,7 @@ export function RoomLayout({
           />
         )}
         {/* 右侧面板：移动端为全宽抽屉覆盖在视频上方，桌面端为固定宽度侧边栏 */}
-        {!isNativeFullscreen && !webFullscreen && !hideRightPanel && (
+        {!isNativeFullscreen && !webFullscreen && (
           <div
             className={cn(
               'pointer-events-none fixed inset-y-0 right-0 z-[9999] w-full overflow-hidden transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:absolute md:top-0 md:h-full md:w-[320px]',
@@ -479,32 +470,30 @@ export function RoomLayout({
                             </button>
                           ))}
                         </div>
-                        {!hideRightPanel && (
-                          <button
-                            onClick={toggleRightPanel}
-                            aria-label={
-                              isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')
-                            }
-                            aria-expanded={isRightPanelOpen}
-                            title={
-                              isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')
-                            }
-                            className="glass flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95"
-                            style={{
-                              borderColor:
-                                'var(--md-sys-color-outline-variant)',
-                              color: isRightPanelOpen
-                                ? 'var(--md-sys-color-primary)'
-                                : 'var(--md-sys-color-on-surface-variant)',
-                            }}
-                          >
-                            {isRightPanelOpen ? (
-                              <PanelRightClose className="h-4 w-4" />
-                            ) : (
-                              <PanelRight className="h-4 w-4" />
-                            )}
-                          </button>
-                        )}
+                        <button
+                          onClick={toggleRightPanel}
+                          aria-label={
+                            isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')
+                          }
+                          aria-expanded={isRightPanelOpen}
+                          title={
+                            isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')
+                          }
+                          className="glass flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95"
+                          style={{
+                            borderColor:
+                              'var(--md-sys-color-outline-variant)',
+                            color: isRightPanelOpen
+                              ? 'var(--md-sys-color-primary)'
+                              : 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        >
+                          {isRightPanelOpen ? (
+                            <PanelRightClose className="h-4 w-4" />
+                          ) : (
+                            <PanelRight className="h-4 w-4" />
+                          )}
+                        </button>
                       </div>
                     )}
                     <div
@@ -543,6 +532,11 @@ export function RoomLayout({
           </div>
         )}
       </div>
+      {/* 一起听歌词：非全屏时贴在播放器下方；全屏由 ListenTogetherLyrics 浮层接管 */}
+      {!isNativeFullscreen && !webFullscreen && (
+        <div ref={lyricsSlotRef} className="w-full" />
+      )}
+
       {/* 离开房间确认对话框（useRoomExitGuard 提供） */}
       {exitGuardModal}
     </>
