@@ -6,6 +6,7 @@ import { Camera, Loader2, RotateCcw, Sparkles } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
+import { useRightDockStore } from '@/store/rightDockStore'
 import type { RoomMode } from '@/store/roomStore'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
 import {
@@ -506,6 +507,20 @@ export function RoomLive2DHost({
   // 登录用户都能上传，拿它当条件等于「对观众显示角色」这个开关对除游客以外
   // 的所有人失效。
   const canShowLayer = isHost || isServerAdmin || policy.showToViewers
+
+  // 右下角入口竖列的顶边（距视口底部 px）：角色设置固定 bottom-84 + 48，
+  // 动捕预览再往上接一档（48 + 12 间距）。一起听时整列在左下角，不占右侧。
+  // 登记到 rightDockStore 供音乐浮球避让（两个组件各自 portal，无法靠父容器
+  // 的 gap 排开；写死偏移会随「有没有动捕预览」变化而错位）。
+  const live2dColumnTop =
+    mode === 'listen-together'
+      ? 0
+      : 84 + 48 + (canShowLayer && tracker ? 48 + 12 : 0)
+  const setLive2dTop = useRightDockStore((state) => state.setLive2dTop)
+  useEffect(() => {
+    setLive2dTop(live2dColumnTop)
+    return () => setLive2dTop(0)
+  }, [live2dColumnTop, setLive2dTop])
 
   // 「对观众显示角色」被关掉时，这一层以前是**静默消失**：观众看不到角色，
   // 也不知道是房主关的，只会以为功能坏了（尤其是刚进房就看到一片空白）。
