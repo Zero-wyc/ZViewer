@@ -12,6 +12,7 @@
     "Saturation and lightness",
     "Save",
     "Background blur (watch together / screen share)",
+    "Background opacity",
     "Upload from this device",
     "Codec",
     "Codec: {{codec}}",
@@ -84,6 +85,7 @@
     "Admin",
     "Administrator",
     "Black mask",
+    "Landscape",
     "Backend address saved, reloading the page to apply",
     "Huawei Cloud",
     "Brush",
@@ -109,7 +111,6 @@
     "Center",
     "Card blur",
     "Developer stats",
-    "In fullscreen, move the mouse to the far right to show comments",
     "Available tracks",
     "Source: {{sourceLabel}}",
     "e.g. example.com",
@@ -118,7 +119,6 @@
     "Browser transcoding (playsvideo)",
     "Leave blank",
     "Bitrate",
-    "Bitrate: {{bitrate}}",
-    "Stroke"
+    "Bitrate: {{bitrate}}"
   ]
 }

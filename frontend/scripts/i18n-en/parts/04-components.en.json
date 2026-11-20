@@ -1,5 +1,11 @@
 {
   "items": [
+    "CDN source",
+    "Hex color value",
+    "HTTP-FLV base address (leave blank to auto-detect)",
+    "https://.../sub.vtt or .srt/.ass",
+    "RTMP ingest port (leave blank to use the default 3334)",
+    "Video.js 10 (experimental)",
     "WebRTC screen sharing",
     "WebSocket / signalling address (leave blank to follow the domain above)"
   ]
