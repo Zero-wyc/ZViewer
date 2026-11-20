@@ -13,7 +13,7 @@
  *
  * 对外 props 契约与重构前完全一致（RoomPage / WatchPage 无需改动）。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Artplayer from 'artplayer'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import {
@@ -25,10 +25,19 @@ import { cn } from '@/lib/utils'
 import {
   isIOSDevice,
   supportsContainerFullscreen,
-  getFullscreenElement,
+  isElementFullscreen,
   exitFullscreen,
   requestFullscreen,
+  onFullscreenChange,
 } from '@/lib/fullscreen-utils'
+import { CommentPanel } from '@/components/CommentPanel'
+import {
+  CommentSplit,
+  useCommentSplit,
+  useCommentSplitOrientation,
+} from '@/components/CommentSplit'
+import { useSocket } from '@/hooks/useSocket'
+import { t } from '@/i18n'
 import { WatchTogetherCore } from './WatchTogetherCore'
 import { ViewerCliRequiredOverlay } from './ViewerCliRequiredOverlay'
 import type { ArtSlots } from './types'
@@ -91,6 +100,44 @@ export function WatchTogetherPanel({
   const [internalWebFullscreen, setInternalWebFullscreen] = useState(false)
   const isWebFullscreen = controlledWebFullscreen ?? internalWebFullscreen
 
+  // ── 全屏评论区二分屏（与共享画面观众端同一套 CommentSplit）─────
+  // 分屏比例、拖拽、点击画面收起、开合动画全部复用 CommentSplit；
+  // 分屏开关状态由控制栏「评论区」按钮 / 双击热键驱动，退全屏自动收起。
+  const { socket } = useSocket()
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false)
+  useEffect(
+    () =>
+      onFullscreenChange(() =>
+        setIsNativeFullscreen(Boolean(document.fullscreenElement))
+      ),
+    []
+  )
+  const commentSplit = useCommentSplit(isNativeFullscreen || isWebFullscreen)
+  const commentSplitOrientation = useCommentSplitOrientation()
+  const commentPanel = useMemo(
+    () => <CommentPanel socket={socket} roomId={roomId} commentsOnly />,
+    [socket, roomId]
+  )
+
+  // 点击画面收起的语义与共享画面观众端一致：
+  // 控制栏隐藏时第一次点画面只唤醒控制栏，不关分屏。
+  const barHiddenAtTapRef = useRef(false)
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return undefined
+    const handleTapStart = () => {
+      const bar = stage.querySelector('[data-player-control-bar]')
+      barHiddenAtTapRef.current =
+        !bar || bar.classList.contains('pointer-events-none')
+    }
+    stage.addEventListener('pointerdown', handleTapStart, true)
+    return () => stage.removeEventListener('pointerdown', handleTapStart, true)
+  }, [])
+  const handleVideoClickClose = useCallback(() => {
+    if (barHiddenAtTapRef.current) return
+    commentSplit.close()
+  }, [commentSplit])
+
   const exitWebFullscreen = useCallback(() => {
     if (controlledWebFullscreen) {
       controlledToggleWebFullscreen?.()
@@ -104,6 +151,11 @@ export function WatchTogetherPanel({
     if (!isWebFullscreen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // ESC 先退评论区，再退网页全屏
+        if (commentSplit.open) {
+          commentSplit.close()
+          return
+        }
         exitWebFullscreen()
       }
     }
@@ -111,7 +163,7 @@ export function WatchTogetherPanel({
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isWebFullscreen, exitWebFullscreen])
+  }, [isWebFullscreen, exitWebFullscreen, commentSplit.open, commentSplit.close])
 
   // 创建 ArtPlayer 实例（isHost 在房间会话期间不变，实例只创建一次）
   useEffect(() => {
@@ -211,7 +263,9 @@ export function WatchTogetherPanel({
           // 对 .zart-stage 容器全屏，让控制栏/弹幕层等 UI 在全屏下可见可操作
           const stage = stageRef.current
           if (!stage) return
-          if (getFullscreenElement()) {
+          // 仅舞台自身全屏时才退出；网页全屏（documentElement）下双击
+          // 应把播放器切进全屏，而不是退出整个网页全屏。
+          if (isElementFullscreen(stage)) {
             void exitFullscreen()
           } else {
             void requestFullscreen(stage).catch(() => {})
@@ -251,23 +305,38 @@ export function WatchTogetherPanel({
         isWebFullscreen ? { width: '100dvw', height: '100dvh' } : undefined
       }
     >
-      <div ref={containerRef} className="zart-video-container h-full w-full" />
-      {/* 观众端「仅允许CLI模式」未满足时的安装引导覆盖层（cliOnly 影片不回退服务器） */}
-      {!isHost && <ViewerCliRequiredOverlay />}
-      {ready && (
-        <WatchTogetherCore
-          roomId={roomId}
-          isHost={isHost}
-          art={ready.art}
-          video={ready.video}
-          videoRef={videoRef}
-          stageRef={stageRef}
-          slots={ready.slots}
-          isWebFullscreen={isWebFullscreen}
-          onToggleWebFullscreen={controlledToggleWebFullscreen}
-          initialPlayback={initialPlayback}
-        />
-      )}
+      <CommentSplit
+        active={commentSplit.active}
+        orientation={commentSplitOrientation}
+        ratio={commentSplit.ratio}
+        onRatioChange={commentSplit.setRatio}
+        comment={commentPanel}
+        commentLabel={t('评论区')}
+        onVideoClickClose={handleVideoClickClose}
+      >
+        {/* 播放器区域：全屏分屏打开时这块会被压缩，控制栏/弹幕层随之缩放 */}
+        <div className="relative h-full w-full">
+          <div ref={containerRef} className="zart-video-container h-full w-full" />
+          {/* 观众端「仅允许CLI模式」未满足时的安装引导覆盖层（cliOnly 影片不回退服务器） */}
+          {!isHost && <ViewerCliRequiredOverlay />}
+          {ready && (
+            <WatchTogetherCore
+              roomId={roomId}
+              isHost={isHost}
+              art={ready.art}
+              video={ready.video}
+              videoRef={videoRef}
+              stageRef={stageRef}
+              slots={ready.slots}
+              isWebFullscreen={isWebFullscreen}
+              onToggleWebFullscreen={controlledToggleWebFullscreen}
+              commentSplitOpen={commentSplit.active}
+              onToggleCommentSplit={commentSplit.toggle}
+              initialPlayback={initialPlayback}
+            />
+          )}
+        </div>
+      </CommentSplit>
     </div>
   )
 

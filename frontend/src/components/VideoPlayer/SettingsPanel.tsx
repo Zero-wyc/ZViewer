@@ -87,12 +87,9 @@ interface SettingsPanelProps {
   onDanmakuFilterChange?: (updates: Partial<DanmakuTypeFilters>) => void
   onDanmakuAdvancedChange?: (updates: Partial<DanmakuAdvancedStyle>) => void
   onResetDanmakuStyle?: () => void
-  /** 双击控制键打开全屏评论区侧边栏(提供时才显示该设置项) */
+  /** 双击控制键开/关全屏分屏评论区(提供时才显示该设置项) */
   commentDockHotkey?: CommentDockHotkey
   onCommentDockHotkeyChange?: (key: CommentDockHotkey) => void
-  /** 鼠标移到屏幕右缘自动唤出评论区侧边栏(提供时才显示该开关) */
-  commentDockEdgeHover?: boolean
-  onCommentDockEdgeHoverChange?: (enabled: boolean) => void
 }
 
 /**
@@ -138,8 +135,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
     onResetDanmakuStyle,
     commentDockHotkey,
     onCommentDockHotkeyChange,
-    commentDockEdgeHover,
-    onCommentDockEdgeHoverChange,
   } = props
 
   const [settingsTab, setSettingsTab] = useState<'subtitle' | 'danmaku'>(
@@ -263,33 +258,13 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 setFontPanelOpen((v) => !v)
               }}
             />
-            {/* 全屏右缘唤出开关 + 双击控制键键位(开关在上,键位在下) */}
+            {/* 全屏评论区:控制栏按钮切换,设置里仅保留双击快捷键 */}
             {onCommentDockHotkeyChange && (
               <div className="mt-2 border-t border-[var(--md-sys-color-outline-variant)] pt-2">
-                {onCommentDockEdgeHoverChange && (
-                  <div className="flex items-center justify-between">
-                    <span
-                      className="text-[11px] font-medium uppercase tracking-wide"
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    >
-                      {translate('开启全屏时鼠标移动至最右侧显示评论区')}
-                    </span>
-                    <Switch
-                      checked={commentDockEdgeHover ?? true}
-                      onChange={(e) =>
-                        onCommentDockEdgeHoverChange(e.target.checked)
-                      }
-                    />
-                  </div>
-                )}
-                <div className="mt-2 border-t border-[var(--md-sys-color-outline-variant)] pt-2">
-                  <CommentDockHotkeySetting
-                    value={commentDockHotkey ?? 'off'}
-                    onChange={onCommentDockHotkeyChange}
-                  />
-                </div>
+                <CommentDockHotkeySetting
+                  value={commentDockHotkey ?? 'off'}
+                  onChange={onCommentDockHotkeyChange}
+                />
               </div>
             )}
           </>
@@ -848,7 +823,7 @@ const COMMENT_DOCK_HOTKEY_OPTIONS: {
 
 /**
  * 「双击打开评论区」设置项(渲染在弹幕 Tab 高级设置延伸面板底部):
- * 选择一个控制键后,全屏播放时快速双击该键即可展开/收起右侧评论区侧边栏。
+ * 选择一个控制键后,全屏播放时快速双击该键即可展开/收起分屏评论区。
  */
 function CommentDockHotkeySetting({
   value,
@@ -876,7 +851,7 @@ function CommentDockHotkeySetting({
               title={
                 key === 'off'
                   ? translate('关闭双击快捷键')
-                  : translate('全屏播放时双击 {{label}} 开/关右侧评论区', {
+                  : translate('全屏播放时双击 {{label}} 开/关分屏评论区', {
                       label,
                     })
               }

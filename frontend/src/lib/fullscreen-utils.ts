@@ -62,6 +62,22 @@ export function getFullscreenElement(): Element | null {
   )
 }
 
+/**
+ * 判断某个元素（通常是播放器舞台）自身是否处于原生全屏。
+ *
+ * 右上角的「网页全屏」按钮会把 `documentElement` 整个全屏，此时
+ * getFullscreenElement() 同样非空，但播放器并没有真正全屏——若把它当成
+ * 播放器全屏处理，语音/音乐等浮层就会被 portal 进播放器内部（表现为
+ * 浮球"跳进"播放器）。这里显式排除 `documentElement`。
+ */
+export function isElementFullscreen(el: Element | null): boolean {
+  if (!el) return false
+  const fsEl = getFullscreenElement()
+  if (!fsEl) return false
+  if (fsEl === document.documentElement) return false
+  return fsEl === el || el.contains(fsEl)
+}
+
 /** 退出全屏（跨平台） */
 export function exitFullscreen(): Promise<void> {
   if (typeof document === 'undefined') return Promise.resolve()
