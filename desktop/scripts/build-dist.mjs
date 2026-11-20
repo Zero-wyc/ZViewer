@@ -57,6 +57,38 @@ mkdirSync(runtime, { recursive: true });
 mkdirSync(join(distribution, 'assets'), { recursive: true });
 copyFileSync(join(runtimeSource, 'zviewer-backend.exe'), join(runtime, 'zviewer-backend.exe'));
 cpSync(join(runtimeSource, 'frontend', 'dist'), join(runtime, 'frontend', 'dist'), { recursive: true });
+// 爬虫引擎（Python 标准库、零第三方依赖）随包放在 runtime/crawler：
+// 壳按 ZVIEWER_CRAWLER_ROOT 或 runtime/crawler 查找（见 shell_crawler.go）。
+// 只带引擎源码与 README——本地 config.json（含 API Key）、规则、账号、
+// 登录 Cookie、搜索日志与浏览器 profile 一律不进分发包。
+// crawler/ 由爬虫功能簇的 PR 提供；该 PR 未合入时跳过，不影响其它打包流程。
+const crawlerSource = join(repo, 'crawler');
+if (existsSync(join(crawlerSource, 'engine', '__main__.py'))) {
+  const crawlerTarget = join(runtime, 'crawler');
+  cpSync(join(crawlerSource, 'engine'), join(crawlerTarget, 'engine'), {
+    recursive: true,
+    filter: (src) => {
+      const rel = relative(join(crawlerSource, 'engine'), src).replace(/\\/g, '/');
+      if (!rel) return true;
+      if (rel === '__pycache__' || rel.startsWith('__pycache__/')) return false;
+      if (rel === 'tests' || rel.startsWith('tests/')) return false;
+      if (rel.endsWith('.pyc') || rel.endsWith('.pyo')) return false;
+      return true;
+    },
+  });
+  const crawlerReadme = join(crawlerSource, 'README.md');
+  if (existsSync(crawlerReadme)) copyFileSync(crawlerReadme, join(crawlerTarget, 'README.md'));
+} else {
+  console.warn('[build-dist] 未找到 crawler/engine，分发包不含爬虫引擎');
+}
+// 内置 Python 与 Node.js：爬虫引擎（Python）与脚本规则（Node 沙箱）随包即用，
+// 用户机器不需要另外安装。存在才复制：发行流水线把 embeddable Python 与 node.exe
+// 放进运行包（dist/win/python、dist/win/node）后，这里自动带上。
+for (const [name, exeName] of [['python', 'python.exe'], ['node', 'node.exe']]) {
+  const source = join(runtimeSource, name);
+  if (existsSync(join(source, exeName))) cpSync(source, join(runtime, name), { recursive: true });
+  else console.warn(`[build-dist] 运行包里没有内置 ${name}（${exeName}），爬虫引擎将回退到系统解释器`);
+}
 // 音乐不需要随包组件：网易云接口由 Go 后端自带（internal/ncm）。
 // Cloudflare（cloudflared）、EasyTier 与 FRP（frpc）都不随包分发：它们在 ZviewerRelease 的
 // components 分支（组件库），GUI 第一次用到时按 GitCode 直链下载（controller/components.go）。

@@ -215,6 +215,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerKazumiRoutes(mux)
 	s.registerDanmakuRoutes(mux)
 	s.registerMusicRoutes(mux)
+	// 桌面壳（Windows 控制台）：能力探测 + 评论独立窗拉起。
+	s.registerDesktopWindowRoutes(mux)
 	s.registerUpdaterRoutes(mux)
 	// 前端产物版本探测：页面加载后比对入口脚本名，产物更新时提示刷新。
 	s.registerWebVersionRoutes(mux)

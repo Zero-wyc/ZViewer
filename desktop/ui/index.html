@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-src http://127.0.0.1:*; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-src http://127.0.0.1:* http://localhost:* https:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>ZViewer · Windows 控制台</title>
   <link rel="icon" href="app-icon.png" type="image/png">
   <link rel="stylesheet" href="tokens.css">
@@ -13,6 +13,7 @@
   <script src="bridge.js"></script>
   <script src="select.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="crawler_ui.js" defer></script>
   <script src="live.js" defer></script>
 </head>
 <body>
@@ -35,6 +36,7 @@
     <nav aria-label="主导航">
       <a href="#overview" data-page="overview"><span data-icon="grid"></span><span class="nav-label">服务总览</span></a>
       <a href="#connect" data-page="connect"><span data-icon="link"></span><span class="nav-label">连接方式</span></a>
+      <a href="#web" data-page="web"><span data-icon="globe"></span><span class="nav-label">网页端</span></a>
       <a href="#cli" data-page="cli"><span data-icon="watch"></span><span class="nav-label">高画质代理</span></a>
       <a href="#logs" data-page="logs"><span data-icon="terminal"></span><span class="nav-label">运行日志</span></a>
     </nav>
@@ -42,6 +44,7 @@
     <nav aria-label="高级功能">
       <a href="#mesh" data-page="mesh"><span data-icon="mesh"></span><span class="nav-label">EasyTier 虚拟组网</span></a>
       <a href="#frp" data-page="frp"><span data-icon="network"></span><span class="nav-label">FRP 穿透</span></a>
+      <a href="#crawler" data-page="crawler"><span data-icon="globe"></span><span class="nav-label">爬虫引擎</span></a>
       <a href="#cert" data-page="cert"><span data-icon="shield"></span><span class="nav-label">证书与域名</span></a>
     </nav>
     <div class="sidebar-bottom">
@@ -58,7 +61,7 @@
         <button id="theme-button" class="toolbar-button icon-only" aria-label="切换主题" title="主题：跟随系统"><span class="icon-glyph">&#xE706;</span></button>
       </div>
     </header>
-    <main id="main" tabindex="-1"><div id="page-view"></div><div id="cli-view" hidden></div></main>
+    <main id="main" tabindex="-1"><div id="page-view"></div><div id="cli-view" hidden></div><div id="web-view" hidden></div></main>
     <footer class="statusbar"><span><i class="status-dot"></i><span id="footer-status">本地界面预览</span></span><span>演示状态<span class="footer-separator">/</span>界面版本 0.1.0</span></footer>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
