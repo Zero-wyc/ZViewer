@@ -371,7 +371,7 @@ export function PlayerChrome({
                 {showCommentSheetButton && (
                   <IconButton
                     icon={<MessageSquare />}
-                    label={t('查看全部评论')}
+                    label={t('查看评论')}
                     onClick={onOpenCommentSheet}
                   />
                 )}
