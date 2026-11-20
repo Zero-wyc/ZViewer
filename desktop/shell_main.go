@@ -153,6 +153,12 @@ func main() {
 		fatalDialog("ZViewer 启动失败", err.Error())
 		return
 	}
+	// 独立评论窗口模式：同一个 exe 由后端以 --comments-window-url 拉起，
+	// 只渲染评论窗口，不启动后端、不写进程监管助手、不抢单实例锁。
+	if pageURL := argValue("comments-window-url"); pageURL != "" {
+		runCommentsWindow(stateDir, pageURL)
+		return
+	}
 	helper := filepath.Join(stateDir, "windows-process.ps1")
 	if err := os.WriteFile(helper, []byte(processHelperScript), 0o600); err != nil {
 		fatalDialog("ZViewer 启动失败", "无法写入进程监管助手："+err.Error())
@@ -170,6 +176,7 @@ func main() {
 		cli:      companion(root, exeDir, "zviewer-cli-windows-amd64.exe", []string{"zviewer-cli", "zviewer-cli-windows-amd64.exe"}),
 		hostExe:  resolveHostExe(exeDir, root),
 		packaged: packagedInstall(exeDir),
+		crawler:  newCrawlerBridge(exeDir, root),
 	}
 	if err := app.bootstrap(); err != nil {
 		fatalDialog("ZViewer 配置读取失败", err.Error()+"\n配置目录："+stateDir)

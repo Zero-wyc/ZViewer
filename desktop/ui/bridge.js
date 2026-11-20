@@ -29,6 +29,7 @@
     openDocs: () => call('OpenDocs'),
     onNavigate: callback => on('navigate', callback),
     onUpdate: callback => on('desktop-update', callback),
+    onCrawlerChallenge: callback => on('crawler-challenge', callback),
     demoState: () => Promise.resolve(),
     closeBehavior: () => {}
   };

@@ -8,7 +8,7 @@
 //   node scripts/build-shell.mjs --console      保留控制台窗口，便于观察 panic
 //   node scripts/build-shell.mjs --rebuild-host 强制重新编译 ProcessHost.exe
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, basename, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SHELL_EXE_NAME } from './shell-entry.mjs';
@@ -23,6 +23,9 @@ const hostExe = join(root, 'assets', 'ZViewer.ProcessHost.exe');
 const iconSource = join(root, 'assets', 'app.ico');
 // Go 链接器会自动合并主包目录下的 *.syso，EXE 的图标与版本资源都来自它。
 const iconResource = join(root, 'rsrc_windows_amd64.syso');
+// 规则文档：构建时把最新 crawler/docs/engine.md 同步成 EXE 内置副本（分享包可能不带 docs）。
+const crawlerDocs = join(root, '..', 'crawler', 'docs', 'engine.md');
+if (existsSync(crawlerDocs)) copyFileSync(crawlerDocs, join(root, 'assets', 'crawler-engine.md'));
 
 function hostUpToDate() {
   if (!existsSync(hostExe)) return false;
