@@ -1,10 +1,5 @@
 {
   "items": [
-    "The browser does not support {{value}} audio; the media server transcoded it to AAC",
-    "The browser does not support {{value}} audio and the browser transcoding engine is off, so playback will have no sound; enable it in the movie's resolution settings and retry",
-    "Audio",
-    "Concealed {{value}}",
-    "Hide the control bar",
     "Movie list",
     "Movie list ({{length}})",
     "Movie deleted",
@@ -16,7 +11,6 @@
     "Managed by the host",
     "Guests can only watch and cannot be made host",
     "Guest{{suffix}}",
-    "Guests are controlled only by the master switch above",
     "A viewer is asking to join the room (",
     "Voice chat",
     "Failed to load the preview source",
