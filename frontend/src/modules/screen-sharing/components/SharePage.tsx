@@ -20,7 +20,6 @@ import { message } from '@/components/ui/message'
 import { RequestNotification } from '@/components/ui/RequestNotification'
 import type { RequestNotificationItem } from '@/components/ui/RequestNotification'
 import { useShareMethod } from '../hooks/useShareMethod'
-import { useStreamStatus } from '../hooks/useStreamStatus'
 import WebrtcSharePage from './WebrtcSharePage'
 import type { ShareEdgeStats } from '../core/edge-stats'
 import { StreamPushPage } from './StreamPushPage'
@@ -49,7 +48,6 @@ function SharePage({
   const currentRoomId = roomId ?? ''
 
   // 推流子模式状态（房主端独有）
-  const streamStatus = useStreamStatus(socket, currentRoomId)
   const { shareMethod, updateShareMethod } = useShareMethod(
     socket,
     currentRoomId,
@@ -59,18 +57,20 @@ function SharePage({
   const handleShareMethodChange = useCallback(
     (value: string) => {
       if (value === shareMethod) return
-      // 切换到 webrtc 前提示先停止 OBS 推流
-      if (value === 'webrtc' && streamStatus === 'live') {
-        message.warning(t('请先在 OBS 中停止推流再切换到 WebRTC 共享'))
-        return
-      }
+      const previous = shareMethod
+      // 不再要求房主先手动停止 OBS：后端切换子模式时会直接断开推流端，
+      // 这里只负责在切走 OBS 推流后告诉房主「OBS 已经停了」。
       void updateShareMethod(value as 'webrtc' | 'stream-push').then((res) => {
         if (!res.success) {
           message.error(res.message ?? t('切换子模式失败'))
+          return
+        }
+        if (previous === 'stream-push' && value === 'webrtc') {
+          message.success(t('已切换为 WebRTC 共享，OBS 推流已断开'))
         }
       })
     },
-    [shareMethod, streamStatus, updateShareMethod]
+    [shareMethod, updateShareMethod]
   )
 
   // 观众加入审批（两种子模式共用）

@@ -95,6 +95,15 @@ export function useControlBarAutoHide(
   // 本次触摸是否起始于播放器内部：只有播放器内的触摸松手后才开始隐藏计时，
   // 触摸评论区等播放器以外的区域不应刷新控制栏的存活时间。
   const stagePointerActiveRef = useRef(false)
+  // 判定回调走 ref：调用方常常内联箭头函数（每次渲染都是新引用），若把它放进
+  // effect 依赖，播放状态/统计等高频更新会不停重启 effect，把空闲隐藏计时器
+  // 一起清掉——控制栏就永远收不起来（WebRTC 观众端曾因此一直常显）。
+  const resolveInteractionRef = useRef(resolveInteraction)
+  const onBlockedInteractionRef = useRef(onBlockedInteraction)
+  // eslint-disable-next-line react-hooks/refs -- 事件回调里始终要读最新的判定逻辑
+  resolveInteractionRef.current = resolveInteraction
+  // eslint-disable-next-line react-hooks/refs -- 同上
+  onBlockedInteractionRef.current = onBlockedInteraction
 
   useEffect(() => {
     /** 同时更新 state 与 ref：同一次事件里后续逻辑要读到最新可见性 */
@@ -141,9 +150,10 @@ export function useControlBarAutoHide(
       target: EventTarget | null,
       kind: ControlBarInteractionKind
     ): ControlBarInteraction => {
-      if (!resolveInteraction) return 'normal'
+      const resolve = resolveInteractionRef.current
+      if (!resolve) return 'normal'
       try {
-        return resolveInteraction(target, kind)
+        return resolve(target, kind)
       } catch {
         return 'normal'
       }
@@ -158,7 +168,7 @@ export function useControlBarAutoHide(
       }
       clearIdleTimer()
       setVisible(false)
-      if (mode === 'swallow') onBlockedInteraction?.()
+      if (mode === 'swallow') onBlockedInteractionRef.current?.()
     }
 
     /** 点播放器画面：切换控制栏显隐 */
@@ -336,15 +346,7 @@ export function useControlBarAutoHide(
       stage.removeEventListener('touchcancel', handleTouchEnd)
       clearIdleTimer()
     }
-  }, [
-    stageRef,
-    isMobile,
-    desktopDelay,
-    mobileDelay,
-    disabled,
-    resolveInteraction,
-    onBlockedInteraction,
-  ])
+  }, [stageRef, isMobile, desktopDelay, mobileDelay, disabled])
 
   return controlBarVisible
 }

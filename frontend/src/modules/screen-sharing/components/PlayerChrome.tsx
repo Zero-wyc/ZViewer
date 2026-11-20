@@ -102,6 +102,17 @@ interface PlayerChromeProps {
   extraControls?: ReactNode
   /** 额外的状态标签（渲染在第二行，例如 WebRTC 连接状态与分辨率） */
   extraStatus?: ReactNode
+  /**
+   * 控制栏上方的浮动面板（例如观众端批注工具）。
+   * 由 PlayerChrome 负责定位在控制栏正上方，并跟随控制栏一起显示/隐藏：
+   * 控制栏收起时面板淡出并让位给画面，重新唤出控制栏时一起回来。
+   */
+  barPopover?: ReactNode
+  /**
+   * 浮动面板的水平对齐：默认贴控制栏右端；横屏矮窗的横排批注条改成居中，
+   * 免得被右下角的悬浮球（一起听 / 语音 / 角色设置）压住按钮。
+   */
+  barPopoverAlign?: 'right' | 'center'
   /** 全屏浮层宿主 owner（语音/音乐悬浮球 portal 的归属） */
   overlayOwner: string
 }
@@ -122,6 +133,8 @@ function resolveInteraction(
 ): ControlBarInteraction {
   const el = target instanceof Element ? target : null
   if (el?.closest('.vc-container')) return 'normal'
+  // 批注画布正在接收指针时不算「点播放器」：画一笔不该把控制栏和批注工具一起收掉
+  if (el?.closest('[data-annotation-canvas]')) return 'normal'
   if (
     el?.closest(
       '[data-comment-split-pane], [data-split-ignore-click], [data-comment-split] [role="separator"]'
@@ -161,6 +174,8 @@ export function PlayerChrome({
   canOpenCommentSheet = false,
   extraControls,
   extraStatus,
+  barPopover,
+  barPopoverAlign = 'right',
   overlayOwner,
 }: PlayerChromeProps) {
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -208,15 +223,23 @@ export function PlayerChrome({
     commentSplit.close()
   }, [commentSplit])
 
-  const controlBarVisible = useControlBarAutoHide(stageRef, {
-    disabled: loading || Boolean(errorMsg),
-    resolveInteraction: (target, kind) =>
+  // 用 useCallback 固定判定函数：hook 的 effect 依赖它，若每次渲染都换新引用，
+  // 播放状态/统计等高频更新会不停重启 effect，把「空闲自动收起」的计时器一起
+  // 重置，控制栏（以及跟着它的浮动面板）就永远收不起来。
+  const resolveInteractionCb = useCallback(
+    (target: EventTarget | null, kind: ControlBarInteractionKind) =>
       resolveInteraction(
         target,
         kind,
         splitActive,
         controlBarVisibleRef.current
       ),
+    [splitActive]
+  )
+
+  const controlBarVisible = useControlBarAutoHide(stageRef, {
+    disabled: loading || Boolean(errorMsg),
+    resolveInteraction: resolveInteractionCb,
     onBlockedInteraction: handleBlockedStageInteraction,
   })
   // 提交后同步：事件回调与捕获阶段读到的必须是最新值。布局阶段写入可保证
@@ -336,6 +359,21 @@ export function PlayerChrome({
               !controlBarVisible && 'pointer-events-none'
             )}
           >
+            {barPopover && (
+              <div
+                className={cn(
+                  'absolute inset-x-0 bottom-full z-30 mb-2 flex transition-all duration-200 ease-out',
+                  barPopoverAlign === 'center'
+                    ? 'justify-center'
+                    : 'justify-end pr-2',
+                  controlBarVisible
+                    ? 'translate-y-0 opacity-100'
+                    : 'pointer-events-none translate-y-2 opacity-0'
+                )}
+              >
+                <div className="pointer-events-auto">{barPopover}</div>
+              </div>
+            )}
             <div
               className={cn(
                 'glass-strong rounded-xl px-2.5 py-2 shadow-lg',

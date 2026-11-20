@@ -33,6 +33,7 @@ import { CommentPanel } from '@/components/CommentPanel'
 import { CommentListSheet } from '@/components/CommentListSheet'
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
+import { useIsLandscapeShort } from '@/hooks/useMediaQuery'
 import { useSocket } from '@/hooks/useSocket'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { usePiikShareViewer } from '@/modules/piik-share/usePiikShareViewer'
@@ -126,6 +127,9 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   const [annotationColor, setAnnotationColor] = useState('#f76f53')
   const [annotationWidth, setAnnotationWidth] = useState(3)
   const [showAnnotationToolbar, setShowAnnotationToolbar] = useState(false)
+  // 横屏矮窗（手机横屏 / 网页全屏横屏）里批注工具改成横排，避免竖向面板
+  // 从控制栏一直顶到画面上沿
+  const landscapeShort = useIsLandscapeShort()
   const annotationRef = useRef<{ clear: () => void }>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
   // 手机竖屏非全屏：控制栏「查看全部评论」弹出大评论列表
@@ -426,6 +430,24 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       extraControls={extraControls}
       extraStatus={extraStatus}
       overlayOwner="webrtc-watch"
+      // 批注面板贴着控制栏上沿，和控制栏一起显隐：收起控制栏时让位给画面，
+      // 轻点画面唤回控制栏时面板一起回来（批注本身仍然保持激活，可以直接画）。
+      barPopoverAlign={landscapeShort ? 'center' : 'right'}
+      barPopover={
+        showAnnotationToolbar ? (
+          <AnnotationToolbar
+            compact={landscapeShort}
+            tool={annotationTool}
+            color={annotationColor}
+            width={annotationWidth}
+            onToolChange={setAnnotationTool}
+            onColorChange={setAnnotationColor}
+            onWidthChange={setAnnotationWidth}
+            onClear={() => annotationRef.current?.clear()}
+            canClear
+          />
+        ) : undefined
+      }
       overlay={
         <>
           {/* 画面还在（最后一帧会一直停着），所以 statusTip 不显示；不给提示的话
@@ -472,20 +494,6 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         color={annotationColor}
         width={annotationWidth}
       />
-      {showAnnotationToolbar && (
-        <div className="absolute bottom-20 right-3 z-30 max-w-[220px]">
-          <AnnotationToolbar
-            tool={annotationTool}
-            color={annotationColor}
-            width={annotationWidth}
-            onToolChange={setAnnotationTool}
-            onColorChange={setAnnotationColor}
-            onWidthChange={setAnnotationWidth}
-            onClear={() => annotationRef.current?.clear()}
-            canClear
-          />
-        </div>
-      )}
     </PlayerChrome>
   )
 
