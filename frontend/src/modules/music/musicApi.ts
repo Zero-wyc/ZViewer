@@ -61,7 +61,7 @@ function requestOptions(
 ) {
   // These optional-auth endpoints can return the upstream account's 401/403.
   // Such an error must never refresh or clear the ZViewer session.
-  const upstream = /\/api\/music\/(ncm\/|stream[?]|song-quality[?])/.test(
+  const upstream = /\/api\/music\/(ncm\/|users\/|stream[?]|song-quality[?])/.test(
     String(url)
   )
   return upstream ? { ...options, _retried: true } : options

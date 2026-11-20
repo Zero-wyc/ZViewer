@@ -6,6 +6,10 @@
  * - screen-share + stream-push → StreamPushViewer（OBS 推流拉流）
  * - screen-share + webrtc → WebrtcWatchPage（WebRTC 接收）
  *
+ *
+ * 一起听已独立为悬浮面板（见 RoomPage 的 MusicPlayerProvider +
+ * MusicControlPanel），不再占用房间模式；旧房间的 listen-together 记录
+ * 按一起看分发（兼容历史数据）。
  * 分发器职责：
  * 1. 加入房间流程（useJoinRoom）
  * 2. 子模式状态订阅（useStreamStatus / useShareMethod）
@@ -32,7 +36,6 @@ import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
-import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
 import { useRoomMoviePermission } from '@/modules/room/hooks/useRoomMoviePermission'
 import { canRequestMovie } from '@/store/moviePermission'
 import { useJoinRoom } from '../hooks/useJoinRoom'
@@ -77,6 +80,10 @@ function WatchPage() {
     autoJoin: !(fromList && listHasPassword),
   })
 
+  // 一起听不再作为房间模式：历史房间的 listen-together 归入一起看路径，
+  // 避免升级后旧房间打不开。
+  const effectiveMode = roomMode === 'listen-together' ? 'watch-together' : roomMode
+
   // 2. 推流子模式状态（仅 screen-share + stream-push 时使用）
   const streamStatus = useStreamStatus(socket, roomId ?? '')
   const { shareMethod } = useShareMethod(socket, roomId ?? '', false)
@@ -87,7 +94,6 @@ function WatchPage() {
   const currentUserId = useAuthStore((state) => state.user?.id)
   const role = useAuthStore((state) => state.user?.role)
   const matrix = useSystemSettingsStore((state) => state.roomPermissionMatrix)
-  const username = useAuthStore((state) => state.user?.username)
   // 房管观众：可管理影片与成员（含语音）。登录用户按 userId、游客按 socketId。
   const isModerator =
     (currentUserId != null && moderators.includes(Number(currentUserId))) ||
@@ -106,7 +112,6 @@ function WatchPage() {
       canManageMovie,
       userId: currentUserId == null ? 0 : Number(currentUserId),
     })
-  const canManageQueue = canRoomViewerPerform(matrix, 'musicQueue', movieOpts)
 
   // 切换影片时强制整个播放器重挂载（与房主端一致，跨引擎切换彻底清理）
   const playerRemountKey = usePlayerRemountKey()
@@ -114,7 +119,7 @@ function WatchPage() {
   // 一起听底板无返回按钮：退出入口由悬浮的全局 Header（横条触发显示）承担
 
   // 3.1 已加入且 roomMode === 'watch-together'：观众使用与房主统一的 RoomLayout
-  if (joinStatus === 'approved' && roomMode === 'watch-together') {
+  if (joinStatus === 'approved' && effectiveMode === 'watch-together') {
     return (
       <RoomLayout
         isHost={false}
@@ -151,35 +156,10 @@ function WatchPage() {
     )
   }
 
-  // 3.1b 已加入且 roomMode === 'listen-together'：一起听（默认可用，无需 Beta 开关）
-  if (joinStatus === 'approved' && roomMode === 'listen-together') {
-    return (
-      // 一起听：Hydrogen 应用框架作为整页底板，不再套 RoomLayout 外框；
-      // Provider 包裹底板与完整播放器覆盖层，共享同一音频引擎
-      <MusicPlayerProvider
-        socket={socket}
-        roomId={roomId}
-        isHost={false}
-        username={username}
-      >
-        <MusicAppShell
-          socket={socket}
-          roomId={roomId ?? ''}
-          isHost={false}
-          username={username}
-          // 有队列管理权限的观众可添加/删除歌曲，其他观众仅浏览
-          canManage={canManageQueue}
-          // 观众：账户菜单内只读展示当前房间模式（切换由房主控制）
-          roomModeMenu={{ isHost: false }}
-        />
-      </MusicPlayerProvider>
-    )
-  }
-
   // 3.2 已加入且 roomMode === 'screen-share' + stream-push：OBS 推流拉流
   if (
     joinStatus === 'approved' &&
-    roomMode === 'screen-share' &&
+    effectiveMode === 'screen-share' &&
     shareMethod === 'stream-push'
   ) {
     return (
@@ -194,7 +174,7 @@ function WatchPage() {
   // 3.3 已加入且 roomMode === 'screen-share' + webrtc：WebRTC 接收
   if (
     joinStatus === 'approved' &&
-    roomMode === 'screen-share' &&
+    effectiveMode === 'screen-share' &&
     shareMethod === 'webrtc'
   ) {
     return <WebrtcWatchPage roomId={roomId ?? ''} />

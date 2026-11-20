@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { musicCoverUrl, portableMusicCoverUrl } from './utils/neteaseImage'
-import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
+import type {
+  MusicQueueItem,
+  PlayMode,
+  NcmLoginStatus,
+  MusicPermission,
+} from './types'
+import { DEFAULT_MUSIC_PERMISSION } from './utils/musicPermission'
 import {
   useMusicSettingsStore,
   normalizeDefaultSourcePage,
@@ -64,6 +70,18 @@ function loadInitialPage(): MusicPage {
     // ignore：隐私模式等场景读取失败
   }
   return defaultMusicPage()
+}
+
+/** 本地收听开关持久化 key（与音量相互独立，关掉不改音量） */
+const LISTENING_STORAGE_KEY = 'zc-music-listening'
+
+/** 读取持久化的本地收听开关（默认 true = 收听） */
+function loadPersistedListening(): boolean {
+  try {
+    return localStorage.getItem(LISTENING_STORAGE_KEY) !== '0'
+  } catch {
+    return true
+  }
 }
 
 /** 观众同步回执（房主端左下角「xx 已同步」提示条目） */
@@ -142,6 +160,13 @@ export interface MusicState {
   hostOffline: boolean
   /** 网易云登录状态 */
   loginStatus: NcmLoginStatus
+  /** 房间点歌权限（房主可在面板里修改；后端 music:get-state / 广播同步） */
+  permission: MusicPermission
+  /**
+   * 本地「收听」开关（关掉后本地静音，但播放同步照常推进）。
+   * 与 volume 相互独立：关掉不会改动用户音量，重新打开即恢复原音量。
+   */
+  listening: boolean
   /** 播放器左上角提示文字（自动消失逻辑放组件） */
   syncNotice: string | null
   /**
@@ -201,6 +226,10 @@ export interface MusicState {
   setHostOffline: (offline: boolean) => void
   /** 设置网易云登录状态 */
   setLoginStatus: (status: NcmLoginStatus) => void
+  /** 设置房间点歌权限（权限变更广播 / get-state 回包） */
+  setPermission: (permission: MusicPermission) => void
+  /** 设置本地收听开关（持久化到 localStorage） */
+  setListening: (listening: boolean) => void
   /** 设置播放器提示文字（null 清除；kind 标记是否为待审批申请） */
   setSyncNotice: (notice: string | null, kind?: 'info' | 'approval') => void
   /** 追加一条观众同步回执（房主端；超出上限丢弃最旧的） */
@@ -255,6 +284,8 @@ const defaultState = {
   playMode: 'order' as PlayMode,
   hostOffline: false,
   loginStatus: { loggedIn: false } as NcmLoginStatus,
+  permission: { ...DEFAULT_MUSIC_PERMISSION },
+  listening: loadPersistedListening(),
   syncNotice: null as string | null,
   syncNoticeKind: 'info' as 'info' | 'approval',
   syncAcks: [] as MusicSyncAck[],
@@ -294,6 +325,15 @@ export const useMusicStore = create<MusicState>((set) => ({
   setPlayMode: (mode) => set({ playMode: mode }),
   setHostOffline: (offline) => set({ hostOffline: offline }),
   setLoginStatus: (status) => set({ loginStatus: status }),
+  setPermission: (permission) => set({ permission }),
+  setListening: (listening) => {
+    set({ listening })
+    try {
+      localStorage.setItem(LISTENING_STORAGE_KEY, listening ? '1' : '0')
+    } catch {
+      // ignore：隐私模式等场景写入失败可忽略
+    }
+  },
   setSyncNotice: (notice, kind) =>
     set({
       syncNotice: notice,
@@ -368,5 +408,8 @@ export const useMusicStore = create<MusicState>((set) => ({
       syncAcks: [],
       biliItem: null,
       biliRecommendedKeys: [],
+      // 点歌权限属于房间级设置：离开房间必须复位，避免把上一个房间的
+      // 白名单/黑名单带进新房间
+      permission: { ...DEFAULT_MUSIC_PERMISSION },
     }),
 }))

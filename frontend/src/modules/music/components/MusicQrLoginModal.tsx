@@ -18,6 +18,11 @@ import { t } from '@/i18n'
 export interface MusicQrLoginModalProps {
   /** 关闭弹窗（登录成功 / 用户点关闭时回调） */
   onClose: () => void
+  /**
+   * portal 目标容器。默认 document.body；播放器全屏时由调用方传入
+   * 舞台内的宿主节点，否则弹窗渲染在全屏元素子树之外 → 看不到。
+   */
+  container?: HTMLElement | null
 }
 
 /** 扫码状态文案 */
@@ -29,7 +34,10 @@ const QR_STATUS_TEXT: Record<string, string> = {
   error: '二维码生成失败，请重试',
 }
 
-export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
+export function MusicQrLoginModal({
+  onClose,
+  container,
+}: MusicQrLoginModalProps) {
   const {
     qrImg,
     status,
@@ -62,11 +70,15 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
     <>
       {/* 透明捕获层：点击外部关闭（不遮挡视觉） */}
       <div
+        data-music-ui="modal"
         className="fixed inset-0 z-[998]"
         onClick={handleClose}
         aria-hidden="true"
       />
-      <div className="fixed left-1/2 top-16 z-[999] -translate-x-1/2">
+      <div
+        data-music-ui="modal"
+        className="fixed left-1/2 top-16 z-[999] -translate-x-1/2"
+      >
         <div
           className={cn(
             'glass-strong flex w-72 flex-col items-center gap-4',
@@ -160,6 +172,6 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
         </div>
       </div>
     </>,
-    document.body
+    container ?? document.body
   )
 }
