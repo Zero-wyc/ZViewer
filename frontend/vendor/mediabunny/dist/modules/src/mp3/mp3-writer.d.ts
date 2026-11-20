@@ -16,15 +16,20 @@ export type XingFrameData = {
     copyright: number;
     original: number;
     emphasis: number;
+    targetBitrate: number | null;
+    isCbr: boolean;
     frameCount: number | null;
     fileSize: number | null;
     toc: Uint8Array | null;
+    encoderDelayInSamples: number | null;
 };
 export declare class Mp3Writer {
     private writer;
     private helper;
     private helperView;
+    private crc;
     constructor(writer: Writer);
+    private writeAndUpdateCrc;
     writeU32(value: number): void;
     writeXingFrame(data: XingFrameData): void;
 }

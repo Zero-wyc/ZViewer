@@ -8,18 +8,48 @@
 import { Bitstream } from './bitstream.js';
 export type AacAudioSpecificConfig = {
     objectType: number;
+    coreObjectType: number;
     frequencyIndex: number;
-    sampleRate: number | null;
     channelConfiguration: number;
-    numberOfChannels: number | null;
+    coreSampleRate: number | null;
+    outputSampleRate: number | null;
+    outputNumberOfChannels: number | null;
+    frameLength: number;
+    programConfigElement: AacProgramConfigElement | null;
+};
+export type AacProgramConfigElement = {
+    elementInstanceTag: number;
+    objectType: number;
+    samplingFrequencyIndex: number;
+    frontElements: AacPceChannelElement[];
+    sideElements: AacPceChannelElement[];
+    backElements: AacPceChannelElement[];
+    lfeElementTags: number[];
+    assocDataElementTags: number[];
+    ccElements: {
+        isIndependentlySwitched: boolean;
+        tagSelect: number;
+    }[];
+    monoMixdownElementNumber: number | null;
+    stereoMixdownElementNumber: number | null;
+    matrixMixdown: {
+        index: number;
+        pseudoSurroundEnabled: boolean;
+    } | null;
+    comment: Uint8Array;
+};
+type AacPceChannelElement = {
+    isCpe: boolean;
+    tagSelect: number;
 };
 export declare const aacFrequencyTable: number[];
 export declare const aacChannelMap: number[];
 export declare const parseAacAudioSpecificConfig: (bytes: Uint8Array | null) => AacAudioSpecificConfig;
 export declare const buildAacAudioSpecificConfig: (config: {
     objectType: number;
-    sampleRate: number;
-    numberOfChannels: number;
+    outputSampleRate: number;
+    outputNumberOfChannels: number;
+    programConfigElement: AacProgramConfigElement | null;
 }) => Uint8Array<ArrayBuffer>;
 export type AdtsHeaderTemplate = {
     header: Uint8Array;
@@ -27,4 +57,10 @@ export type AdtsHeaderTemplate = {
 };
 export declare const buildAdtsHeaderTemplate: (config: AacAudioSpecificConfig) => AdtsHeaderTemplate;
 export declare const writeAdtsFrameLength: (bitstream: Bitstream, frameLength: number) => void;
+export declare const readAdtsProgramConfigElement: (rawDataBlock: Uint8Array) => {
+    programConfigElement: AacProgramConfigElement;
+    size: number;
+} | null;
+export declare const getAacProgramConfigElementChannelCount: (pce: AacProgramConfigElement) => number;
+export {};
 //# sourceMappingURL=aac-misc.d.ts.map

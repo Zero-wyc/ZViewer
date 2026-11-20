@@ -18,12 +18,18 @@ export class AdtsMuxer extends Muxer {
         this.headerBitstream = null;
         this.inputIsAdts = null;
         this.format = format;
-        this.writer = output._writer;
     }
     async start() {
-        if (!metadataTagsAreEmpty(this.output._metadataTags)) {
-            const id3Writer = new Id3V2Writer(this.writer);
-            id3Writer.writeId3V2Tag(this.output._metadataTags);
+        const release = await this.mutex.acquire();
+        try {
+            this.writer = await this.output._getRootWriter(true);
+            if (!metadataTagsAreEmpty(this.output._metadataTags)) {
+                const id3Writer = new Id3V2Writer(this.writer);
+                id3Writer.writeId3V2Tag(this.output._metadataTags);
+            }
+        }
+        finally {
+            release();
         }
     }
     async getMimeType() {
@@ -35,19 +41,19 @@ export class AdtsMuxer extends Muxer {
     async addEncodedAudioPacket(track, packet, meta) {
         const release = await this.mutex.acquire();
         try {
-            this.validateAndNormalizeTimestamp(track, packet.timestamp, packet.type === 'key');
+            this.validateTimestamp(track, packet.timestamp, packet.type === 'key');
             // First packet - determine input format from metadata
             if (this.inputIsAdts === null) {
-                validateAudioChunkMetadata(meta);
+                validateAudioChunkMetadata(meta, track.source._codec);
                 const description = meta?.decoderConfig?.description;
-                // Follows from the Mediabunny Codec Registry:
-                this.inputIsAdts = !description;
-                if (!this.inputIsAdts) {
+                if (description) {
                     const config = parseAacAudioSpecificConfig(toUint8Array(description));
                     const template = buildAdtsHeaderTemplate(config);
                     this.header = template.header;
                     this.headerBitstream = template.bitstream;
                 }
+                // Follows from the Mediabunny Codec Registry:
+                this.inputIsAdts = !description;
             }
             if (this.inputIsAdts) {
                 // Packets are already ADTS frames, write them directly
@@ -83,6 +89,9 @@ export class AdtsMuxer extends Muxer {
     }
     async finalize() {
         const release = await this.mutex.acquire(); // Required so that finalize() can't resolve before other calls
+        if (this.inputIsAdts === null) {
+            throw new Error('Cannot finalize an empty ADTS file: not a single packet was added.');
+        }
         release();
     }
 }

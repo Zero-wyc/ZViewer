@@ -9,4 +9,7 @@ export class Demuxer {
     constructor(input) {
         this.input = input;
     }
+    dispose() {
+        // Can be overridden
+    }
 }

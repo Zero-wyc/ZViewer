@@ -9,47 +9,81 @@ import { IsobmffDemuxer } from './isobmff/isobmff-demuxer.js';
 import { EBMLId, MAX_HEADER_SIZE, MIN_HEADER_SIZE, readAsciiString, readElementHeader, readElementSize, readUnsignedInt, readVarIntSize, } from './matroska/ebml.js';
 import { MatroskaDemuxer } from './matroska/matroska-demuxer.js';
 import { Mp3Demuxer } from './mp3/mp3-demuxer.js';
-import { FRAME_HEADER_SIZE, getXingOffset, INFO, XING } from '../shared/mp3-misc.js';
-import { ID3_V2_HEADER_SIZE, readId3V2Header } from './id3.js';
-import { readNextMp3FrameHeader } from './mp3/mp3-reader.js';
+import { skipId3V2Tags } from './id3.js';
+import { readConfirmedMp3FrameHeader } from './mp3/mp3-reader.js';
 import { OggDemuxer } from './ogg/ogg-demuxer.js';
 import { WaveDemuxer } from './wave/wave-demuxer.js';
-import { MAX_ADTS_FRAME_HEADER_SIZE, MIN_ADTS_FRAME_HEADER_SIZE, readAdtsFrameHeader } from './adts/adts-reader.js';
+import { readConfirmedAdtsFrameHeader } from './adts/adts-reader.js';
 import { AdtsDemuxer } from './adts/adts-demuxer.js';
-import { readAscii, readBytes, readU32Be } from './reader.js';
+import { readAscii, readBytes, readU32Be, readU64Be } from './reader.js';
 import { FlacDemuxer } from './flac/flac-demuxer.js';
 import { MpegTsDemuxer } from './mpeg-ts/mpeg-ts-demuxer.js';
 import { TS_PACKET_SIZE } from './mpeg-ts/mpeg-ts-misc.js';
+import { HlsDemuxer } from './hls/hls-demuxer.js';
+import { HLS_MIME_TYPE } from './hls/hls-misc.js';
+import { PathedSource } from './source.js';
+import { isThenable } from './misc.js';
 /**
  * Base class representing an input media file format.
  * @group Input formats
  * @public
  */
 export class InputFormat {
+    constructor() {
+        /**
+         * Provided for tree-shakable checking.
+         * @internal
+         */
+        this._isIsobmff = false;
+    }
 }
 /**
  * Format representing files compatible with the ISO base media file format (ISOBMFF), like MP4 or MOV files.
+ *
+ * This format can make use of {@link InputOptions.initInput}. When the file contents are fragmented but no track
+ * initialization info is provided (no `moov` atom), then it must be provided via `initInput`.
+ *
  * @group Input formats
  * @public
  */
 export class IsobmffInputFormat extends InputFormat {
+    constructor() {
+        super(...arguments);
+        /** @internal */
+        this._isIsobmff = true;
+    }
     /** @internal */
     async _getMajorBrand(input) {
         let slice = input._reader.requestSlice(0, 12);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
             return null;
-        slice.skip(4);
+        const size = readU32Be(slice);
         const fourCc = readAscii(slice, 4);
-        if (fourCc !== 'ftyp') {
+        if (fourCc !== 'ftyp'
+            && fourCc !== 'styp' // Segment
+        ) {
             return null;
+        }
+        if (size === 1) {
+            // 64-bit size
+            let brandSlice = input._reader.requestSlice(16, 4);
+            if (isThenable(brandSlice))
+                brandSlice = await brandSlice;
+            if (!brandSlice) {
+                return null;
+            }
+            return readAscii(brandSlice, 4);
         }
         return readAscii(slice, 4);
     }
     /** @internal */
     _createDemuxer(input) {
         return new IsobmffDemuxer(input);
+    }
+    get supportsTimestampedMediaData() {
+        return true;
     }
 }
 /**
@@ -62,9 +96,56 @@ export class IsobmffInputFormat extends InputFormat {
  */
 export class Mp4InputFormat extends IsobmffInputFormat {
     /** @internal */
-    async _canReadInput(input) {
+    async _getMatchPosition(input) {
         const majorBrand = await this._getMajorBrand(input);
-        return !!majorBrand && majorBrand !== 'qt  ';
+        if (majorBrand !== null) {
+            return majorBrand !== 'qt  ' ? 0 : null;
+        }
+        let pos = 0;
+        for (let iter = 0; iter < 10; iter++) { // Bounded loop
+            let slice = input._reader.requestSlice(pos, 8);
+            if (isThenable(slice))
+                slice = await slice;
+            if (!slice)
+                return null;
+            let size = readU32Be(slice);
+            let headerSize = 8;
+            if (size === 1) {
+                let sizeExtensionSlice = input._reader.requestSlice(pos + 8, 8);
+                if (isThenable(sizeExtensionSlice))
+                    sizeExtensionSlice = await sizeExtensionSlice;
+                if (!sizeExtensionSlice)
+                    return null;
+                size = readU64Be(sizeExtensionSlice);
+                headerSize = 16;
+            }
+            if (size < headerSize) {
+                return null; // Hardly a box is it
+            }
+            const fourCc = readAscii(slice, 4);
+            if (
+            // Seen in HLS for example, or in normal files without an ftyp box
+            fourCc === 'moof'
+                || fourCc === 'sidx'
+                || fourCc === 'moov'
+                || fourCc === 'mdat') {
+                return 0;
+            }
+            else if (fourCc === 'emsg'
+                || fourCc === 'prft'
+                || fourCc === 'free'
+                || fourCc === 'skip'
+                || fourCc === 'wide') {
+                // These are boxes that can appear before the first moof in DASH Media Segments, or before the moov or
+                // mdat box in files without ftyp box. They're a strong signal that this is indeed ISOBMFF, but just to
+                // be sure, let's walk the box structure to make sure it stays sane.
+                pos += size;
+            }
+            else {
+                return null;
+            }
+        }
+        return null;
     }
     get name() {
         return 'MP4';
@@ -83,9 +164,9 @@ export class Mp4InputFormat extends IsobmffInputFormat {
  */
 export class QuickTimeInputFormat extends IsobmffInputFormat {
     /** @internal */
-    async _canReadInput(input) {
+    async _getMatchPosition(input) {
         const majorBrand = await this._getMajorBrand(input);
-        return majorBrand === 'qt  ';
+        return majorBrand === 'qt  ' ? 0 : null;
     }
     get name() {
         return 'QuickTime File Format';
@@ -106,7 +187,7 @@ export class MatroskaInputFormat extends InputFormat {
     /** @internal */
     async isSupportedEBMLOfDocType(input, desiredDocType) {
         let headerSlice = input._reader.requestSlice(0, MAX_HEADER_SIZE);
-        if (headerSlice instanceof Promise)
+        if (isThenable(headerSlice))
             headerSlice = await headerSlice;
         if (!headerSlice)
             return false;
@@ -126,7 +207,7 @@ export class MatroskaInputFormat extends InputFormat {
             return false; // Miss me with that shit
         }
         let dataSlice = input._reader.requestSlice(headerSlice.filePos, dataSize);
-        if (dataSlice instanceof Promise)
+        if (isThenable(dataSlice))
             dataSlice = await dataSlice;
         if (!dataSlice)
             return false;
@@ -139,16 +220,10 @@ export class MatroskaInputFormat extends InputFormat {
             const dataStartPos = dataSlice.filePos;
             if (size === undefined)
                 return false;
+            if (dataStartPos + size > startPos + dataSize || (size > 8 && id !== EBMLId.DocType)) {
+                return false; // The element overruns the header or is an integer of impossible size
+            }
             switch (id) {
-                case EBMLId.EBMLVersion:
-                    {
-                        const ebmlVersion = readUnsignedInt(dataSlice, size);
-                        if (ebmlVersion !== 1) {
-                            return false;
-                        }
-                    }
-                    ;
-                    break;
                 case EBMLId.EBMLReadVersion:
                     {
                         const ebmlReadVersion = readUnsignedInt(dataSlice, size);
@@ -167,10 +242,10 @@ export class MatroskaInputFormat extends InputFormat {
                     }
                     ;
                     break;
-                case EBMLId.DocTypeVersion:
+                case EBMLId.DocTypeReadVersion:
                     {
-                        const docTypeVersion = readUnsignedInt(dataSlice, size);
-                        if (docTypeVersion > 4) { // Support up to Matroska v4
+                        const docTypeReadVersion = readUnsignedInt(dataSlice, size);
+                        if (docTypeReadVersion > 4) { // Support up to Matroska v4
                             return false;
                         }
                     }
@@ -182,8 +257,8 @@ export class MatroskaInputFormat extends InputFormat {
         return true;
     }
     /** @internal */
-    _canReadInput(input) {
-        return this.isSupportedEBMLOfDocType(input, 'matroska');
+    async _getMatchPosition(input) {
+        return await this.isSupportedEBMLOfDocType(input, 'matroska') ? 0 : null;
     }
     /** @internal */
     _createDemuxer(input) {
@@ -194,6 +269,9 @@ export class MatroskaInputFormat extends InputFormat {
     }
     get mimeType() {
         return 'video/x-matroska';
+    }
+    get supportsTimestampedMediaData() {
+        return true;
     }
 }
 /**
@@ -206,8 +284,8 @@ export class MatroskaInputFormat extends InputFormat {
  */
 export class WebMInputFormat extends MatroskaInputFormat {
     /** @internal */
-    _canReadInput(input) {
-        return this.isSupportedEBMLOfDocType(input, 'webm');
+    async _getMatchPosition(input) {
+        return await this.isSupportedEBMLOfDocType(input, 'webm') ? 0 : null;
     }
     get name() {
         return 'WebM';
@@ -226,51 +304,14 @@ export class WebMInputFormat extends MatroskaInputFormat {
  */
 export class Mp3InputFormat extends InputFormat {
     /** @internal */
-    async _canReadInput(input) {
-        let currentPos = 0;
-        while (true) {
-            let slice = input._reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-            if (slice instanceof Promise)
-                slice = await slice;
-            if (!slice)
-                break;
-            const id3V2Header = readId3V2Header(slice);
-            if (!id3V2Header) {
-                break;
-            }
-            currentPos = slice.filePos + id3V2Header.size;
+    async _getMatchPosition(input) {
+        const startPos = await skipId3V2Tags(input._reader, 0);
+        const result = await readConfirmedMp3FrameHeader(input._reader, startPos, 4096, null);
+        if (!result) {
+            return null;
         }
-        const firstResult = await readNextMp3FrameHeader(input._reader, currentPos, currentPos + 4096);
-        if (!firstResult) {
-            return false;
-        }
-        const firstHeader = firstResult.header;
-        const xingOffset = getXingOffset(firstHeader.mpegVersionId, firstHeader.channel);
-        let slice = input._reader.requestSlice(firstResult.startPos + xingOffset, 4);
-        if (slice instanceof Promise)
-            slice = await slice;
-        if (!slice)
-            return false;
-        const word = readU32Be(slice);
-        const isXing = word === XING || word === INFO;
-        if (isXing) {
-            // Gotta be MP3
-            return true;
-        }
-        currentPos = firstResult.startPos + firstResult.header.totalSize;
-        // Fine, we found one frame header, but we're still not entirely sure this is MP3. Let's check if we can find
-        // another header right after it:
-        const secondResult = await readNextMp3FrameHeader(input._reader, currentPos, currentPos + FRAME_HEADER_SIZE);
-        if (!secondResult) {
-            return false;
-        }
-        const secondHeader = secondResult.header;
-        // In a well-formed MP3 file, we'd expect these two frames to share some similarities:
-        if (firstHeader.channel !== secondHeader.channel || firstHeader.sampleRate !== secondHeader.sampleRate) {
-            return false;
-        }
-        // We have found two matching consecutive MP3 frames, a strong indicator that this is an MP3 file
-        return true;
+        // Leading ID3v2 tags are part of the format, junk before the first frame isn't
+        return result.startPos === startPos ? 0 : result.startPos;
     }
     /** @internal */
     _createDemuxer(input) {
@@ -281,6 +322,9 @@ export class Mp3InputFormat extends InputFormat {
     }
     get mimeType() {
         return 'audio/mpeg';
+    }
+    get supportsTimestampedMediaData() {
+        return false;
     }
 }
 /**
@@ -293,19 +337,19 @@ export class Mp3InputFormat extends InputFormat {
  */
 export class WaveInputFormat extends InputFormat {
     /** @internal */
-    async _canReadInput(input) {
+    async _getMatchPosition(input) {
         let slice = input._reader.requestSlice(0, 12);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
-            return false;
+            return null;
         const riffType = readAscii(slice, 4);
         if (riffType !== 'RIFF' && riffType !== 'RIFX' && riffType !== 'RF64') {
-            return false;
+            return null;
         }
         slice.skip(4);
         const format = readAscii(slice, 4);
-        return format === 'WAVE';
+        return format === 'WAVE' ? 0 : null;
     }
     /** @internal */
     _createDemuxer(input) {
@@ -316,6 +360,9 @@ export class WaveInputFormat extends InputFormat {
     }
     get mimeType() {
         return 'audio/wav';
+    }
+    get supportsTimestampedMediaData() {
+        return false;
     }
 }
 /**
@@ -328,13 +375,13 @@ export class WaveInputFormat extends InputFormat {
  */
 export class OggInputFormat extends InputFormat {
     /** @internal */
-    async _canReadInput(input) {
+    async _getMatchPosition(input) {
         let slice = input._reader.requestSlice(0, 4);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
-            return false;
-        return readAscii(slice, 4) === 'OggS';
+            return null;
+        return readAscii(slice, 4) === 'OggS' ? 0 : null;
     }
     /** @internal */
     _createDemuxer(input) {
@@ -345,6 +392,9 @@ export class OggInputFormat extends InputFormat {
     }
     get mimeType() {
         return 'application/ogg';
+    }
+    get supportsTimestampedMediaData() {
+        return true;
     }
 }
 /**
@@ -357,19 +407,24 @@ export class OggInputFormat extends InputFormat {
  */
 export class FlacInputFormat extends InputFormat {
     /** @internal */
-    async _canReadInput(input) {
-        let slice = input._reader.requestSlice(0, 4);
-        if (slice instanceof Promise)
+    async _getMatchPosition(input) {
+        // There might be ID3v2 headers at the start, skip 'em
+        const startPos = await skipId3V2Tags(input._reader, 0);
+        let slice = input._reader.requestSlice(startPos, 4);
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
-            return false;
-        return readAscii(slice, 4) === 'fLaC';
+            return null;
+        return readAscii(slice, 4) === 'fLaC' ? 0 : null;
     }
     get name() {
         return 'FLAC';
     }
     get mimeType() {
         return 'audio/flac';
+    }
+    get supportsTimestampedMediaData() {
+        return false;
     }
     /** @internal */
     _createDemuxer(input) {
@@ -386,42 +441,14 @@ export class FlacInputFormat extends InputFormat {
  */
 export class AdtsInputFormat extends InputFormat {
     /** @internal */
-    async _canReadInput(input) {
-        let currentPos = 0;
-        while (true) {
-            let slice = input._reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-            if (slice instanceof Promise)
-                slice = await slice;
-            if (!slice)
-                break;
-            const id3V2Header = readId3V2Header(slice);
-            if (!id3V2Header) {
-                break;
-            }
-            currentPos = slice.filePos + id3V2Header.size;
+    async _getMatchPosition(input) {
+        const startPos = await skipId3V2Tags(input._reader, 0);
+        const header = await readConfirmedAdtsFrameHeader(input._reader, startPos, 4096, null);
+        if (!header) {
+            return null;
         }
-        let slice = input._reader.requestSliceRange(currentPos, MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE);
-        if (slice instanceof Promise)
-            slice = await slice;
-        if (!slice)
-            return false;
-        const firstHeader = readAdtsFrameHeader(slice);
-        if (!firstHeader) {
-            return false;
-        }
-        currentPos += firstHeader.frameLength;
-        slice = input._reader.requestSliceRange(currentPos, MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE);
-        if (slice instanceof Promise)
-            slice = await slice;
-        if (!slice)
-            return false;
-        const secondHeader = readAdtsFrameHeader(slice);
-        if (!secondHeader) {
-            return false;
-        }
-        return firstHeader.objectType === secondHeader.objectType
-            && firstHeader.samplingFrequencyIndex === secondHeader.samplingFrequencyIndex
-            && firstHeader.channelConfiguration === secondHeader.channelConfiguration;
+        // Leading ID3v2 tags are part of the format, junk before the first frame isn't
+        return header.startPos === startPos ? 0 : header.startPos;
     }
     /** @internal */
     _createDemuxer(input) {
@@ -433,9 +460,16 @@ export class AdtsInputFormat extends InputFormat {
     get mimeType() {
         return 'audio/aac';
     }
+    get supportsTimestampedMediaData() {
+        return false;
+    }
 }
 /**
  * MPEG Transport Stream (MPEG-TS) file format.
+ *
+ * This format can make use of {@link InputOptions.initInput} to initialize track information even when no
+ * initialization information is provided for the track, for example because it has no key frames. In this case, tracks
+ * are matched to each other based on their PID.
  *
  * Do not instantiate this class; use the {@link MPEG_TS} singleton instead.
  *
@@ -444,27 +478,27 @@ export class AdtsInputFormat extends InputFormat {
  */
 export class MpegTsInputFormat extends InputFormat {
     /** @internal */
-    async _canReadInput(input) {
+    async _getMatchPosition(input) {
         const lengthToCheck = TS_PACKET_SIZE + 16 + 1;
         let slice = input._reader.requestSlice(0, lengthToCheck);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
-            return false;
+            return null;
         const bytes = readBytes(slice, lengthToCheck);
         if (bytes[0] === 0x47 && bytes[TS_PACKET_SIZE] === 0x47) {
             // Regular MPEG-TS
-            return true;
+            return 0;
         }
         else if (bytes[0] === 0x47 && bytes[TS_PACKET_SIZE + 16] === 0x47) {
             // MPEG-TS with Forward Error Correction
-            return true;
+            return 0;
         }
-        else if (bytes[4] === 0x47 && bytes[4 + TS_PACKET_SIZE] === 0x47) {
+        else if (bytes[4] === 0x47 && bytes[4 + TS_PACKET_SIZE + 4] === 0x47) {
             // MPEG-2-TS (DVHS)
-            return true;
+            return 0;
         }
-        return false;
+        return null;
     }
     /** @internal */
     _createDemuxer(input) {
@@ -475,6 +509,49 @@ export class MpegTsInputFormat extends InputFormat {
     }
     get mimeType() {
         return 'video/MP2T';
+    }
+    get supportsTimestampedMediaData() {
+        return true;
+    }
+}
+/**
+ * Media described using the HTTP Live Streaming (HLS) protocol, with playlists in the M3U8 format.
+ *
+ * Do not instantiate this class; use the {@link HLS} singleton instead.
+ *
+ * @group Input formats
+ * @public
+ */
+export class HlsInputFormat extends InputFormat {
+    /** @internal */
+    async _getMatchPosition(input) {
+        let slice = input._reader.requestSlice(0, 7);
+        if (isThenable(slice))
+            slice = await slice;
+        if (!slice)
+            return null;
+        const isM3u8 = readAscii(slice, 7) === '#EXTM3U';
+        if (!isM3u8) {
+            return null;
+        }
+        if (!(input._rootSource instanceof PathedSource)) {
+            throw new TypeError('HLS inputs require `InputOptions.source` to be a PathedSource or a ref to one.');
+        }
+        input._rootSource._usedForHls = true;
+        return 0;
+    }
+    /** @internal */
+    _createDemuxer(input) {
+        return new HlsDemuxer(input);
+    }
+    get name() {
+        return 'HTTP Live Streaming (HLS)';
+    }
+    get mimeType() {
+        return HLS_MIME_TYPE;
+    }
+    get supportsTimestampedMediaData() {
+        return true;
     }
 }
 /**
@@ -538,9 +615,44 @@ export const FLAC = /* #__PURE__ */ new FlacInputFormat();
  */
 export const MPEG_TS = /* #__PURE__ */ new MpegTsInputFormat();
 /**
+ * HLS input format singleton.
+ * @group Input formats
+ * @public
+ */
+export const HLS = /* #__PURE__ */ new HlsInputFormat();
+/**
  * List of all input format singletons. If you don't need to support all input formats, you should specify the
  * formats individually for better tree shaking.
  * @group Input formats
  * @public
  */
-export const ALL_FORMATS = [MP4, QTFF, MATROSKA, WEBM, WAVE, OGG, FLAC, MP3, ADTS, MPEG_TS];
+export const ALL_FORMATS = [HLS, MP4, QTFF, MATROSKA, WEBM, WAVE, OGG, FLAC, MP3, ADTS, MPEG_TS];
+/**
+ * List of input formats required for playback of typical HLS manifests. Includes HLS itself as well as the typical
+ * segment formats: MPEG Transport Stream (.ts), MP4 (CMAF), ADTS (.aac) and MP3.
+ * @group Input formats
+ * @public
+ */
+export const HLS_FORMATS = [HLS, MP4, QTFF, MP3, ADTS, MPEG_TS];
+export const validateInputFormatOptions = (options, prefix) => {
+    if (!options || typeof options !== 'object') {
+        throw new TypeError(`${prefix}, when provided, must be an object.`);
+    }
+    if (options.isobmff !== undefined) {
+        if (!options.isobmff || typeof options.isobmff !== 'object') {
+            throw new TypeError(`${prefix}.isobmff, when provided, must be an object.`);
+        }
+        if (options.isobmff.resolveKeyId !== undefined && typeof options.isobmff.resolveKeyId !== 'function') {
+            throw new TypeError(`${prefix}.isobmff.resolveKeyId, when provided, must be a function.`);
+        }
+    }
+    if (options.hls !== undefined) {
+        if (!options.hls || typeof options.hls !== 'object') {
+            throw new TypeError(`${prefix}.hls, when provided, must be an object.`);
+        }
+        if (options.hls.offsetTimestampsByDateTime !== undefined
+            && typeof options.hls.offsetTimestampsByDateTime !== 'boolean') {
+            throw new TypeError(`${prefix}.hls.offsetTimestampsByDateTime, when provided, must be a boolean.`);
+        }
+    }
+};

@@ -23,6 +23,10 @@ export const readPageHeader = (slice) => {
     const sequenceNumber = readU32Le(slice);
     const checksum = readU32Le(slice);
     const numberPageSegments = readU8(slice);
+    if (numberPageSegments === 0 || slice.remainingLength < numberPageSegments) {
+        // Either a page that carries nothing (and would only trip up the packet logic) or a cut-off one
+        return null;
+    }
     const lacingValues = new Uint8Array(numberPageSegments);
     for (let i = 0; i < numberPageSegments; i++) {
         lacingValues[i] = readU8(slice);
@@ -43,7 +47,7 @@ export const readPageHeader = (slice) => {
         lacingValues,
     };
 };
-export const findNextPageHeader = (slice, until) => {
+export const findNextPageHeader = (slice, until, serialNumber) => {
     while (slice.filePos < until - (4 - 1)) { // Size of word minus 1
         const word = readU32Le(slice);
         const firstByte = word & 0xff;
@@ -57,7 +61,16 @@ export const findNextPageHeader = (slice, until) => {
         slice.skip(-4);
         if (word === OGGS) {
             // We have found the capture pattern
-            return true;
+            if (serialNumber === undefined || slice.filePos + 18 > slice.end) {
+                return true; // Can't check the serial number here, leave it to the caller
+            }
+            // Skipping other streams' pages right here is much cheaper than having the caller check each one
+            slice.skip(14);
+            const pageSerialNumber = readU32Le(slice);
+            slice.skip(-18);
+            if (pageSerialNumber === serialNumber) {
+                return true;
+            }
         }
         slice.skip(1);
     }

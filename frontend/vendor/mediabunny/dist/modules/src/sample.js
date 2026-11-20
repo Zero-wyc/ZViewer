@@ -5,7 +5,60 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { assert, clamp, COLOR_PRIMARIES_MAP, isAllowSharedBufferSource, MATRIX_COEFFICIENTS_MAP, SECOND_TO_MICROSECOND_FACTOR, toDataView, toUint8Array, TRANSFER_CHARACTERISTICS_MAP, isFirefox, polyfillSymbolDispose, assertNever, isWebKit, simplifyRational, validateRectangle, } from './misc.js';
+var __addDisposableResource = (this && this.__addDisposableResource) || function (env, value, async) {
+    if (value !== null && value !== void 0) {
+        if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
+        var dispose, inner;
+        if (async) {
+            if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
+            dispose = value[Symbol.asyncDispose];
+        }
+        if (dispose === void 0) {
+            if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
+            dispose = value[Symbol.dispose];
+            if (async) inner = dispose;
+        }
+        if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
+        if (inner) dispose = function() { try { inner.call(this); } catch (e) { return Promise.reject(e); } };
+        env.stack.push({ value: value, dispose: dispose, async: async });
+    }
+    else if (async) {
+        env.stack.push({ async: true });
+    }
+    return value;
+};
+var __disposeResources = (this && this.__disposeResources) || (function (SuppressedError) {
+    return function (env) {
+        function fail(e) {
+            env.error = env.hasError ? new SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
+            env.hasError = true;
+        }
+        var r, s = 0;
+        function next() {
+            while (r = env.stack.pop()) {
+                try {
+                    if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
+                    if (r.dispose) {
+                        var result = r.dispose.call(r.value);
+                        if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) { fail(e); return next(); });
+                    }
+                    else s |= 1;
+                }
+                catch (e) {
+                    fail(e);
+                }
+            }
+            if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
+            if (env.hasError) throw env.error;
+        }
+        return next();
+    };
+})(typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
+    var e = new Error(message);
+    return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+});
+import { assert, clamp, COLOR_PRIMARIES_MAP, isAllowSharedBufferSource, isThenable, MATRIX_COEFFICIENTS_MAP, SECOND_TO_MICROSECOND_FACTOR, toDataView, toUint8Array, TRANSFER_CHARACTERISTICS_MAP, isFirefox, polyfillSymbolDispose, assertNever, isWebKit, simplifyRational, validateRectangle, composeRotationAndFlip, roundToMultiple, arrayArgmin, } from './misc.js';
+import { Logging } from './logging.js';
 polyfillSymbolDispose();
 // Let's manually handle logging the garbage collection errors that are typically logged by the browser. This way, they
 // also kick for audio samples (which is normally not the case), making sure any incorrect code is quickly caught.
@@ -14,11 +67,11 @@ let lastAudioGcErrorLog = -Infinity;
 let finalizationRegistry = null;
 if (typeof FinalizationRegistry !== 'undefined') {
     finalizationRegistry = new FinalizationRegistry((value) => {
-        const now = Date.now();
+        const now = performance.now();
         if (value.type === 'video') {
             if (now - lastVideoGcErrorLog >= 1000) {
                 // This error is annoying but oh so important
-                console.error(`A VideoSample was garbage collected without first being closed. For proper resource management,`
+                Logging._error(`A VideoSample was garbage collected without first being closed. For proper resource management,`
                     + ` make sure to call close() on all your VideoSamples as soon as you're done using them.`);
                 lastVideoGcErrorLog = now;
             }
@@ -28,7 +81,7 @@ if (typeof FinalizationRegistry !== 'undefined') {
         }
         else {
             if (now - lastAudioGcErrorLog >= 1000) {
-                console.error(`An AudioSample was garbage collected without first being closed. For proper resource management,`
+                Logging._error(`An AudioSample was garbage collected without first being closed. For proper resource management,`
                     + ` make sure to call close() on all your AudioSamples as soon as you're done using them.`);
                 lastAudioGcErrorLog = now;
             }
@@ -37,6 +90,20 @@ if (typeof FinalizationRegistry !== 'undefined') {
             }
         }
     });
+}
+/**
+ * Abstract base class for custom video sample resources. Implement this class to provide custom backing
+ * for VideoSample instances.
+ * @group Samples
+ * @public
+ */
+export class VideoSampleResource {
+    constructor() {
+        /** @internal */
+        this._referenceCount = 0;
+        /** @internal */
+        this._lastAllocationBuffer = null;
+    }
 }
 /**
  * The list of {@link VideoSample} pixel formats.
@@ -97,11 +164,11 @@ export class VideoSample {
         // Same here
         return this.visibleRect.height;
     }
-    /** The display width of the frame in pixels, after aspect ratio adjustment and rotation. */
+    /** The display width of the frame in pixels, after aspect ratio adjustment, rotation and flip. */
     get displayWidth() {
         return this.rotation % 180 === 0 ? this.squarePixelWidth : this.squarePixelHeight;
     }
-    /** The display height of the frame in pixels, after aspect ratio adjustment and rotation. */
+    /** The display height of the frame in pixels, after aspect ratio adjustment, rotation and flip. */
     get displayHeight() {
         return this.rotation % 180 === 0 ? this.squarePixelHeight : this.squarePixelWidth;
     }
@@ -141,6 +208,9 @@ export class VideoSample {
             if (init.rotation !== undefined && ![0, 90, 180, 270].includes(init.rotation)) {
                 throw new TypeError('init.rotation, when provided, must be 0, 90, 180, or 270.');
             }
+            if (init.flip !== undefined && typeof init.flip !== 'boolean') {
+                throw new TypeError('init.flip, when provided, must be a boolean.');
+            }
             if (!Number.isFinite(init.timestamp)) {
                 throw new TypeError('init.timestamp must be a number.');
             }
@@ -162,9 +232,13 @@ export class VideoSample {
                         throw new TypeError('plane.stride must be a non-negative integer.');
                     }
                 }
+                const planeCount = getPlaneConfigs(init.format).length;
+                if (init.layout.length !== planeCount) {
+                    throw new TypeError(`init.layout must have ${planeCount} entries for format ${init.format}.`);
+                }
             }
             if (init.visibleRect !== undefined) {
-                validateRectangle(init.visibleRect, 'init.visibleRect');
+                validateVisibleRect(init.visibleRect);
             }
             if (init.displayWidth !== undefined
                 && (!Number.isInteger(init.displayWidth) || init.displayWidth <= 0)) {
@@ -177,13 +251,34 @@ export class VideoSample {
             if ((init.displayWidth !== undefined) !== (init.displayHeight !== undefined)) {
                 throw new TypeError('init.displayWidth and init.displayHeight must be either both provided or both omitted.');
             }
-            this._data = toUint8Array(data).slice(); // Copy it
-            this._layout = init.layout ?? createDefaultPlaneLayout(init.format, init.codedWidth, init.codedHeight);
             this.format = init.format;
             this.rotation = init.rotation ?? 0;
+            this.flip = init.flip ?? false;
             this.timestamp = init.timestamp;
             this.duration = init.duration ?? 0;
-            this.colorSpace = new VideoSampleColorSpace(init.colorSpace);
+            const layout = init.layout ?? createDefaultPlaneLayout(init.format, init.codedWidth, init.codedHeight);
+            let colorSpaceInit = init.colorSpace ?? null;
+            if (colorSpaceInit === null) {
+                if (this.format === 'RGBA' || this.format === 'RGBX'
+                    || this.format === 'BGRA' || this.format === 'BGRX') {
+                    // sRGB Color Space
+                    colorSpaceInit = {
+                        primaries: 'bt709',
+                        transfer: 'iec61966-2-1',
+                        matrix: 'rgb',
+                        fullRange: true,
+                    };
+                }
+                else {
+                    // REC709 Color Space
+                    colorSpaceInit = {
+                        primaries: 'bt709',
+                        transfer: 'bt709',
+                        matrix: 'bt709',
+                        fullRange: false,
+                    };
+                }
+            }
             this.visibleRect = {
                 left: init.visibleRect?.left ?? 0,
                 top: init.visibleRect?.top ?? 0,
@@ -195,13 +290,28 @@ export class VideoSample {
                 this.squarePixelHeight = this.rotation % 180 === 0 ? init.displayHeight : init.displayWidth;
             }
             else {
-                this.squarePixelWidth = this.codedWidth;
-                this.squarePixelHeight = this.codedHeight;
+                this.squarePixelWidth = this.visibleRect.width;
+                this.squarePixelHeight = this.visibleRect.height;
             }
+            // As an optimization, one could check if VideoFrame is defined and if it is, create a VideoFrame here from
+            // the data. Since VideoFrames are typically needed anyway, doing it this way would avoid an additional
+            // copy of the frame data. But due to https://issues.chromium.org/issues/529413114, this is currently
+            // not done.
+            this._data = init._doNotCopy
+                ? toUint8Array(data)
+                : toUint8Array(data).slice(); // Copy it
+            this._layout = layout;
+            this.colorSpace = new VideoSampleColorSpace(colorSpaceInit);
         }
         else if (typeof VideoFrame !== 'undefined' && data instanceof VideoFrame) {
+            if (data.codedWidth === 0) { // Closed frames have their size zeroed out
+                throw new TypeError('data must not be a closed VideoFrame.');
+            }
             if (init?.rotation !== undefined && ![0, 90, 180, 270].includes(init.rotation)) {
                 throw new TypeError('init.rotation, when provided, must be 0, 90, 180, or 270.');
+            }
+            if (init?.flip !== undefined && typeof init.flip !== 'boolean') {
+                throw new TypeError('init.flip, when provided, must be a boolean.');
             }
             if (init?.timestamp !== undefined && !Number.isFinite(init?.timestamp)) {
                 throw new TypeError('init.timestamp, when provided, must be a number.');
@@ -210,7 +320,7 @@ export class VideoSample {
                 throw new TypeError('init.duration, when provided, must be a non-negative number.');
             }
             if (init?.visibleRect !== undefined) {
-                validateRectangle(init.visibleRect, 'init.visibleRect');
+                validateVisibleRect(init.visibleRect);
             }
             this._data = data;
             this._layout = null;
@@ -221,15 +331,24 @@ export class VideoSample {
                 width: data.visibleRect?.width ?? data.codedWidth,
                 height: data.visibleRect?.height ?? data.codedHeight,
             };
-            // The VideoFrame's rotation is ignored here. It's still a new field, and I'm not sure of any application
-            // where the browser makes use of it. If a case gets found, I'll add it.
+            // The VideoFrame's rotation and flip are ignored here. They're still new fields, and I'm not sure of any
+            // application where the browser makes use of them. If a case gets found, I'll add it.
             this.rotation = init?.rotation ?? 0;
+            this.flip = init?.flip ?? false;
             // Assuming no innate VideoFrame rotation here
             this.squarePixelWidth = data.displayWidth;
             this.squarePixelHeight = data.displayHeight;
             this.timestamp = init?.timestamp ?? data.timestamp / 1e6;
             this.duration = init?.duration ?? (data.duration ?? 0) / 1e6;
-            this.colorSpace = new VideoSampleColorSpace(data.colorSpace);
+            // Sanitize the inputs we pass in so that out-of-spec values don't throw
+            // See https://github.com/Vanilagy/mediabunny/issues/555
+            const { primaries, transfer, matrix, fullRange } = data.colorSpace;
+            this.colorSpace = new VideoSampleColorSpace({
+                primaries: primaries !== null && primaries in COLOR_PRIMARIES_MAP ? primaries : null,
+                transfer: transfer !== null && transfer in TRANSFER_CHARACTERISTICS_MAP ? transfer : null,
+                matrix: matrix !== null && matrix in MATRIX_COEFFICIENTS_MAP ? matrix : null,
+                fullRange,
+            });
         }
         else if ((typeof HTMLImageElement !== 'undefined' && data instanceof HTMLImageElement)
             || (typeof SVGImageElement !== 'undefined' && data instanceof SVGImageElement)
@@ -243,17 +362,30 @@ export class VideoSample {
             if (init.rotation !== undefined && ![0, 90, 180, 270].includes(init.rotation)) {
                 throw new TypeError('init.rotation, when provided, must be 0, 90, 180, or 270.');
             }
+            if (init.flip !== undefined && typeof init.flip !== 'boolean') {
+                throw new TypeError('init.flip, when provided, must be a boolean.');
+            }
             if (!Number.isFinite(init.timestamp)) {
                 throw new TypeError('init.timestamp must be a number.');
             }
             if (init.duration !== undefined && (!Number.isFinite(init.duration) || init.duration < 0)) {
                 throw new TypeError('init.duration, when provided, must be a non-negative number.');
             }
+            if (init.visibleRect !== undefined) {
+                validateVisibleRect(init.visibleRect);
+            }
             if (typeof VideoFrame !== 'undefined') {
                 return new VideoSample(new VideoFrame(data, {
                     timestamp: Math.trunc(init.timestamp * SECOND_TO_MICROSECOND_FACTOR),
                     // Drag 0 to undefined
                     duration: Math.trunc((init.duration ?? 0) * SECOND_TO_MICROSECOND_FACTOR) || undefined,
+                    // WebCodecs wants DOMRectInit
+                    visibleRect: init.visibleRect && {
+                        x: init.visibleRect.left,
+                        y: init.visibleRect.top,
+                        width: init.visibleRect.width,
+                        height: init.visibleRect.height,
+                    },
                 }), init);
             }
             let width = 0;
@@ -274,21 +406,26 @@ export class VideoSample {
             if (!width || !height) {
                 throw new TypeError('Could not determine dimensions.');
             }
-            const canvas = new OffscreenCanvas(width, height);
+            const visibleRect = init.visibleRect ?? { left: 0, top: 0, width, height };
+            const canvas = new OffscreenCanvas(visibleRect.width, visibleRect.height);
             const context = canvas.getContext('2d', {
                 alpha: isFirefox(), // Firefox has VideoFrame glitches with opaque canvases
                 willReadFrequently: true,
             });
-            assert(context);
-            // Draw it to a canvas
-            context.drawImage(data, 0, 0);
+            if (!context) {
+                throw new Error('OffscreenCanvas must have support for the \'2d\' context in order to create a VideoSample from'
+                    + ' this data.');
+            }
+            // Draw it to a canvas, cropped to the visible rect
+            context.drawImage(data, -visibleRect.left, -visibleRect.top);
             this._data = canvas;
             this._layout = null;
             this.format = 'RGBX';
-            this.visibleRect = { left: 0, top: 0, width, height };
-            this.squarePixelWidth = width;
-            this.squarePixelHeight = height;
+            this.visibleRect = { left: 0, top: 0, width: visibleRect.width, height: visibleRect.height };
+            this.squarePixelWidth = visibleRect.width;
+            this.squarePixelHeight = visibleRect.height;
             this.rotation = init.rotation ?? 0;
+            this.flip = init.flip ?? false;
             this.timestamp = init.timestamp;
             this.duration = init.duration ?? 0;
             this.colorSpace = new VideoSampleColorSpace({
@@ -298,9 +435,58 @@ export class VideoSample {
                 fullRange: true,
             });
         }
-        else {
-            throw new TypeError('Invalid data type: Must be a BufferSource or CanvasImageSource.');
+        else if (data instanceof VideoSampleResource) {
+            if (!init || typeof init !== 'object') {
+                throw new TypeError('init must be an object.');
+            }
+            if (init.rotation !== undefined && ![0, 90, 180, 270].includes(init.rotation)) {
+                throw new TypeError('init.rotation, when provided, must be 0, 90, 180, or 270.');
+            }
+            if (init.flip !== undefined && typeof init.flip !== 'boolean') {
+                throw new TypeError('init.flip, when provided, must be a boolean.');
+            }
+            if (!Number.isFinite(init.timestamp)) {
+                throw new TypeError('init.timestamp must be a number.');
+            }
+            if (init.duration !== undefined && (!Number.isFinite(init.duration) || init.duration < 0)) {
+                throw new TypeError('init.duration, when provided, must be a non-negative number.');
+            }
+            this.format = data.getFormat();
+            if (this.format !== null && !VIDEO_SAMPLE_PIXEL_FORMATS.includes(this.format)) {
+                throw new TypeError('getFormat() must return a VideoSamplePixelFormat or null.');
+            }
+            this.visibleRect = {
+                left: 0,
+                top: 0,
+                width: data.getCodedWidth(),
+                height: data.getCodedHeight(),
+            };
+            if (!Number.isInteger(this.visibleRect.width) || this.visibleRect.width <= 0) {
+                throw new TypeError('getCodedWidth() must return a positive integer.');
+            }
+            if (!Number.isInteger(this.visibleRect.height) || this.visibleRect.height <= 0) {
+                throw new TypeError('getCodedHeight() must return a positive integer.');
+            }
+            this.squarePixelWidth = data.getSquarePixelWidth();
+            if (!Number.isInteger(this.squarePixelWidth) || this.squarePixelWidth <= 0) {
+                throw new TypeError('getSquarePixelWidth() must return a positive integer.');
+            }
+            this.squarePixelHeight = data.getSquarePixelHeight();
+            if (!Number.isInteger(this.squarePixelHeight) || this.squarePixelHeight <= 0) {
+                throw new TypeError('getSquarePixelHeight() must return a positive integer.');
+            }
+            this.rotation = init.rotation ?? 0;
+            this.flip = init.flip ?? false;
+            this.timestamp = init.timestamp;
+            this.duration = init.duration ?? 0;
+            this.colorSpace = data.getColorSpace();
+            this._data = data;
+            data._referenceCount++;
         }
+        else {
+            throw new TypeError('Invalid data type: Must be a BufferSource, CanvasImageSource, or VideoSampleResource.');
+        }
+        this.encodeOptions = init?.encodeOptions ?? {};
         this.pixelAspectRatio = simplifyRational({
             num: this.squarePixelWidth * this.codedHeight,
             den: this.squarePixelHeight * this.codedWidth,
@@ -313,11 +499,22 @@ export class VideoSample {
             throw new Error('VideoSample is closed.');
         }
         assert(this._data !== null);
-        if (isVideoFrame(this._data)) {
+        if (this._data instanceof VideoSampleResource) {
+            return new VideoSample(this._data, {
+                timestamp: this.timestamp,
+                duration: this.duration,
+                rotation: this.rotation,
+                flip: this.flip,
+                encodeOptions: this.encodeOptions,
+            });
+        }
+        else if (isVideoFrame(this._data)) {
             return new VideoSample(this._data.clone(), {
                 timestamp: this.timestamp,
                 duration: this.duration,
                 rotation: this.rotation,
+                flip: this.flip,
+                encodeOptions: this.encodeOptions,
             });
         }
         else if (this._data instanceof Uint8Array) {
@@ -331,9 +528,13 @@ export class VideoSample {
                 duration: this.duration,
                 colorSpace: this.colorSpace,
                 rotation: this.rotation,
+                flip: this.flip,
                 visibleRect: this.visibleRect,
                 displayWidth: this.displayWidth,
                 displayHeight: this.displayHeight,
+                encodeOptions: this.encodeOptions,
+                // It's already been copied, if we copy it again we make the clone unnecessarily expensive
+                _doNotCopy: true,
             });
         }
         else {
@@ -345,9 +546,11 @@ export class VideoSample {
                 duration: this.duration,
                 colorSpace: this.colorSpace,
                 rotation: this.rotation,
+                flip: this.flip,
                 visibleRect: this.visibleRect,
                 displayWidth: this.displayWidth,
                 displayHeight: this.displayHeight,
+                encodeOptions: this.encodeOptions,
             });
         }
     }
@@ -360,7 +563,13 @@ export class VideoSample {
             return;
         }
         finalizationRegistry?.unregister(this);
-        if (isVideoFrame(this._data)) {
+        if (this._data instanceof VideoSampleResource) {
+            this._data._referenceCount--;
+            if (this._data._referenceCount === 0) {
+                this._data.close();
+            }
+        }
+        else if (isVideoFrame(this._data)) {
             this._data.close();
         }
         else {
@@ -369,44 +578,27 @@ export class VideoSample {
         this._closed = true;
     }
     /**
-     * Returns the number of bytes required to hold this video sample's pixel data. Throws if `format` is `null`.
+     * Returns the number of bytes required to hold this video sample's pixel data.
      */
     allocationSize(options = {}) {
         validateVideoFrameCopyToOptions(options);
         if (this._closed) {
             throw new Error('VideoSample is closed.');
         }
-        if (this.format === null) {
+        if ((options.format ?? this.format) == null) {
             // https://github.com/Vanilagy/mediabunny/issues/267
             // https://github.com/w3c/webcodecs/issues/920
-            throw new Error('Cannot get allocation size when format is null. Sorry!');
-        }
-        assert(this._data !== null);
-        if (!isVideoFrame(this._data)) {
-            if (options.colorSpace
-                || (options.format && options.format !== this.format)
-                || options.layout
-                || options.rect) {
-                // Temporarily convert to VideoFrame to get it done
-                // TODO: Compute this directly without needing to go through VideoFrame
-                const videoFrame = this.toVideoFrame();
-                const size = videoFrame.allocationSize(options);
-                videoFrame.close();
-                return size;
-            }
+            throw new Error('Cannot get allocation size when format is null.');
         }
         if (isVideoFrame(this._data)) {
+            // Call the native method purely for performance
             return this._data.allocationSize(options);
         }
-        else if (this._data instanceof Uint8Array) {
-            return this._data.byteLength;
-        }
-        else {
-            return this.codedWidth * this.codedHeight * 4; // RGBX
-        }
+        const combinedLayout = ParseVideoFrameCopyToOptions(this, options);
+        return combinedLayout.allocationSize;
     }
     /**
-     * Copies this video sample's pixel data to an ArrayBuffer or ArrayBufferView. Throws if `format` is `null`.
+     * Copies this video sample's pixel data to an ArrayBuffer or ArrayBufferView.
      * @returns The byte layout of the planes of the copied data.
      */
     async copyTo(destination, options = {}) {
@@ -417,44 +609,181 @@ export class VideoSample {
         if (this._closed) {
             throw new Error('VideoSample is closed.');
         }
-        if (this.format === null) {
-            throw new Error('Cannot copy video sample data when format is null. Sorry!');
+        if ((options.format ?? this.format) == null) {
+            throw new Error('Cannot copy video sample data when format is null.');
         }
         assert(this._data !== null);
-        if (!isVideoFrame(this._data)) {
-            if (options.colorSpace
-                || (options.format && options.format !== this.format)
-                || options.layout
-                || options.rect) {
-                // Temporarily convert to VideoFrame to get it done
-                // TODO: Do this directly without needing to go through VideoFrame
-                const videoFrame = this.toVideoFrame();
-                const layout = await videoFrame.copyTo(destination, options);
-                videoFrame.close();
-                return layout;
-            }
-        }
         if (isVideoFrame(this._data)) {
             return this._data.copyTo(destination, options);
         }
+        // Detect non-RGB to RGB conversion
+        if (options.format
+            && !['RGBA', 'RGBX', 'BGRA', 'BGRX'].includes(this.format)
+            && ['RGBA', 'RGBX', 'BGRA', 'BGRX'].includes(options.format)) {
+            // RGB conversion for custom VideoSampleResource
+            if (this._data instanceof VideoSampleResource) {
+                const env_1 = { stack: [], error: void 0, hasError: false };
+                try {
+                    const rgbSample = __addDisposableResource(env_1, await this._data.toRgbSample({
+                        timestamp: this.timestamp,
+                        duration: this.duration,
+                        rotation: this.rotation,
+                        flip: this.flip,
+                    }, options.colorSpace ?? 'srgb'), false);
+                    if (!(rgbSample instanceof VideoSample)) {
+                        throw new TypeError('toRgbSample() must return a VideoSample.');
+                    }
+                    if (!['RGBA', 'RGBX', 'BGRA', 'BGRX'].includes(rgbSample.format)) {
+                        throw new Error(`Sample returned by toRgbSample was expected to have an RGB format, got`
+                            + ` '${rgbSample.format}' instead.`);
+                    }
+                    // Note that we DON'T force the RGB format to be exactly what was requested; any RGB format will do
+                    return await rgbSample.copyTo(destination, options); // 'await' is intentional here cuz of using
+                }
+                catch (e_1) {
+                    env_1.error = e_1;
+                    env_1.hasError = true;
+                }
+                finally {
+                    __disposeResources(env_1);
+                }
+            }
+            else {
+                if (typeof VideoFrame === 'undefined') {
+                    throw new Error('For this sample, converting from a non-RGB to an RGB format requires VideoFrame to'
+                        + ' be defined.');
+                }
+                const tempFrame = this.toVideoFrame();
+                try {
+                    return await tempFrame.copyTo(destination, options);
+                }
+                finally {
+                    tempFrame.close();
+                }
+            }
+        }
+        const combinedLayout = ParseVideoFrameCopyToOptions(this, options);
+        assert(this.format);
+        // 4. If destination.byteLength is less than combinedLayout’s allocationSize, return a promise rejected with
+        const destBytes = toUint8Array(destination);
+        if (destBytes.byteLength < combinedLayout.allocationSize) {
+            throw new TypeError(`Destination buffer too small. Required: ${combinedLayout.allocationSize},`
+                + ` Available: ${destBytes.byteLength}`);
+        }
+        const planeConfigs = getPlaneConfigs(this.format);
+        let dataPlanes;
+        if (this._data instanceof VideoSampleResource) {
+            let result = this._data.getDataPlanes();
+            if (isThenable(result))
+                result = await result;
+            if (!Array.isArray(result)
+                || result.some(x => !(x.data instanceof Uint8Array) || !Number.isInteger(x.stride) || x.stride < 0)) {
+                throw new TypeError('getDataPlanes() must return an array of objects with a Uint8Array "data" property and a'
+                    + ' non-negative integer "stride" property.');
+            }
+            dataPlanes = result;
+        }
         else if (this._data instanceof Uint8Array) {
             assert(this._layout);
-            const dest = toUint8Array(destination);
-            dest.set(this._data);
-            return this._layout;
+            assert(this._layout.length === planeConfigs.length);
+            dataPlanes = this._layout.map((planeLayout, i) => {
+                const height = Math.ceil((this.visibleRect.top + this.visibleRect.height) / planeConfigs[i].heightDivisor);
+                return {
+                    data: this._data.subarray(planeLayout.offset, planeLayout.offset + planeLayout.stride * height),
+                    stride: planeLayout.stride,
+                };
+            });
         }
         else {
             const canvas = this._data;
             const context = canvas.getContext('2d');
-            assert(context);
+            assert(context); // We already got it earlier so it's definitely available
             const imageData = context.getImageData(0, 0, this.codedWidth, this.codedHeight);
-            const dest = toUint8Array(destination);
-            dest.set(imageData.data);
-            return [{
-                    offset: 0,
+            dataPlanes = [{
+                    data: toUint8Array(imageData.data),
                     stride: 4 * this.codedWidth,
                 }];
         }
+        // Algo taken from WebCodecs spec:
+        // 6. Let p be a new Promise. (Implicit)
+        // 7. Let copyStepsQueue be the result of starting a new parallel queue. (Implicit)
+        // 8. Let planeLayouts be a new list.
+        const planeLayouts = [];
+        // Enqueue the following steps to copyStepsQueue: (fuck the queuing part)
+        // Let resource be the media resource referenced by [[resource reference]].
+        // (this.data)
+        // Let numPlanes be the number of planes as defined by [[format]].
+        const numPlanes = planeConfigs.length;
+        // Let planeIndex be 0.
+        // While planeIndex is less than combinedLayout’s numPlanes:
+        for (let planeIndex = 0; planeIndex < numPlanes; planeIndex++) {
+            const computedLayout = combinedLayout.computedLayouts[planeIndex];
+            // Let sourceStride be the stride of the plane in resource as identified by planeIndex.
+            const sourceStride = dataPlanes[planeIndex].stride;
+            const sourceData = dataPlanes[planeIndex].data;
+            // Let sourceOffset be the product of multiplying computedLayout’s sourceTop by sourceStride
+            let sourceOffset = computedLayout.sourceTop * sourceStride;
+            // Add computedLayout’s sourceLeftBytes to sourceOffset.
+            sourceOffset += computedLayout.sourceLeftBytes;
+            // Let destinationOffset be computedLayout’s destinationOffset.
+            let destinationOffset = computedLayout.destinationOffset;
+            // Let rowBytes be computedLayout’s sourceWidthBytes.
+            const rowBytes = computedLayout.sourceWidthBytes;
+            // Let layout be a new PlaneLayout, with offset set to destinationOffset and stride set to rowBytes.
+            // This is a spec error actually (https://github.com/w3c/webcodecs/issues/918)
+            const layout = {
+                offset: destinationOffset,
+                stride: computedLayout.destinationStride,
+            };
+            // Let row be 0.
+            // While row is less than computedLayout’s sourceHeight:
+            for (let row = 0; row < computedLayout.sourceHeight; row++) {
+                // Copy rowBytes bytes from resource starting at sourceOffset to destination starting
+                // at destinationOffset.
+                if (sourceOffset + rowBytes > sourceData.byteLength) {
+                    throw new Error(`Source buffer OOB read.`);
+                }
+                if (destinationOffset + rowBytes > destBytes.byteLength) {
+                    throw new Error(`Destination buffer OOB write.`);
+                }
+                const srcSub = sourceData.subarray(sourceOffset, sourceOffset + rowBytes);
+                destBytes.set(srcSub, destinationOffset);
+                // Increment sourceOffset by sourceStride.
+                sourceOffset += sourceStride;
+                // Increment destinationOffset by computedLayout’s destinationStride.
+                destinationOffset += computedLayout.destinationStride;
+            }
+            // Append layout to planeLayouts.
+            planeLayouts.push(layout);
+        }
+        // Now, handle converting between different RGB formats
+        if (options.format !== undefined) {
+            const needsRgbConversion = this.format.startsWith('RGB') !== options.format.startsWith('RGB');
+            // Going X->A requires setting the alpha to 255, going the other way doesn't since the value of X is w/e
+            const needsAlphaConversion = this.format.includes('X') && options.format.includes('A');
+            if (needsRgbConversion || needsAlphaConversion) {
+                const computedLayout = combinedLayout.computedLayouts[0];
+                // Loop over the destination bytes
+                for (let row = 0; row < computedLayout.sourceHeight; row++) {
+                    const rowStart = computedLayout.destinationOffset + row * computedLayout.destinationStride;
+                    const rowEnd = rowStart + computedLayout.sourceWidthBytes;
+                    for (let i = rowStart; i < rowEnd; i += 4) {
+                        if (needsRgbConversion) {
+                            // Swap R with B
+                            const r = destBytes[i];
+                            const b = destBytes[i + 2];
+                            destBytes[i] = b;
+                            destBytes[i + 2] = r;
+                        }
+                        if (needsAlphaConversion) {
+                            destBytes[i + 3] = 255;
+                        }
+                    }
+                }
+            }
+        }
+        // Queue a task to resolve p with planeLayouts.
+        return planeLayouts;
     }
     /**
      * Converts this video sample to a VideoFrame for use with the WebCodecs API. The VideoFrame returned by this
@@ -465,20 +794,67 @@ export class VideoSample {
             throw new Error('VideoSample is closed.');
         }
         assert(this._data !== null);
-        if (isVideoFrame(this._data)) {
+        if (this._data instanceof VideoSampleResource) {
+            if (this.format === null) {
+                throw new Error('Cannot convert a VideoSampleResource-backed VideoSample to VideoFrame if format is null.');
+            }
+            const planes = this._data.getDataPlanes();
+            if (isThenable(planes)) {
+                throw new Error('Cannot convert a VideoSampleResource-backed VideoSample to VideoFrame if getDataPlanes() returns'
+                    + ' a promise.');
+            }
+            // We can't use allocationSize since that method assumes a tight packing
+            const size = planes.reduce((a, b) => a + b.data.byteLength, 0);
+            const buffer = new Uint8Array(size);
+            let offset = 0;
+            const offsets = [];
+            for (const plane of planes) {
+                buffer.set(plane.data, offset);
+                offsets.push(offset);
+                offset += plane.data.byteLength;
+            }
+            return new VideoFrame(buffer, {
+                format: this.format,
+                layout: planes.map((x, i) => ({
+                    offset: offsets[i],
+                    stride: x.stride,
+                })),
+                codedWidth: this.codedWidth,
+                codedHeight: this.codedHeight,
+                timestamp: this.microsecondTimestamp,
+                duration: this.microsecondDuration || undefined, // Drag 0 duration to undefined, glitches some codecs
+                colorSpace: this.colorSpace,
+                visibleRect: this.visibleRect,
+                displayWidth: this.squarePixelWidth, // Not display* since we're not passing rotation
+                displayHeight: this.squarePixelHeight,
+            });
+        }
+        else if (isVideoFrame(this._data)) {
             return new VideoFrame(this._data, {
                 timestamp: this.microsecondTimestamp,
                 duration: this.microsecondDuration || undefined, // Drag 0 duration to undefined, glitches some codecs
             });
         }
         else if (this._data instanceof Uint8Array) {
+            assert(this._layout);
             return new VideoFrame(this._data, {
                 format: this.format,
-                codedWidth: this.codedWidth,
-                codedHeight: this.codedHeight,
+                // The true coded size isn't known, but since we pass the layout (which contains the true strides), the
+                // smallest size containing the visible rect is good enough
+                codedWidth: this.visibleRect.left + this.visibleRect.width,
+                codedHeight: this.visibleRect.top + this.visibleRect.height,
+                layout: this._layout,
                 timestamp: this.microsecondTimestamp,
                 duration: this.microsecondDuration || undefined,
                 colorSpace: this.colorSpace,
+                visibleRect: {
+                    x: this.visibleRect.left,
+                    y: this.visibleRect.top,
+                    width: this.visibleRect.width,
+                    height: this.visibleRect.height,
+                },
+                displayWidth: this.squarePixelWidth, // Not display* since we're not passing rotation
+                displayHeight: this.squarePixelHeight,
             });
         }
         else {
@@ -553,12 +929,17 @@ export class VideoSample {
         if (this._closed) {
             throw new Error('VideoSample is closed.');
         }
-        ({ sx, sy, sWidth, sHeight } = this._rotateSourceRegion(sx, sy, sWidth, sHeight, this.rotation));
+        ({ sx, sy, sWidth, sHeight } = this._unmapSourceRegion(sx, sy, sWidth, sHeight, this.rotation, this.flip));
         const source = this.toCanvasImageSource();
         context.save();
         const centerX = dx + dWidth / 2;
         const centerY = dy + dHeight / 2;
         context.translate(centerX, centerY);
+        // Canvas transforms apply to the image in reverse call order, so to rotate first and then flip, the flip has
+        // to be set up before the rotation
+        if (this.flip) {
+            context.scale(-1, 1);
+        }
         context.rotate(this.rotation * Math.PI / 180);
         const aspectRatioChange = this.rotation % 180 === 0 ? 1 : dWidth / dHeight;
         // Scale to compensate for aspect ratio changes when rotated
@@ -584,24 +965,29 @@ export class VideoSample {
         if (options.rotation !== undefined && ![0, 90, 180, 270].includes(options.rotation)) {
             throw new TypeError('options.rotation, when provided, must be 0, 90, 180, or 270.');
         }
+        if (options.flip !== undefined && typeof options.flip !== 'boolean') {
+            throw new TypeError('options.flip, when provided, must be a boolean.');
+        }
         if (options.crop !== undefined) {
             validateCropRectangle(options.crop, 'options.');
         }
         const canvasWidth = context.canvas.width;
         const canvasHeight = context.canvas.height;
         const rotation = options.rotation ?? this.rotation;
+        const flip = options.flip ?? this.flip;
         const [rotatedWidth, rotatedHeight] = rotation % 180 === 0
             ? [this.squarePixelWidth, this.squarePixelHeight]
             : [this.squarePixelHeight, this.squarePixelWidth];
-        if (options.crop) {
-            clampCropRectangle(options.crop, rotatedWidth, rotatedHeight);
+        let finalCrop = options.crop;
+        if (finalCrop) {
+            finalCrop = clampCropRectangle(finalCrop, rotatedWidth, rotatedHeight);
         }
         // These variables specify where the final sample will be drawn on the canvas
         let dx;
         let dy;
         let newWidth;
         let newHeight;
-        const { sx, sy, sWidth, sHeight } = this._rotateSourceRegion(options.crop?.left ?? 0, options.crop?.top ?? 0, options.crop?.width ?? rotatedWidth, options.crop?.height ?? rotatedHeight, rotation);
+        const { sx, sy, sWidth, sHeight } = this._unmapSourceRegion(finalCrop?.left ?? 0, finalCrop?.top ?? 0, finalCrop?.width ?? rotatedWidth, finalCrop?.height ?? rotatedHeight, rotation, flip);
         if (options.fit === 'fill') {
             dx = 0;
             dy = 0;
@@ -609,8 +995,8 @@ export class VideoSample {
             newHeight = canvasHeight;
         }
         else {
-            const [sampleWidth, sampleHeight] = options.crop
-                ? [options.crop.width, options.crop.height]
+            const [sampleWidth, sampleHeight] = finalCrop
+                ? [finalCrop.width, finalCrop.height]
                 : [rotatedWidth, rotatedHeight];
             const scale = options.fit === 'contain'
                 ? Math.min(canvasWidth / sampleWidth, canvasHeight / sampleHeight)
@@ -620,23 +1006,34 @@ export class VideoSample {
             dx = (canvasWidth - newWidth) / 2;
             dy = (canvasHeight - newHeight) / 2;
         }
+        const source = this.toCanvasImageSource();
         context.save();
         const aspectRatioChange = rotation % 180 === 0 ? 1 : newWidth / newHeight;
         context.translate(canvasWidth / 2, canvasHeight / 2);
+        // Canvas transforms apply to the image in reverse call order, so to rotate first and then flip, the flip has
+        // to be set up before the rotation
+        if (flip) {
+            context.scale(-1, 1);
+        }
         context.rotate(rotation * Math.PI / 180);
         // This aspect ratio compensation is done so that we can draw the sample with the intended dimensions and
         // don't need to think about how those dimensions change after the rotation
         context.scale(1 / aspectRatioChange, aspectRatioChange);
         context.translate(-canvasWidth / 2, -canvasHeight / 2);
-        // Important that we don't use .draw() here since that would take rotation into account, but we wanna handle it
-        // ourselves here
-        context.drawImage(this.toCanvasImageSource(), sx, sy, sWidth, sHeight, dx, dy, newWidth, newHeight);
+        // Important that we don't use .draw() here since that would take rotation and flip into account, but we wanna
+        // handle them ourselves here
+        context.drawImage(source, sx, sy, sWidth, sHeight, dx, dy, newWidth, newHeight);
         context.restore();
     }
     /** @internal */
-    _rotateSourceRegion(sx, sy, sWidth, sHeight, rotation) {
-        // The provided sx,sy,sWidth,sHeight refer to the final rotated image, but that's not actually how the image is
-        // stored. Therefore, we must map these back onto the original, pre-rotation image.
+    _unmapSourceRegion(sx, sy, sWidth, sHeight, rotation, flip) {
+        // The provided sx,sy,sWidth,sHeight refer to the final rotated and flipped image, but that's not actually how
+        // the image is stored. Therefore, we must map these back onto the original image. Since the flip is applied
+        // last, we undo it first, mirroring within the rotated width.
+        if (flip) {
+            const rotatedWidth = rotation % 180 === 0 ? this.squarePixelWidth : this.squarePixelHeight;
+            sx = rotatedWidth - sx - sWidth;
+        }
         if (rotation === 90) {
             [sx, sy, sWidth, sHeight] = [
                 sy,
@@ -662,10 +1059,71 @@ export class VideoSample {
         return { sx, sy, sWidth, sHeight };
     }
     /**
+     * Draws the sample onto the target canvas with fit behavior, manually mipmapping on strong downscales for quality.
+     * @internal
+     */
+    _drawWithFitAndMipmapping(targetCanvas, targetContext, options) {
+        const targetWidth = targetCanvas.width;
+        const targetHeight = targetCanvas.height;
+        const [rotatedWidth, rotatedHeight] = options.rotation % 180 === 0
+            ? [this.squarePixelWidth, this.squarePixelHeight]
+            : [this.squarePixelHeight, this.squarePixelWidth];
+        const sourceWidth = options.crop ? options.crop.width : rotatedWidth;
+        const sourceHeight = options.crop ? options.crop.height : rotatedHeight;
+        // Once we downscale by more than 2x, bilinear filtering starts skipping pixels and the result aliases. So in
+        // that case, we do manual mipmapping: draw at a larger size first, then iteratively halve the image until we
+        // arrive at the target size. Sucks that we have to do this honestly, but imageSmoothingQuality is very flaky -
+        // some resources are just not mipmapped in the browser and thus always fall back to bilinear downsampling.
+        let mipLevels = 0;
+        if (2 * targetWidth < sourceWidth && 2 * targetHeight < sourceHeight) {
+            mipLevels = Math.floor(Math.log2(Math.min(sourceWidth / targetWidth, sourceHeight / targetHeight)));
+        }
+        const drawWidth = targetWidth * 2 ** mipLevels;
+        const drawHeight = targetHeight * 2 ** mipLevels;
+        const { canvas, context, isNew } = mipLevels > 0
+            ? getTransformationCanvas(drawWidth, drawHeight)
+            : { canvas: targetCanvas, context: targetContext, isNew: options.targetIsFresh };
+        context.imageSmoothingQuality = 'high';
+        if (options.fillBlack) {
+            context.fillStyle = 'black';
+            context.fillRect(0, 0, drawWidth, drawHeight);
+        }
+        else if (!isNew) {
+            // Reused canvases carry stale pixels from a prior draw
+            context.clearRect(0, 0, drawWidth, drawHeight);
+        }
+        this.drawWithFit(context, {
+            fit: options.fit,
+            rotation: options.rotation,
+            flip: options.flip,
+            crop: options.crop,
+        });
+        // Walk down the mip chain by repeatedly drawing the canvas onto itself at half size. The 'copy' composite
+        // operation makes sure pixels get replaced instead of blended with what's already there.
+        context.globalCompositeOperation = 'copy';
+        for (let i = mipLevels; i > 1; i--) {
+            const levelWidth = targetWidth * 2 ** i;
+            const levelHeight = targetHeight * 2 ** i;
+            context.drawImage(canvas, 0, 0, levelWidth, levelHeight, 0, 0, levelWidth / 2, levelHeight / 2);
+        }
+        context.globalCompositeOperation = 'source-over';
+        if (mipLevels > 0) {
+            // We'd love to skip this step and hand over the oversized mip canvas cropped with visibleRect, but sadly,
+            // all browsers ignore a frame's visibleRect when encoding it and consume the full coded frame instead
+            // (violating the WebCodecs spec, I think? See https://issues.chromium.org/issues/543284189). So, the result
+            // must live on a canvas of exactly the target size, which is why the last halving step draws onto the
+            // target canvas directly. 'copy' also conveniently disposes of any stale pixels there.
+            targetContext.imageSmoothingQuality = 'high';
+            targetContext.globalCompositeOperation = 'copy';
+            targetContext.drawImage(canvas, 0, 0, 2 * targetWidth, 2 * targetHeight, 0, 0, targetWidth, targetHeight);
+            targetContext.globalCompositeOperation = 'source-over';
+        }
+    }
+    /**
      * Converts this video sample to a
      * [`CanvasImageSource`](https://udn.realityripple.com/docs/Web/API/CanvasImageSource) for drawing to a canvas.
      *
-     * You must use the value returned by this method immediately, as any VideoFrame created internally will
+     * You must use the value returned by this method immediately, as any VideoFrame created internally may
      * automatically be closed in the next microtask.
      */
     toCanvasImageSource() {
@@ -673,7 +1131,7 @@ export class VideoSample {
             throw new Error('VideoSample is closed.');
         }
         assert(this._data !== null);
-        if (this._data instanceof Uint8Array) {
+        if (this._data instanceof VideoSampleResource || this._data instanceof Uint8Array) {
             // Requires VideoFrame to be defined
             const videoFrame = this.toVideoFrame();
             queueMicrotask(() => videoFrame.close()); // Let's automatically close the frame in the next microtask
@@ -683,6 +1141,121 @@ export class VideoSample {
             return this._data;
         }
     }
+    /**
+     * Transform this video sample to a new video sample given the options. Can be used to resize, rotate, flip, and
+     * crop the sample.
+     *
+     * In non-browser environments, this method will not work by default. To make it work, register a custom
+     * transformer function via {@link registerVideoSampleTransformer}.
+     */
+    async transform(options) {
+        if (!options || typeof options !== 'object') {
+            throw new TypeError('options must be an object.');
+        }
+        if (options.width !== undefined && (!Number.isInteger(options.width) || options.width <= 0)) {
+            throw new TypeError('options.width, when provided, must be a positive integer.');
+        }
+        if (options.height !== undefined && (!Number.isInteger(options.height) || options.height <= 0)) {
+            throw new TypeError('options.height, when provided, must be a positive integer.');
+        }
+        if (options.roundDimensionsTo !== undefined
+            && (!Number.isInteger(options.roundDimensionsTo) || options.roundDimensionsTo <= 0)) {
+            throw new TypeError('options.roundDimensionsTo, when provided, must be a positive integer.');
+        }
+        if (options.fit !== undefined && !['fill', 'contain', 'cover'].includes(options.fit)) {
+            throw new TypeError('options.fit, when provided, must be one of "fill", "contain", or "cover".');
+        }
+        if (options.width !== undefined
+            && options.height !== undefined
+            && options.fit === undefined) {
+            throw new TypeError('When both options.width and options.height are provided, options.fit must also be provided.');
+        }
+        if (options.rotate !== undefined && ![0, 90, 180, 270].includes(options.rotate)) {
+            throw new TypeError('options.rotate, when provided, must be 0, 90, 180 or 270.');
+        }
+        if (options.flip !== undefined && typeof options.flip !== 'boolean') {
+            throw new TypeError('options.flip, when provided, must be a boolean.');
+        }
+        if (options.crop !== undefined) {
+            validateCropRectangle(options.crop, 'options.');
+        }
+        if (options.alpha !== undefined && !['keep', 'discard'].includes(options.alpha)) {
+            throw new TypeError('options.alpha, when provided, must be \'keep\' or \'discard\'.');
+        }
+        const { rotation, flip } = composeRotationAndFlip(this.rotation, this.flip, options.rotate ?? 0, options.flip ?? false);
+        const [rotatedWidth, rotatedHeight] = rotation % 180 === 0
+            ? [this.squarePixelWidth, this.squarePixelHeight]
+            : [this.squarePixelHeight, this.squarePixelWidth];
+        // Clamp crop rectangle to the rotated video dimensions
+        let finalCrop = options.crop;
+        if (finalCrop) {
+            finalCrop = clampCropRectangle(finalCrop, rotatedWidth, rotatedHeight);
+        }
+        const cropWidth = finalCrop ? finalCrop.width : rotatedWidth;
+        const cropHeight = finalCrop ? finalCrop.height : rotatedHeight;
+        const originalAspectRatio = cropWidth / cropHeight;
+        let targetWidth;
+        let targetHeight;
+        if (options.width !== undefined && options.height === undefined) {
+            targetWidth = options.width;
+            targetHeight = targetWidth / originalAspectRatio;
+        }
+        else if (options.width === undefined && options.height !== undefined) {
+            targetHeight = options.height;
+            targetWidth = targetHeight * originalAspectRatio;
+        }
+        else if (options.width !== undefined && options.height !== undefined) {
+            targetWidth = options.width;
+            targetHeight = options.height;
+        }
+        else {
+            targetWidth = cropWidth;
+            targetHeight = cropHeight;
+        }
+        targetWidth = roundToMultiple(targetWidth, options.roundDimensionsTo ?? 1);
+        targetHeight = roundToMultiple(targetHeight, options.roundDimensionsTo ?? 1);
+        const description = {
+            width: targetWidth,
+            height: targetHeight,
+            fit: options.fit ?? 'fill',
+            rotation,
+            flip,
+            crop: finalCrop ?? {
+                left: 0,
+                top: 0,
+                width: rotatedWidth,
+                height: rotatedHeight,
+            },
+            alpha: options.alpha ?? 'keep',
+        };
+        // Description's finalized; let's see if a registered transformer wants to handle it
+        for (const transformer of registeredVideoSampleTransformers) {
+            let result = transformer(this, description);
+            if (isThenable(result))
+                result = await result;
+            if (result !== null) {
+                return result;
+            }
+        }
+        // We need to handle it ourselves, and we use canvases to do it
+        const { canvas, context, isNew } = getTransformationCanvas(description.width, description.height);
+        this._drawWithFitAndMipmapping(canvas, context, {
+            fit: description.fit,
+            rotation: description.rotation,
+            flip: description.flip,
+            crop: description.crop,
+            targetIsFresh: isNew,
+            fillBlack: description.alpha === 'discard',
+        });
+        return new VideoSample(canvas, {
+            timestamp: this.timestamp,
+            duration: this.duration,
+            // Any previous rotation and flip are now baked in
+            rotation: 0,
+            flip: false,
+            encodeOptions: this.encodeOptions,
+        });
+    }
     /** Sets the rotation metadata of this video sample. */
     setRotation(newRotation) {
         if (![0, 90, 180, 270].includes(newRotation)) {
@@ -690,6 +1263,14 @@ export class VideoSample {
         }
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
         this.rotation = newRotation;
+    }
+    /** Sets the flip metadata of this video sample. */
+    setFlip(newFlip) {
+        if (typeof newFlip !== 'boolean') {
+            throw new TypeError('newFlip must be a boolean.');
+        }
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        this.flip = newFlip;
     }
     /** Sets the presentation timestamp of this video sample, in seconds. */
     setTimestamp(newTimestamp) {
@@ -707,11 +1288,74 @@ export class VideoSample {
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
         this.duration = newDuration;
     }
+    /** Sets the encode options used when this sample is passed to an encoder. */
+    setEncodeOptions(newEncodeOptions) {
+        if (!newEncodeOptions || typeof newEncodeOptions !== 'object') {
+            throw new TypeError('newEncodeOptions must be an object.');
+        }
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        this.encodeOptions = newEncodeOptions;
+    }
     /** Calls `.close()`. */
     [Symbol.dispose]() {
         this.close();
     }
 }
+const registeredVideoSampleTransformers = [];
+/**
+ * Registers a callback to handle the transformation of {@link VideoSample} instances. The callback can either return
+ * the transformed sample, or `null` to indicate that it doesn't want to handle the given transformation task.
+ * @group Samples
+ * @public
+ */
+export const registerVideoSampleTransformer = (transformer) => {
+    if (registeredVideoSampleTransformers.includes(transformer)) {
+        return; // Already in there
+    }
+    registeredVideoSampleTransformers.push(transformer);
+};
+const TRANSFORMATION_CANVAS_CACHE_MAX_SIZE = 3;
+const transformationCanvasCache = [];
+let transformationCanvasCacheNextAge = 0;
+const getTransformationCanvas = (width, height) => {
+    for (const entry of transformationCanvasCache) {
+        if (entry.canvas.width === width && entry.canvas.height === height) {
+            entry.age = transformationCanvasCacheNextAge++;
+            return { canvas: entry.canvas, context: entry.context, isNew: false };
+        }
+    }
+    let canvas;
+    if (typeof OffscreenCanvas !== 'undefined') {
+        canvas = new OffscreenCanvas(width, height);
+    }
+    else {
+        if (typeof window === 'undefined' || typeof document === 'undefined') {
+            throw new Error('Cannot transform VideoSamples in this environment. Either run in an environment with'
+                + ' OffscreenCanvas or HTMLCanvasElement, or supply a custom VideoSample transformer using'
+                + ' registerVideoSampleTransformer().');
+        }
+        canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+    }
+    const context = canvas.getContext('2d', {
+        alpha: true,
+        willReadFrequently: false,
+    });
+    if (!context) {
+        throw new Error('The \'2d\' canvas context is required to transform VideoSamples. Register a custom transformer using'
+            + ' registerVideoSampleTransformer to work around this limitation.');
+    }
+    if (transformationCanvasCache.length >= TRANSFORMATION_CANVAS_CACHE_MAX_SIZE) {
+        transformationCanvasCache.splice(arrayArgmin(transformationCanvasCache, x => x.age), 1);
+    }
+    transformationCanvasCache.push({
+        canvas,
+        context,
+        age: transformationCanvasCacheNextAge++,
+    });
+    return { canvas, context, isNew: true };
+};
 /**
  * Describes the color space of a {@link VideoSample}. Corresponds to the WebCodecs API's VideoColorSpace.
  * @group Samples
@@ -759,12 +1403,13 @@ const isVideoFrame = (x) => {
     return typeof VideoFrame !== 'undefined' && x instanceof VideoFrame;
 };
 export const clampCropRectangle = (crop, outerWidth, outerHeight) => {
-    crop.left = Math.min(crop.left, outerWidth);
-    crop.top = Math.min(crop.top, outerHeight);
-    crop.width = Math.min(crop.width, outerWidth - crop.left);
-    crop.height = Math.min(crop.height, outerHeight - crop.top);
-    assert(crop.width >= 0);
-    assert(crop.height >= 0);
+    const left = Math.min(crop.left, outerWidth);
+    const top = Math.min(crop.top, outerHeight);
+    const width = Math.min(crop.width, outerWidth - left);
+    const height = Math.min(crop.height, outerHeight - top);
+    assert(width >= 0);
+    assert(height >= 0);
+    return { left, top, width, height };
 };
 export const validateCropRectangle = (crop, prefix) => {
     if (!crop || typeof crop !== 'object') {
@@ -781,6 +1426,12 @@ export const validateCropRectangle = (crop, prefix) => {
     }
     if (!Number.isInteger(crop.height) || crop.height < 0) {
         throw new TypeError(prefix + 'crop.height must be a non-negative integer.');
+    }
+};
+const validateVisibleRect = (visibleRect) => {
+    validateRectangle(visibleRect, 'init.visibleRect');
+    if (visibleRect.width === 0 || visibleRect.height === 0) {
+        throw new TypeError('init.visibleRect must not be empty.');
     }
 };
 const validateVideoFrameCopyToOptions = (options) => {
@@ -848,7 +1499,7 @@ const createDefaultPlaneLayout = (format, codedWidth, codedHeight) => {
     return layouts;
 };
 /** Helper to retrieve plane configurations based on WebCodecs § 9.8 Pixel Format definitions. */
-const getPlaneConfigs = (format) => {
+export const getPlaneConfigs = (format) => {
     // Helper for standard YUV planes
     const yuv = (yBytes, uvBytes, subX, subY, hasAlpha) => {
         const configs = [
@@ -910,7 +1561,199 @@ const getPlaneConfigs = (format) => {
             assert(false);
     }
 };
+/** Taken from the WebCodecs spec. */
+const ParseVideoFrameCopyToOptions = (sample, options) => {
+    // 1. Let defaultRect be the result of performing the getter steps for visibleRect.
+    const defaultRect = {
+        x: sample.visibleRect.left,
+        y: sample.visibleRect.top,
+        width: sample.visibleRect.width,
+        height: sample.visibleRect.height,
+    };
+    // 2. Let overrideRect be undefined.
+    // 3. If options.rect exists, assign the value of options.rect to overrideRect.
+    const overrideRect = options.rect;
+    // 4. Let parsedRect be the result of running the Parse Visible Rect algorithm...
+    const parsedRect = ParseVisibleRect(defaultRect, overrideRect, 
+    // The true coded size isn't known, but it's at least large enough to contain the visible rect
+    sample.visibleRect.left + sample.visibleRect.width, sample.visibleRect.top + sample.visibleRect.height, sample.format);
+    // 5. If parsedRect is an exception, return parsedRect. (Handled by throw)
+    // 6. Let optLayout be undefined.
+    // 7. If options.layout exists, assign its value to optLayout.
+    const optLayout = options.layout;
+    // 8. Let format be undefined.
+    let format;
+    // 9. If options.format does not exist, assign [[format]] to format.
+    if (!options.format || options.format === sample.format) {
+        format = sample.format;
+    }
+    else if (['RGBA', 'RGBX', 'BGRA', 'BGRX'].includes(options.format)) {
+        // 10. Otherwise, if options.format is equal to one of RGBA, RGBX, BGRA, BGRX, then assign options.format
+        //  to format...
+        format = options.format;
+    }
+    else {
+        throw new Error('NotSupportedError: Invalid destination format.');
+    }
+    // 11. Let combinedLayout be the result of running the Compute Layout and Allocation Size algorithm...
+    return ComputeLayoutAndAllocationSize(parsedRect, format, optLayout);
+};
+/** Taken from the WebCodecs spec. */
+const ParseVisibleRect = (defaultRect, overrideRect, codedWidth, codedHeight, format) => {
+    // 1. Let sourceRect be defaultRect
+    const sourceRect = { ...defaultRect };
+    // 2. If overrideRect is not undefined:
+    if (overrideRect !== undefined) {
+        // If either of overrideRect.width or height is 0, return a TypeError. (They default to 0 when missing)
+        if (!overrideRect.width || !overrideRect.height) {
+            throw new TypeError('visibleRect dimensions cannot be zero.');
+        }
+        // If the sum of overrideRect.x and overrideRect.width is greater than codedWidth, return a TypeError.
+        if ((overrideRect.x || 0) + (overrideRect.width || 0) > codedWidth) {
+            throw new TypeError('visibleRect exceeds codedWidth.');
+        }
+        // If the sum of overrideRect.y and overrideRect.height is greater than codedHeight, return a TypeError.
+        if ((overrideRect.y || 0) + (overrideRect.height || 0) > codedHeight) {
+            throw new TypeError('visibleRect exceeds codedHeight.');
+        }
+        // Assign overrideRect to sourceRect.
+        sourceRect.x = overrideRect.x || 0;
+        sourceRect.y = overrideRect.y || 0;
+        sourceRect.width = overrideRect.width || 0;
+        sourceRect.height = overrideRect.height || 0;
+    }
+    // 3. Let validAlignment be the result of running the Verify Rect Offset Alignment algorithm.
+    const validAlignment = VerifyRectOffsetAlignment(format, sourceRect);
+    // 4. If validAlignment is false, throw a TypeError.
+    if (!validAlignment) {
+        throw new TypeError('visibleRect alignment is invalid for the format.');
+    }
+    // 5. Return sourceRect.
+    return sourceRect;
+};
+/** Taken from the WebCodecs spec. */
+const VerifyRectOffsetAlignment = (format, rect) => {
+    // 1. If format is null, return true.
+    if (format === null)
+        return true;
+    const planes = getPlaneConfigs(format);
+    // 2. Let planeIndex be 0.
+    // 3. Let numPlanes be the number of planes as defined by format.
+    // 4. While planeIndex is less than numPlanes:
+    for (let planeIndex = 0; planeIndex < planes.length; planeIndex++) {
+        const plane = planes[planeIndex];
+        const sampleWidth = plane.widthDivisor;
+        const sampleHeight = plane.heightDivisor;
+        // If rect.x is not a multiple of sampleWidth, return false.
+        if ((rect.x || 0) % sampleWidth !== 0)
+            return false;
+        // If rect.y is not a multiple of sampleHeight, return false.
+        if ((rect.y || 0) % sampleHeight !== 0)
+            return false;
+    }
+    return true;
+};
+/** Taken from the WebCodecs spec. */
+const ComputeLayoutAndAllocationSize = (parsedRect, format, layout) => {
+    const planes = getPlaneConfigs(format);
+    // 1. Let numPlanes be the number of planes as defined by format.
+    const numPlanes = planes.length;
+    // 2. If layout is not undefined and its length does not equal numPlanes, throw a TypeError.
+    if (layout !== undefined && layout.length !== numPlanes) {
+        throw new TypeError(`Layout must have ${numPlanes} planes.`);
+    }
+    // 3. Let minAllocationSize be 0.
+    let minAllocationSize = 0;
+    // 4. Let computedLayouts be a new list.
+    const computedLayouts = [];
+    // 5. Let endOffsets be a new list.
+    const endOffsets = [];
+    // 6. Let planeIndex be 0.
+    // 7. While planeIndex < numPlanes:
+    for (let planeIndex = 0; planeIndex < numPlanes; planeIndex++) {
+        const plane = planes[planeIndex];
+        const sampleBytes = plane.sampleBytes;
+        const sampleWidth = plane.widthDivisor;
+        const sampleHeight = plane.heightDivisor;
+        // Let computedLayout be a new computed plane layout.
+        const computedLayout = {
+            destinationOffset: 0,
+            destinationStride: 0,
+            sourceTop: 0,
+            sourceHeight: 0,
+            sourceLeftBytes: 0,
+            sourceWidthBytes: 0,
+        };
+        // Set computedLayout’s sourceTop...
+        computedLayout.sourceTop = Math.ceil(Math.trunc(parsedRect.y || 0) / sampleHeight);
+        // Set computedLayout’s sourceHeight...
+        computedLayout.sourceHeight = Math.ceil(Math.trunc(parsedRect.height || 0) / sampleHeight);
+        // Set computedLayout’s sourceLeftBytes...
+        computedLayout.sourceLeftBytes = Math.floor(Math.trunc(parsedRect.x || 0) / sampleWidth) * sampleBytes;
+        // Set computedLayout’s sourceWidthBytes...
+        computedLayout.sourceWidthBytes = Math.ceil(Math.trunc(parsedRect.width || 0) / sampleWidth) * sampleBytes;
+        // If layout is not undefined:
+        if (layout !== undefined) {
+            const planeLayout = layout[planeIndex];
+            // If planeLayout.stride is less than computedLayout’s sourceWidthBytes, return a TypeError.
+            if (planeLayout.stride < computedLayout.sourceWidthBytes) {
+                throw new TypeError(`Stride for plane ${planeIndex} is too small.`);
+            }
+            // Assign planeLayout.offset to computedLayout’s destinationOffset.
+            computedLayout.destinationOffset = planeLayout.offset;
+            // Assign planeLayout.stride to computedLayout’s destinationStride.
+            computedLayout.destinationStride = planeLayout.stride;
+        }
+        else {
+            // Otherwise:
+            // Assign minAllocationSize to computedLayout’s destinationOffset.
+            computedLayout.destinationOffset = minAllocationSize;
+            // Assign computedLayout’s sourceWidthBytes to computedLayout’s destinationStride.
+            computedLayout.destinationStride = computedLayout.sourceWidthBytes;
+        }
+        // Let planeSize be the product of multiplying computedLayout’s destinationStride and sourceHeight.
+        const planeSize = computedLayout.destinationStride * computedLayout.sourceHeight;
+        // Let planeEnd be the sum of planeSize and computedLayout’s destinationOffset.
+        const planeEnd = planeSize + computedLayout.destinationOffset;
+        // If planeSize or planeEnd is greater than maximum range of unsigned long, return a TypeError.
+        if (planeEnd > 4294967295) {
+            throw new TypeError('Allocation size exceeds limit.');
+        }
+        // Append planeEnd to endOffsets.
+        endOffsets.push(planeEnd);
+        // Assign the maximum of minAllocationSize and planeEnd to minAllocationSize.
+        minAllocationSize = Math.max(minAllocationSize, planeEnd);
+        // Check for overlap
+        for (let earlierPlaneIndex = 0; earlierPlaneIndex < planeIndex; earlierPlaneIndex++) {
+            const earlierLayout = computedLayouts[earlierPlaneIndex];
+            // If plane A ends before plane B starts, they do not overlap.
+            if (endOffsets[planeIndex] <= earlierLayout.destinationOffset
+                || endOffsets[earlierPlaneIndex] <= computedLayout.destinationOffset) {
+                continue;
+            }
+            throw new TypeError('Planes overlap.');
+        }
+        computedLayouts.push(computedLayout);
+    }
+    // 12. Return combinedLayout.
+    return {
+        allocationSize: minAllocationSize,
+        computedLayouts: computedLayouts,
+    };
+};
 const AUDIO_SAMPLE_FORMATS = new Set(['f32', 'f32-planar', 's16', 's16-planar', 's32', 's32-planar', 'u8', 'u8-planar']);
+/**
+ * Abstract base class for custom audio sample resources. Implement this class to provide custom backing
+ * for AudioSample instances.
+ * @group Samples
+ * @public
+ */
+export class AudioSampleResource {
+    constructor() {
+        /** @internal */
+        this._referenceCount = 0;
+    }
+}
 /**
  * Represents a raw, unencoded audio sample. Mainly used as an expressive wrapper around WebCodecs API's
  * [`AudioData`](https://developer.mozilla.org/en-US/docs/Web/API/AudioData), but can also be used standalone.
@@ -926,11 +1769,6 @@ export class AudioSample {
     get microsecondDuration() {
         return Math.trunc(SECOND_TO_MICROSECOND_FACTOR * this.duration);
     }
-    /**
-     * Creates a new {@link AudioSample}, either from an existing
-     * [`AudioData`](https://developer.mozilla.org/en-US/docs/Web/API/AudioData) or from raw bytes specified in
-     * {@link AudioSampleInit}.
-     */
     constructor(init) {
         /** @internal */
         this._closed = false;
@@ -946,6 +1784,31 @@ export class AudioSample {
             this.timestamp = init.timestamp / 1e6;
             this.duration = init.numberOfFrames / init.sampleRate;
         }
+        else if (init instanceof AudioSampleResource) {
+            this.format = init.getFormat();
+            if (!AUDIO_SAMPLE_FORMATS.has(this.format)) {
+                throw new TypeError('getFormat() must return an AudioSampleFormat.');
+            }
+            this.sampleRate = init.getSampleRate();
+            if (!Number.isInteger(this.sampleRate) || this.sampleRate <= 0) {
+                throw new TypeError('getSampleRate() must return a positive integer.');
+            }
+            this.numberOfFrames = init.getNumberOfFrames();
+            if (!Number.isInteger(this.numberOfFrames) || this.numberOfFrames < 0) {
+                throw new TypeError('getNumberOfFrames() must return a non-negative integer.');
+            }
+            this.numberOfChannels = init.getNumberOfChannels();
+            if (!Number.isInteger(this.numberOfChannels) || this.numberOfChannels <= 0) {
+                throw new TypeError('getNumberOfChannels() must return a positive integer.');
+            }
+            this.timestamp = init.getTimestamp();
+            if (!Number.isFinite(this.timestamp)) {
+                throw new TypeError('getTimestamp() must return a finite number.');
+            }
+            this.duration = this.numberOfFrames / this.sampleRate;
+            this._data = init;
+            init._referenceCount++;
+        }
         else {
             if (!init || typeof init !== 'object') {
                 throw new TypeError('Invalid AudioDataInit: must be an object.');
@@ -956,7 +1819,7 @@ export class AudioSample {
             if (!Number.isFinite(init.sampleRate) || init.sampleRate <= 0) {
                 throw new TypeError('Invalid AudioDataInit: sampleRate must be > 0.');
             }
-            if (!Number.isInteger(init.numberOfChannels) || init.numberOfChannels === 0) {
+            if (!Number.isInteger(init.numberOfChannels) || init.numberOfChannels <= 0) {
                 throw new TypeError('Invalid AudioDataInit: numberOfChannels must be an integer > 0.');
             }
             if (!Number.isFinite(init?.timestamp)) {
@@ -973,7 +1836,8 @@ export class AudioSample {
             this.timestamp = init.timestamp;
             this.duration = numberOfFrames / init.sampleRate;
             let dataBuffer;
-            if (init.data instanceof ArrayBuffer) {
+            if (init.data instanceof ArrayBuffer
+                || (typeof SharedArrayBuffer !== 'undefined' && init.data instanceof SharedArrayBuffer)) {
                 dataBuffer = new Uint8Array(init.data);
             }
             else if (ArrayBuffer.isView(init.data)) {
@@ -986,7 +1850,9 @@ export class AudioSample {
             if (dataBuffer.byteLength < expectedSize) {
                 throw new TypeError('Invalid AudioDataInit: insufficient data size.');
             }
-            this._data = dataBuffer;
+            this._data = init._doNotCopy
+                ? dataBuffer
+                : dataBuffer.slice(); // Copy it
         }
         finalizationRegistry?.register(this, { type: 'audio', data: this._data }, this);
     }
@@ -1011,8 +1877,9 @@ export class AudioSample {
             throw new Error('AudioSample is closed.');
         }
         const destFormat = options.format ?? this.format;
+        // Offset 0 is always in range, so that an empty sample can be copied too
         const frameOffset = options.frameOffset ?? 0;
-        if (frameOffset >= this.numberOfFrames) {
+        if (frameOffset > 0 && frameOffset >= this.numberOfFrames) {
             throw new RangeError('frameOffset out of range');
         }
         const copyFrameCount = options.frameCount !== undefined ? options.frameCount : (this.numberOfFrames - frameOffset);
@@ -1053,15 +1920,17 @@ export class AudioSample {
         if (this._closed) {
             throw new Error('AudioSample is closed.');
         }
-        const { planeIndex, format, frameCount: optFrameCount, frameOffset: optFrameOffset } = options;
-        const srcFormat = this.format;
+        const { format, frameCount: optFrameCount, frameOffset: optFrameOffset } = options;
+        let { planeIndex } = options;
+        let srcFormat = this.format;
         const destFormat = format ?? this.format;
         if (!destFormat)
             throw new Error('Destination format not determined');
         const numFrames = this.numberOfFrames;
         const numChannels = this.numberOfChannels;
+        // Offset 0 is always in range, so that an empty sample can be copied too
         const frameOffset = optFrameOffset ?? 0;
-        if (frameOffset >= numFrames) {
+        if (frameOffset > 0 && frameOffset >= numFrames) {
             throw new RangeError('frameOffset out of range');
         }
         const copyFrameCount = optFrameCount !== undefined ? optFrameCount : (numFrames - frameOffset);
@@ -1087,51 +1956,123 @@ export class AudioSample {
             if (isWebKit() && numChannels > 2 && destFormat !== srcFormat) {
                 // WebKit bug workaround
                 doAudioDataCopyToWebKitWorkaround(this._data, destView, srcFormat, destFormat, numChannels, planeIndex, frameOffset, copyFrameCount);
+                return;
             }
             else {
-                // Per spec, only f32-planar conversion must be supported, but in practice, all browsers support all
-                // destination formats, so let's just delegate here:
-                this._data.copyTo(destination, {
-                    planeIndex,
-                    frameOffset,
-                    frameCount: copyFrameCount,
-                    format: destFormat,
-                });
+                try {
+                    // The spec only requires f32-planar to work here, but most of the time, all formats work. Sometimes
+                    // they don't, and that's why we try-catch it.
+                    this._data.copyTo(destination, {
+                        planeIndex,
+                        frameOffset,
+                        frameCount: copyFrameCount,
+                        format: destFormat,
+                    });
+                    return;
+                }
+                catch (error) {
+                    if (destFormat === 'f32-planar') {
+                        throw error;
+                    }
+                    // Format conversion likely wasn't supported, so let's fall back to the manual conversion path
+                    srcFormat = 'f32-planar';
+                }
             }
         }
-        else {
-            const uint8Data = this._data;
-            const srcView = toDataView(uint8Data);
-            const readFn = getReadFunction(srcFormat);
-            const srcBytesPerSample = getBytesPerSample(srcFormat);
-            const srcIsPlanar = formatIsPlanar(srcFormat);
-            for (let i = 0; i < copyFrameCount; i++) {
+        const readFn = getReadFunction(srcFormat);
+        const srcBytesPerSample = getBytesPerSample(srcFormat);
+        const srcIsPlanar = formatIsPlanar(srcFormat);
+        let uint8Data;
+        if (this._data instanceof AudioSampleResource) {
+            const getDataPlaneValidated = (index) => {
+                const result = this._data.getDataPlane(index);
+                if (!(result instanceof Uint8Array)) {
+                    throw new TypeError('getDataPlane() must return a Uint8Array.');
+                }
+                const expectedSize = numFrames * srcBytesPerSample * (srcIsPlanar ? 1 : numChannels);
+                if (result.byteLength !== expectedSize) {
+                    throw new TypeError(`Data plane ${index} has invalid size. Expected exactly ${expectedSize} bytes, got`
+                        + ` ${result.byteLength} bytes.`);
+                }
+                return result;
+            };
+            if (srcIsPlanar) {
                 if (destIsPlanar) {
-                    const destOffset = i * destBytesPerSample;
+                    // Only one source plane will be extracted, so let's fetch only that one
+                    uint8Data = getDataPlaneValidated(planeIndex);
+                    planeIndex = 0; // To fix the subsequent access
+                }
+                else {
+                    // Pack all planes tightly together
+                    uint8Data = new Uint8Array(numFrames * srcBytesPerSample * numChannels);
+                    for (let ch = 0; ch < numChannels; ch++) {
+                        const planeData = getDataPlaneValidated(ch);
+                        uint8Data.set(planeData, ch * numFrames * srcBytesPerSample);
+                    }
+                }
+            }
+            else {
+                uint8Data = getDataPlaneValidated(0); // That's the only plane there is
+            }
+        }
+        else if (this._data instanceof Uint8Array) {
+            uint8Data = this._data;
+        }
+        else {
+            assert(srcFormat === 'f32-planar');
+            if (destIsPlanar) {
+                // Only one source plane will be read, so let's copy only that one
+                uint8Data = new Uint8Array(this._data.allocationSize({
+                    format: 'f32-planar',
+                    planeIndex,
+                }));
+                this._data.copyTo(uint8Data, {
+                    format: 'f32-planar',
+                    planeIndex,
+                });
+                planeIndex = 0; // To fix the subsequent access
+            }
+            else {
+                // All planes will be read, so fetch 'em all
+                uint8Data = new Uint8Array(this._data.allocationSize({
+                    format: 'f32-planar',
+                    planeIndex: 0,
+                }) * numChannels);
+                for (let ch = 0; ch < numChannels; ch++) {
+                    this._data.copyTo(uint8Data.subarray(ch * numFrames * srcBytesPerSample, (ch + 1) * numFrames * srcBytesPerSample), {
+                        format: 'f32-planar',
+                        planeIndex: ch,
+                    });
+                }
+            }
+        }
+        const srcView = toDataView(uint8Data);
+        for (let i = 0; i < copyFrameCount; i++) {
+            if (destIsPlanar) {
+                const destOffset = i * destBytesPerSample;
+                let srcOffset;
+                if (srcIsPlanar) {
+                    srcOffset = (planeIndex * numFrames + (i + frameOffset)) * srcBytesPerSample;
+                }
+                else {
+                    srcOffset = (((i + frameOffset) * numChannels) + planeIndex) * srcBytesPerSample;
+                }
+                const normalized = readFn(srcView, srcOffset);
+                writeFn(destView, destOffset, normalized);
+            }
+            else {
+                for (let ch = 0; ch < numChannels; ch++) {
+                    const destIndex = i * numChannels + ch;
+                    const destOffset = destIndex * destBytesPerSample;
                     let srcOffset;
                     if (srcIsPlanar) {
-                        srcOffset = (planeIndex * numFrames + (i + frameOffset)) * srcBytesPerSample;
+                        srcOffset = (ch * numFrames + (i + frameOffset)) * srcBytesPerSample;
                     }
                     else {
-                        srcOffset = (((i + frameOffset) * numChannels) + planeIndex) * srcBytesPerSample;
+                        srcOffset = (((i + frameOffset) * numChannels) + ch) * srcBytesPerSample;
                     }
                     const normalized = readFn(srcView, srcOffset);
                     writeFn(destView, destOffset, normalized);
-                }
-                else {
-                    for (let ch = 0; ch < numChannels; ch++) {
-                        const destIndex = i * numChannels + ch;
-                        const destOffset = destIndex * destBytesPerSample;
-                        let srcOffset;
-                        if (srcIsPlanar) {
-                            srcOffset = (ch * numFrames + (i + frameOffset)) * srcBytesPerSample;
-                        }
-                        else {
-                            srcOffset = (((i + frameOffset) * numChannels) + ch) * srcBytesPerSample;
-                        }
-                        const normalized = readFn(srcView, srcOffset);
-                        writeFn(destView, destOffset, normalized);
-                    }
                 }
             }
         }
@@ -1141,9 +2082,14 @@ export class AudioSample {
         if (this._closed) {
             throw new Error('AudioSample is closed.');
         }
-        if (isAudioData(this._data)) {
+        if (this._data instanceof AudioSampleResource) {
+            const sample = new AudioSample(this._data);
+            sample.setTimestamp(this.timestamp); // Make sure the timestamp is correct
+            return sample;
+        }
+        else if (isAudioData(this._data)) {
             const sample = new AudioSample(this._data.clone());
-            sample.setTimestamp(this.timestamp); // Make sure the timestamp is precise (beyond microsecond accuracy)
+            sample.setTimestamp(this.timestamp);
             return sample;
         }
         else {
@@ -1154,8 +2100,73 @@ export class AudioSample {
                 numberOfChannels: this.numberOfChannels,
                 timestamp: this.timestamp,
                 data: this._data,
+                // It's already been copied, if we copy it again we make the clone unnecessarily expensive
+                _doNotCopy: true,
             });
         }
+    }
+    /**
+     * Returns a new {@link AudioSample} containing only the frames in the range [startFrame, endFrame). Both bounds
+     * must lie within this sample's range of frames. The returned sample's timestamp is shifted to match the start of
+     * the trimmed section.
+     */
+    trim(startFrame, endFrame = this.numberOfFrames) {
+        if (!Number.isInteger(startFrame) || startFrame < 0) {
+            throw new TypeError('startFrame must be a non-negative integer.');
+        }
+        if (!Number.isInteger(endFrame) || endFrame < 0) {
+            throw new TypeError('endFrame must be a non-negative integer.');
+        }
+        if (startFrame > this.numberOfFrames) {
+            throw new RangeError('startFrame out of range.');
+        }
+        if (endFrame > this.numberOfFrames) {
+            throw new RangeError('endFrame out of range.');
+        }
+        if (endFrame < startFrame) {
+            throw new RangeError('endFrame must not be less than startFrame.');
+        }
+        if (this._closed) {
+            throw new Error('AudioSample is closed.');
+        }
+        const frameCount = endFrame - startFrame;
+        const bytesPerSample = getBytesPerSample(this.format);
+        let data;
+        if (formatIsPlanar(this.format)) {
+            const planeSize = frameCount * bytesPerSample;
+            data = new Uint8Array(planeSize * this.numberOfChannels);
+            if (frameCount > 0) {
+                // Copy plane-by-plane
+                for (let i = 0; i < this.numberOfChannels; i++) {
+                    this.copyTo(data.subarray(i * planeSize, (i + 1) * planeSize), {
+                        planeIndex: i,
+                        format: this.format,
+                        frameOffset: startFrame,
+                        frameCount,
+                    });
+                }
+            }
+        }
+        else {
+            // Trivial
+            data = new Uint8Array(frameCount * this.numberOfChannels * bytesPerSample);
+            if (frameCount > 0) {
+                this.copyTo(data, {
+                    planeIndex: 0,
+                    format: this.format,
+                    frameOffset: startFrame,
+                    frameCount,
+                });
+            }
+        }
+        return new AudioSample({
+            data,
+            format: this.format,
+            sampleRate: this.sampleRate,
+            numberOfChannels: this.numberOfChannels,
+            timestamp: this.timestamp + startFrame / this.sampleRate,
+            _doNotCopy: true,
+        });
     }
     /**
      * Closes this audio sample, releasing held resources. Audio samples should be closed as soon as they are not
@@ -1166,7 +2177,13 @@ export class AudioSample {
             return;
         }
         finalizationRegistry?.unregister(this);
-        if (isAudioData(this._data)) {
+        if (this._data instanceof AudioSampleResource) {
+            this._data._referenceCount--;
+            if (this._data._referenceCount === 0) {
+                this._data.close();
+            }
+        }
+        else if (isAudioData(this._data)) {
             this._data.close();
         }
         else {
@@ -1182,41 +2199,17 @@ export class AudioSample {
         if (this._closed) {
             throw new Error('AudioSample is closed.');
         }
-        if (isAudioData(this._data)) {
+        if (this._data instanceof AudioSampleResource) {
+            return this._createAudioDataFromData();
+        }
+        else if (isAudioData(this._data)) {
             if (this._data.timestamp === this.microsecondTimestamp) {
                 // Timestamp matches, let's just return the data (but cloned)
                 return this._data.clone();
             }
             else {
                 // It's impossible to simply change an AudioData's timestamp, so we'll need to create a new one
-                if (formatIsPlanar(this.format)) {
-                    const size = this.allocationSize({ planeIndex: 0, format: this.format });
-                    const data = new ArrayBuffer(size * this.numberOfChannels);
-                    // We gotta read out each plane individually
-                    for (let i = 0; i < this.numberOfChannels; i++) {
-                        this.copyTo(new Uint8Array(data, i * size, size), { planeIndex: i, format: this.format });
-                    }
-                    return new AudioData({
-                        format: this.format,
-                        sampleRate: this.sampleRate,
-                        numberOfFrames: this.numberOfFrames,
-                        numberOfChannels: this.numberOfChannels,
-                        timestamp: this.microsecondTimestamp,
-                        data,
-                    });
-                }
-                else {
-                    const data = new ArrayBuffer(this.allocationSize({ planeIndex: 0, format: this.format }));
-                    this.copyTo(data, { planeIndex: 0, format: this.format });
-                    return new AudioData({
-                        format: this.format,
-                        sampleRate: this.sampleRate,
-                        numberOfFrames: this.numberOfFrames,
-                        numberOfChannels: this.numberOfChannels,
-                        timestamp: this.microsecondTimestamp,
-                        data,
-                    });
-                }
+                return this._createAudioDataFromData();
             }
         }
         else {
@@ -1227,8 +2220,39 @@ export class AudioSample {
                 numberOfChannels: this.numberOfChannels,
                 timestamp: this.microsecondTimestamp,
                 data: this._data.buffer instanceof ArrayBuffer
-                    ? this._data.buffer
+                    ? this._data
                     : this._data.slice(), // In the case of SharedArrayBuffer, convert to ArrayBuffer
+            });
+        }
+    }
+    /** @internal */
+    _createAudioDataFromData() {
+        if (formatIsPlanar(this.format)) {
+            const size = this.allocationSize({ planeIndex: 0, format: this.format });
+            const data = new ArrayBuffer(size * this.numberOfChannels);
+            // We gotta read out each plane individually
+            for (let i = 0; i < this.numberOfChannels; i++) {
+                this.copyTo(new Uint8Array(data, i * size, size), { planeIndex: i, format: this.format });
+            }
+            return new AudioData({
+                format: this.format,
+                sampleRate: this.sampleRate,
+                numberOfFrames: this.numberOfFrames,
+                numberOfChannels: this.numberOfChannels,
+                timestamp: this.microsecondTimestamp,
+                data,
+            });
+        }
+        else {
+            const data = new ArrayBuffer(this.allocationSize({ planeIndex: 0, format: this.format }));
+            this.copyTo(data, { planeIndex: 0, format: this.format });
+            return new AudioData({
+                format: this.format,
+                sampleRate: this.sampleRate,
+                numberOfFrames: this.numberOfFrames,
+                numberOfChannels: this.numberOfChannels,
+                timestamp: this.microsecondTimestamp,
+                data,
             });
         }
     }
@@ -1287,6 +2311,7 @@ export class AudioSample {
                 numberOfChannels,
                 timestamp: timestamp + currentRelativeFrame / sampleRate,
                 data: chunkData,
+                _doNotCopy: true,
             });
             currentRelativeFrame += framesToCopy;
             remainingFrames -= framesToCopy;
@@ -1322,6 +2347,7 @@ export class AudioSample {
                 numberOfChannels,
                 timestamp: timestamp + currentRelativeFrame / sampleRate,
                 data: chunkData,
+                _doNotCopy: true,
             });
             result.push(audioSample);
             currentRelativeFrame += framesToCopy;
@@ -1330,7 +2356,7 @@ export class AudioSample {
         return result;
     }
 }
-const getBytesPerSample = (format) => {
+export const getBytesPerSample = (format) => {
     switch (format) {
         case 'u8':
         case 'u8-planar':
@@ -1379,13 +2405,13 @@ const getWriteFunction = (format) => {
     switch (format) {
         case 'u8':
         case 'u8-planar':
-            return (view, offset, value) => view.setUint8(offset, clamp((value + 1) * 127.5, 0, 255));
+            return (view, offset, value) => view.setUint8(offset, clamp(Math.round(value * 128) + 128, 0, 255));
         case 's16':
         case 's16-planar':
-            return (view, offset, value) => view.setInt16(offset, clamp(Math.round(value * 32767), -32768, 32767), true);
+            return (view, offset, value) => view.setInt16(offset, clamp(Math.round(value * 32768), -32768, 32767), true);
         case 's32':
         case 's32-planar':
-            return (view, offset, value) => view.setInt32(offset, clamp(Math.round(value * 2147483647), -2147483648, 2147483647), true);
+            return (view, offset, value) => view.setInt32(offset, clamp(Math.round(value * 2147483648), -2147483648, 2147483647), true);
         case 'f32':
         case 'f32-planar':
             return (view, offset, value) => view.setFloat32(offset, value, true);
@@ -1394,10 +2420,24 @@ const getWriteFunction = (format) => {
 const isAudioData = (x) => {
     return typeof AudioData !== 'undefined' && x instanceof AudioData;
 };
+export const toInterleavedAudioFormat = (format) => {
+    switch (format) {
+        case 'u8-planar':
+            return 'u8';
+        case 's16-planar':
+            return 's16';
+        case 's32-planar':
+            return 's32';
+        case 'f32-planar':
+            return 'f32';
+        default:
+            return format;
+    }
+};
 /**
- * WebKit has a bug where calling AudioData.copyTo with a format different from the source format
- * crashes the tab when there are more than 2 channels. This function works around that by always
- * copying with the source format and then manually converting to the destination format.
+ * WebKit has a bug where calling AudioData.copyTo with a format different from the source format crashes the tab when
+ * there are more than 2 channels. This function works around that by always copying with the source format and then
+ * manually converting to the destination format.
  *
  * See https://bugs.webkit.org/show_bug.cgi?id=302521.
  */
@@ -1486,4 +2526,18 @@ const doAudioDataCopyToWebKitWorkaround = (audioData, destView, srcFormat, destF
             }
         }
     }
+};
+export const audioSampleToInterleavedFormat = (sample, format) => {
+    const size = sample.allocationSize({ format, planeIndex: 0 });
+    const buffer = new ArrayBuffer(size);
+    sample.copyTo(buffer, { format, planeIndex: 0 });
+    return new AudioSample({
+        data: buffer,
+        format,
+        numberOfChannels: sample.numberOfChannels,
+        sampleRate: sample.sampleRate,
+        timestamp: sample.timestamp,
+        duration: sample.duration,
+        _doNotCopy: true,
+    });
 };

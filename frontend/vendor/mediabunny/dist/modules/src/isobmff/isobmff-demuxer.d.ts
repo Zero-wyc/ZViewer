@@ -5,30 +5,30 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { AacCodecInfo, AudioCodec, SubtitleCodec, VideoCodec } from '../codec.js';
-import { Av1CodecInfo, AvcDecoderConfigurationRecord, HevcDecoderConfigurationRecord, Vp9CodecInfo } from '../codec-data.js';
+import { AacCodecInfo, AudioCodec, DtsFourCc, ProresFourCc, VideoCodec } from '../codec.js';
+import { Av1CodecInfo, AvcDecoderConfigurationRecord, HevcDecoderConfigurationRecord, ProresCodecInfo, Vp9CodecInfo } from '../codec-data.js';
 import { Demuxer } from '../demuxer.js';
 import { Input } from '../input.js';
-import { InputTrack } from '../input-track.js';
-import { Rotation } from '../misc.js';
+import { InputTrackBacking } from '../input-track.js';
+import { TransformationMatrix } from '../misc.js';
+import { PsshBox } from './isobmff-misc.js';
 import { FileSlice, Reader } from '../reader.js';
 import { MetadataTags, TrackDisposition } from '../metadata.js';
 type InternalTrack = {
     id: number;
     demuxer: IsobmffDemuxer;
-    inputTrack: InputTrack | null;
+    trackBacking: InputTrackBacking | null;
     disposition: TrackDisposition;
     timescale: number;
     durationInMovieTimescale: number;
     durationInMediaTimescale: number;
-    rotation: Rotation;
+    matrix: TransformationMatrix;
     internalCodecId: string | null;
     name: string | null;
     languageCode: string;
-    sampleTableByteOffset: number;
+    sampleTableByteOffset: number | null;
     sampleTable: SampleTable | null;
     fragmentLookupTable: FragmentLookupTableEntry[];
-    currentFragmentState: FragmentTrackState | null;
     /**
      * List of all encountered fragment offsets alongside their timestamps. This list never gets truncated, but memory
      * consumption should be negligible.
@@ -36,12 +36,21 @@ type InternalTrack = {
     fragmentPositionCache: {
         moofOffset: number;
         startTimestamp: number;
-        endTimestamp: number;
+        endDecodeTimestamp: number;
+        hasKeyFrame: boolean;
     }[];
     /** The segment durations of all edit list entries leading up to the main one (from which the offset is taken.) */
     editListPreviousSegmentDurations: number;
     /** The media time offset of the main edit list entry (with media time !== -1) */
     editListOffset: number;
+    /** Set when the track's samples are encrypted using a supported scheme (cenc/cens/cbcs), parsed from sinf/tenc. */
+    encryptionInfo: TrackEncryptionInfo | null;
+    /** For non-fragmented encrypted tracks: parsed saiz+saio from stbl; aux info is fetched lazily on first use. */
+    encryptionAuxInfo: SampleEncryptionAuxInfo | null;
+    frmaCodecString: string | null;
+    /** In bits per second, from the btrt box if present. */
+    maxBitrate: number | null;
+    avgBitrate: number | null;
 } & ({
     info: null;
 } | {
@@ -53,12 +62,15 @@ type InternalTrack = {
         squarePixelHeight: number;
         codec: VideoCodec | null;
         codecDescription: Uint8Array | null;
-        colorSpace: VideoColorSpaceInit | null;
+        colorSpace: VideoColorSpaceInit;
         avcType: 1 | 3 | null;
         avcCodecInfo: AvcDecoderConfigurationRecord | null;
+        hevcType: 'hev1' | 'hvc1' | null;
         hevcCodecInfo: HevcDecoderConfigurationRecord | null;
         vp9CodecInfo: Vp9CodecInfo | null;
         av1CodecInfo: Av1CodecInfo | null;
+        proresCodecInfo: ProresCodecInfo | null;
+        proresFormat: ProresFourCc | null;
     };
 } | {
     info: {
@@ -68,30 +80,21 @@ type InternalTrack = {
         codec: AudioCodec | null;
         codecDescription: Uint8Array | null;
         aacCodecInfo: AacCodecInfo | null;
-    };
-} | {
-    info: {
-        type: 'subtitle';
-        codec: SubtitleCodec | null;
-        codecPrivateText: string | null;
+        dtsFormat: DtsFourCc | null;
+        pcmLittleEndian: boolean;
+        pcmSampleSize: number | null;
     };
 });
 type SampleTable = {
     sampleTimingEntries: SampleTimingEntry[];
     sampleCompositionTimeOffsets: SampleCompositionTimeOffsetEntry[];
     sampleSizes: number[];
+    sampleCount: number;
+    cumulativeSampleSizes: number[] | null;
     keySampleIndices: number[] | null;
     chunkOffsets: number[];
     sampleToChunk: SampleToChunkEntry[];
-    presentationTimestamps: {
-        presentationTimestamp: number;
-        sampleIndex: number;
-    }[] | null;
-    /**
-     * Provides a fast map from sample index to index in the sorted presentation timestamps array - so, a fast map from
-     * decode order to presentation order.
-     */
-    presentationTimestampIndexMap: number[] | null;
+    sortedCompositionTimeOffsets: SampleCompositionTimeOffsetEntry[] | null;
 };
 type SampleTimingEntry = {
     startIndex: number;
@@ -103,6 +106,9 @@ type SampleCompositionTimeOffsetEntry = {
     startIndex: number;
     count: number;
     offset: number;
+    startTimestamp: number;
+    lastTimestamp: number;
+    maxLastTimestamp: number;
 };
 type SampleToChunkEntry = {
     startSampleIndex: number;
@@ -120,6 +126,8 @@ type FragmentTrackDefaults = {
 type FragmentLookupTableEntry = {
     timestamp: number;
     moofOffset: number;
+    trunNumber: number;
+    sampleNumber: number;
 };
 type FragmentTrackState = {
     baseDataOffset: number;
@@ -128,11 +136,15 @@ type FragmentTrackState = {
     defaultSampleSize: number | null;
     defaultSampleFlags: number | null;
     startTimestamp: number | null;
+    encryptionAuxInfo: SampleEncryptionAuxInfo | null;
+    currentOffset: number | null;
+    currentTimestamp: number;
 };
 type FragmentTrackData = {
     track: InternalTrack;
     startTimestamp: number;
     endTimestamp: number;
+    endDecodeTimestamp: number;
     firstKeyFrameTimestamp: number | null;
     samples: FragmentTrackSample[];
     presentationTimestamps: {
@@ -140,6 +152,8 @@ type FragmentTrackData = {
         sampleIndex: number;
     }[];
     startTimestampIsFinal: boolean;
+    trunSampleCounts: number[];
+    encryptionAuxInfo: SampleEncryptionAuxInfo | null;
 };
 type FragmentTrackSample = {
     presentationTimestamp: number;
@@ -147,40 +161,85 @@ type FragmentTrackSample = {
     byteOffset: number;
     byteSize: number;
     isKeyFrame: boolean;
+    encryption: SampleEncryptionInfo | null;
 };
 type Fragment = {
     moofOffset: number;
     moofSize: number;
     implicitBaseDataOffset: number;
     trackData: Map<InternalTrack['id'], FragmentTrackData>;
+    psshBoxes: PsshBox[];
+    sampleCount: number;
+};
+type FragmentSummary = {
+    moofSize: number;
+    trackIds: Set<number>;
+};
+type TrackEncryptionInfo = {
+    scheme: 'cenc' | 'cens' | 'cbcs';
+    defaultKid: string | null;
+    defaultIsProtected: boolean | null;
+    defaultPerSampleIvSize: number | null;
+    defaultConstantIv: Uint8Array | null;
+    defaultCryptByteBlock: number | null;
+    defaultSkipByteBlock: number | null;
+};
+type SampleEncryptionInfo = {
+    iv: Uint8Array;
+    subsamples: {
+        clearLen: number;
+        protectedLen: number;
+    }[] | null;
+};
+/**
+ * Holds parsed saiz+saio state. The encryption info itself lives at a file offset and is fetched lazily.
+ * For fragmented files this state is per-traf; for non-fragmented files it's per-track (on stbl).
+ */
+type SampleEncryptionAuxInfo = {
+    defaultSampleInfoSize: number;
+    sampleSizes: Uint8Array | null;
+    sampleCount: number;
+    offset: number | null;
+    resolved: SampleEncryptionInfo[] | null;
 };
 export declare class IsobmffDemuxer extends Demuxer {
     reader: Reader;
     moovSlice: FileSlice | null;
     currentTrack: InternalTrack | null;
     tracks: InternalTrack[];
+    idToTrack: Map<number, InternalTrack>;
     metadataPromise: Promise<void> | null;
     movieTimescale: number;
     movieDurationInTimescale: number;
+    movieMatrix: TransformationMatrix;
     isQuickTime: boolean;
     metadataTags: MetadataTags;
     currentMetadataKeys: Map<number, string> | null;
     isFragmented: boolean;
-    fragmentTrackDefaults: FragmentTrackDefaults[];
+    fragmentTrackDefaults: Map<number, FragmentTrackDefaults>;
+    psshBoxes: PsshBox[];
     currentFragment: Fragment | null;
+    isReadingTraf: boolean;
+    currentFragmentTrackState: FragmentTrackState | null;
     /**
      * Caches the last fragment that was read. Based on the assumption that there will be multiple reads to the
      * same fragment in quick succession.
      */
-    lastReadFragment: Fragment | null;
+    lastReadFragment: {
+        moofOffset: number;
+        promise: Promise<Fragment | null>;
+    } | null;
+    fragmentSummaries: Map<number, FragmentSummary>;
+    decryptionKeyCache: Map<string, Promise<Uint8Array<ArrayBufferLike>>>;
+    boxNestingDepth: number;
     constructor(input: Input);
-    computeDuration(): Promise<number>;
-    getTracks(): Promise<InputTrack[]>;
+    getTrackBackings(): Promise<InputTrackBacking[]>;
     getMimeType(): Promise<string>;
     getMetadataTags(): Promise<MetadataTags>;
     readMetadata(): Promise<void>;
+    private copyMetadataFromInitInput;
     getSampleTableForTrack(internalTrack: InternalTrack): SampleTable;
-    readFragment(startPos: number): Promise<Fragment>;
+    readFragment(startPos: number): Promise<Fragment | null>;
     readContiguousBoxes(slice: FileSlice): void;
     iterateContiguousBoxes(slice: FileSlice): Generator<{
         boxInfo: {

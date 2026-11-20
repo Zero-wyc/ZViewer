@@ -5,22 +5,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { Rotation } from './misc.js';
+import { EventEmitter, MaybePromise, Rotation, TransformationMatrix } from './misc.js';
 import { MetadataTags, TrackDisposition } from './metadata.js';
 import { OutputFormat } from './output-format.js';
-import { AudioSource, SubtitleSource, VideoSource } from './media-source.js';
-import { Target } from './target.js';
-/**
- * The options for creating an Output object.
- * @group Output files
- * @public
- */
-export type OutputOptions<F extends OutputFormat = OutputFormat, T extends Target = Target> = {
-    /** The format of the output file. */
-    format: F;
-    /** The target to which the file will be written. */
-    target: T;
-};
+import { AudioSource, MediaSource, SubtitleSource, VideoSource } from './media-source.js';
+import { PathedTarget, Target, TargetRequest } from './target.js';
+import { EncodedPacket } from './packet.js';
 /**
  * List of all track types.
  * @group Miscellaneous
@@ -33,32 +23,84 @@ export declare const ALL_TRACK_TYPES: readonly ["video", "audio", "subtitle"];
  * @public
  */
 export type TrackType = typeof ALL_TRACK_TYPES[number];
-export type OutputTrack = {
-    id: number;
-    output: Output;
-    type: TrackType;
-} & ({
-    type: 'video';
-    source: VideoSource;
-    metadata: VideoTrackMetadata;
-} | {
-    type: 'audio';
-    source: AudioSource;
-    metadata: AudioTrackMetadata;
-} | {
-    type: 'subtitle';
-    source: SubtitleSource;
-    metadata: SubtitleTrackMetadata;
-});
-export type OutputVideoTrack = OutputTrack & {
-    type: 'video';
-};
-export type OutputAudioTrack = OutputTrack & {
-    type: 'audio';
-};
-export type OutputSubtitleTrack = OutputTrack & {
-    type: 'subtitle';
-};
+/**
+ * Represents a track added to an {@link Output}.
+ * @group Output files
+ * @public
+ */
+export declare abstract class OutputTrack {
+    /** The {@link Output} this track belongs to. */
+    readonly output: Output;
+    /** The type of this track. */
+    readonly type: TrackType;
+    /** The media source providing data for this track. */
+    readonly source: MediaSource;
+    /** The metadata associated with this track. */
+    readonly metadata: BaseTrackMetadata;
+    /** Returns true if and only if this track is a video track. */
+    isVideoTrack(): this is OutputVideoTrack;
+    /** Returns true if and only if this track is an audio track. */
+    isAudioTrack(): this is OutputAudioTrack;
+    /** Returns true if and only if this track is a subtitle track. */
+    isSubtitleTrack(): this is OutputSubtitleTrack;
+    /**
+     * Returns true if and only if this track can be paired with the given other track. Pairability can be set using
+     * the {@link BaseTrackMetadata.group} option.
+     */
+    canBePairedWith(other: OutputTrack): boolean;
+}
+/**
+ * An {@link OutputTrack} providing video data, created using {@link Output.addVideoTrack}.
+ * @group Output files
+ * @public
+ */
+export declare class OutputVideoTrack extends OutputTrack {
+    readonly type: 'video';
+    readonly source: VideoSource;
+    readonly metadata: VideoTrackMetadata;
+}
+/**
+ * An {@link OutputTrack} providing audio data, created using {@link Output.addAudioTrack}.
+ * @group Output files
+ * @public
+ */
+export declare class OutputAudioTrack extends OutputTrack {
+    readonly type: 'audio';
+    readonly source: AudioSource;
+    readonly metadata: AudioTrackMetadata;
+}
+/**
+ * An {@link OutputTrack} providing subtitle data, created using {@link Output.addSubtitleTrack}.
+ * @group Output files
+ * @public
+ */
+export declare class OutputSubtitleTrack extends OutputTrack {
+    readonly type: 'subtitle';
+    readonly source: SubtitleSource;
+    readonly metadata: SubtitleTrackMetadata;
+}
+/**
+ * Used to define pairability between {@link OutputTrack} instances. First create the group, then assign tracks to it
+ * via {@link BaseTrackMetadata.group}.
+ *
+ * Two tracks are considered _pairable_ if they are in the same group but have a different {@link TrackType}, or if they
+ * are in different groups that are paired with each other. Groups can be paired with each other using the
+ * {@link OutputTrackGroup.pairWith} method.
+ *
+ * @group Output files
+ * @public
+ */
+export declare class OutputTrackGroup {
+    /** Creates a new {@link OutputTrackGroup}. */
+    constructor();
+    /**
+     * Marks this group as being pairable with another group, symmetrically. Output tracks where each track is assigned
+     * to one half of a group pairing are then considered pairable.
+     *
+     * You cannot pair a group with itself.
+     */
+    pairWith(other: OutputTrackGroup): void;
+}
 /**
  * Base track metadata, applicable to all tracks.
  * @group Output files
@@ -82,10 +124,37 @@ export type BaseTrackMetadata = {
      * - For audio codecs, there is one packet for each "audio chunk", the duration of which depends on the codec. For
      * simplicity, you can assume each packet is roughly 10 ms or 512 samples long, whichever is shorter.
      * - For subtitles, assume each cue and each gap in the subtitles adds a packet.
+     * - Depending on the format, gaps in audio may also add a packet each, as they are filled with silence.
      *
      * If you're not fully sure, make sure to add a buffer of around 33% to make sure you stay below the maximum.
      */
     maximumPacketCount?: number;
+    /**
+     * The peak bitrate of this track in bits per second. The muxer will use this value as a fallback when no better
+     * value is available.
+     */
+    bitrate?: number;
+    /**
+     * The average bitrate of this track in bits per second. The muxer will use this value as a fallback when no better
+     * value is available.
+     */
+    averageBitrate?: number;
+    /**
+     * Whether the timestamps of this track are relative to the Unix epoch (January 1, 1970, 00:00:00 UTC). When `true`,
+     * each timestamp maps to a definitive point in time.
+     */
+    isRelativeToUnixEpoch?: boolean;
+    /**
+     * Defines the group(s) this track is a part of. Group assignment determines track pairability, determining which
+     * tracks can be presented together with other tracks. This is needed for configuring things like HLS master
+     * playlists.
+     *
+     * Two tracks are considered pairable if they are in the same group but are of different {@link TrackType}, or if
+     * they are in two separate groups that have been paired with each other.
+     *
+     * If left blank, a track is automatically assigned to {@link Output.defaultTrackGroup}.
+     */
+    group?: OutputTrackGroup | OutputTrackGroup[];
 };
 /**
  * Additional metadata for video tracks.
@@ -93,21 +162,65 @@ export type BaseTrackMetadata = {
  * @public
  */
 export type VideoTrackMetadata = BaseTrackMetadata & {
-    /** The angle in degrees by which the track's frames should be rotated (clockwise). */
+    /**
+     * The angle in degrees by which the track's frames should be rotated (clockwise). Rotation is applied before any
+     * flip.
+     */
     rotation?: Rotation;
+    /** Whether the track's frames should be flipped horizontally (about the vertical axis), after rotation. */
+    flip?: boolean;
+    /**
+     * The full transformation matrix to apply to the track's frames for presentation. When set, this takes precedence
+     * over `rotation` and `flip`. Formats that can't store an arbitrary matrix extract the closest rotation and
+     * scale from it.
+     */
+    transformationMatrix?: TransformationMatrix;
     /**
      * The expected video frame rate in hertz. If set, all timestamps and durations of this track will be snapped to
      * this frame rate. You should avoid adding more frames than the rate allows, as this will lead to multiple frames
      * with the same timestamp.
      */
     frameRate?: number;
+    /**
+     * When true, this track is marked as being made only out of key frames (I-frames). It is an error to add a non-key
+     * frame to this track.
+     */
+    hasOnlyKeyPackets?: boolean;
+    /**
+     * When `true`, this is a hint that the track may contain transparent data. Mediabunny can use this to better
+     * prepare for writing packet alpha side data.
+     */
+    canBeTransparent?: boolean;
+    /**
+     * The decoder config for this video track, provided ahead of time. This is provided automatically when media data
+     * added to the track, but by specifying it here, you give the muxer additional information that it can make use of.
+     * Zero-packet tracks become possible to write when this field is set.
+     */
+    decoderConfig?: VideoDecoderConfig;
+    /**
+     * Can be provided in addition to {@link VideoTrackMetadata.decoderConfig} to provide additional track information
+     * not included in the decoder config. This packet will not be added to the media data.
+     */
+    primingPacket?: EncodedPacket;
 };
 /**
  * Additional metadata for audio tracks.
  * @group Output files
  * @public
  */
-export type AudioTrackMetadata = BaseTrackMetadata & {};
+export type AudioTrackMetadata = BaseTrackMetadata & {
+    /**
+     * The decoder config for this audio track, provided ahead of time. This is provided automatically when media data
+     * added to the track, but by specifying it here, you give the muxer additional information that it can make use of.
+     * Zero-packet tracks become possible to write when this field is set.
+     */
+    decoderConfig?: AudioDecoderConfig;
+    /**
+     * Can be provided in addition to {@link AudioTrackMetadata.decoderConfig} to provide additional track information
+     * not included in the decoder config. This packet will not be added to the media data.
+     */
+    primingPacket?: EncodedPacket;
+};
 /**
  * Additional metadata for subtitle tracks.
  * @group Output files
@@ -115,28 +228,81 @@ export type AudioTrackMetadata = BaseTrackMetadata & {};
  */
 export type SubtitleTrackMetadata = BaseTrackMetadata & {};
 /**
- * Main class orchestrating the creation of a new media file.
+ * The options for creating an Output object.
  * @group Output files
  * @public
  */
-export declare class Output<F extends OutputFormat = OutputFormat, T extends Target = Target> {
+export type OutputOptions<F extends OutputFormat = OutputFormat, T extends Target = Target> = {
     /** The format of the output file. */
     format: F;
     /** The target to which the file will be written. */
-    target: T;
+    target: T | PathedTarget<T>;
+    /**
+     * Optional; the target to which the track initialization data will be written. Most formats do not make use of
+     * this, but some do, such as {@link CmafOutputFormat}.
+     *
+     * When this is a function, it will only be called if an init target is needed.
+     */
+    initTarget?: T | (() => MaybePromise<T>);
+    /**
+     * Optional; a callback to be called at the end of {@link Output.finalize}. Can be used to run logic once the
+     * output has completed. If a promise is returned, it will be awaited internally by {@link Output.finalize}.
+     */
+    onFinalize?: () => MaybePromise<unknown>;
+};
+/**
+ * Describes the events that an {@link Output} emits, with each key being an event name and its value being the
+ * event data.
+ *
+ * @group Output files
+ * @public
+ */
+export type OutputEvents = {
+    /** Emitted whenever a {@link Target} is obtained by the output. Useful to track writes. */
+    target: {
+        /** The target that was obtained. */
+        target: Target;
+        /** The request that led to the target being obtained, or `null` if the output is not pathed. */
+        request: TargetRequest | null;
+        /** Whether the target is the root file of the media. */
+        isRoot: boolean;
+    };
+};
+/**
+ * Main class orchestrating the creation of new media files.
+ * @group Output files
+ * @public
+ */
+export declare class Output<F extends OutputFormat = OutputFormat, T extends Target = Target> extends EventEmitter<OutputEvents> {
+    /** The format of the output file. */
+    readonly format: F;
     /** The current state of the output. */
     state: 'pending' | 'started' | 'canceled' | 'finalizing' | 'finalized';
+    /**
+     * The {@link OutputTrackGroup} that all tracks are assigned to by default unless otherwise specified by
+     * {@link BaseTrackMetadata.group}.
+     */
+    readonly defaultTrackGroup: OutputTrackGroup;
+    /**
+     * The tracks that have been added to this output. Treat it as a readonly field; to add tracks, use the methods.
+     */
+    readonly tracks: OutputTrack[];
+    /**
+     * The target to which the root file will be written. Throws when using {@link PathedTarget} with an async callback;
+     * prefer the `'target'` event for those cases.
+     */
+    get target(): T;
     /**
      * Creates a new instance of {@link Output} which can then be used to create a new media file according to the
      * specified {@link OutputOptions}.
      */
     constructor(options: OutputOptions<F, T>);
     /** Adds a video track to the output with the given source. Can only be called before the output is started. */
-    addVideoTrack(source: VideoSource, metadata?: VideoTrackMetadata): void;
+    addVideoTrack(source: VideoSource, metadata?: VideoTrackMetadata): OutputVideoTrack;
     /** Adds an audio track to the output with the given source. Can only be called before the output is started. */
-    addAudioTrack(source: AudioSource, metadata?: AudioTrackMetadata): void;
+    addAudioTrack(source: AudioSource, metadata?: AudioTrackMetadata): OutputAudioTrack;
     /** Adds a subtitle track to the output with the given source. Can only be called before the output is started. */
-    addSubtitleTrack(source: SubtitleSource, metadata?: SubtitleTrackMetadata): void;
+    addSubtitleTrack(source: SubtitleSource, metadata?: SubtitleTrackMetadata): OutputSubtitleTrack;
     /**
      * Sets descriptive metadata tags about the media file, such as title, author, date, or cover art. When called
      * multiple times, only the metadata from the last call will be used.
@@ -144,6 +310,11 @@ export declare class Output<F extends OutputFormat = OutputFormat, T extends Tar
      * Can only be called before the output is started.
      */
     setMetadataTags(tags: MetadataTags): void;
+    /**
+     * Whether the output has enough tracks (of the correct type) to be started, based on the requirements of the output
+     * format.
+     */
+    hasEnoughTracks(): boolean;
     /**
      * Starts the creation of the output file. This method should be called after all tracks have been added. Only after
      * the output has started can media samples be added to the tracks.
@@ -154,7 +325,8 @@ export declare class Output<F extends OutputFormat = OutputFormat, T extends Tar
     /**
      * Resolves with the full MIME type of the output file, including track codecs.
      *
-     * The returned promise will resolve only once the precise codec strings of all tracks are known.
+     * The returned promise will resolve only once the precise codec strings of all tracks are known. If the output is
+     * canceled before that, the promise rejects.
      */
     getMimeType(): Promise<string>;
     /**

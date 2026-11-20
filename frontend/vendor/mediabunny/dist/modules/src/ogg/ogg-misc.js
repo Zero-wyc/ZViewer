@@ -45,8 +45,9 @@ export const extractSampleMetadata = (data, codecInfo, vorbisLastBlocksize) => {
             if (modeNumber >= codecInfo.vorbisInfo.modeBlockflags.length) {
                 throw new Error('Invalid mode number.');
             }
-            // In Vorbis, packet duration also depends on the blocksize of the previous packet
-            let prevBlocksize = vorbisLastBlocksize;
+            // In Vorbis, packet duration also depends on the blocksize of the previous packet. The first packet has
+            // none and decodes to nothing; like FFmpeg, we give it the duration it'd have after a short block
+            let prevBlocksize = vorbisLastBlocksize ?? codecInfo.vorbisInfo.blocksizes[0];
             const blockflag = codecInfo.vorbisInfo.modeBlockflags[modeNumber];
             currentBlocksize = codecInfo.vorbisInfo.blocksizes[blockflag];
             if (blockflag === 1) {
@@ -54,9 +55,7 @@ export const extractSampleMetadata = (data, codecInfo, vorbisLastBlocksize) => {
                 const flag = data[0] & prevMask ? 1 : 0;
                 prevBlocksize = codecInfo.vorbisInfo.blocksizes[flag];
             }
-            durationInSamples = prevBlocksize !== null
-                ? (prevBlocksize + currentBlocksize) >> 2
-                : 0; // The first sample outputs no audio data and therefore has a duration of 0
+            durationInSamples = (prevBlocksize + currentBlocksize) >> 2;
         }
         else if (codecInfo.codec === 'opus') {
             const toc = parseOpusTocByte(data);
@@ -70,7 +69,7 @@ export const extractSampleMetadata = (data, codecInfo, vorbisLastBlocksize) => {
 };
 export const buildOggMimeType = (info) => {
     let string = 'audio/ogg';
-    if (info.codecStrings) {
+    if (info.codecStrings.length > 0) {
         const uniqueCodecMimeTypes = [...new Set(info.codecStrings)];
         string += `; codecs="${uniqueCodecMimeTypes.join(', ')}"`;
     }

@@ -7,7 +7,10 @@
  */
 import { AUDIO_CODECS, buildAudioCodecString, buildVideoCodecString, getAudioEncoderConfigExtension, getVideoEncoderConfigExtension, inferCodecFromCodecString, PCM_AUDIO_CODECS, SUBTITLE_CODECS, VIDEO_CODECS, } from './codec.js';
 import { customAudioEncoders, customVideoEncoders } from './custom-coder.js';
-import { isFirefox } from './misc.js';
+import { assert, clamp, getChromiumVersion, isFirefox, lerp } from './misc.js';
+import { validateCropRectangle } from './sample.js';
+export const canEncodeVideoMemo = new Map();
+export const canEncodeAudioMemo = new Map();
 export const validateVideoEncodingConfig = (config) => {
     if (!config || typeof config !== 'object') {
         throw new TypeError('Encoding config must be an object.');
@@ -15,8 +18,19 @@ export const validateVideoEncodingConfig = (config) => {
     if (!VIDEO_CODECS.includes(config.codec)) {
         throw new TypeError(`Invalid video codec '${config.codec}'. Must be one of: ${VIDEO_CODECS.join(', ')}.`);
     }
-    if (!(config.bitrate instanceof Quality) && (!Number.isInteger(config.bitrate) || config.bitrate <= 0)) {
-        throw new TypeError('config.bitrate must be a positive integer or a quality.');
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const bitrate = config.bitrate;
+    if (config.quality === undefined && bitrate === undefined) {
+        throw new TypeError('config.quality must be provided.');
+    }
+    if (config.quality !== undefined && bitrate !== undefined) {
+        throw new TypeError('config.quality and config.bitrate cannot both be provided.');
+    }
+    if (config.quality !== undefined && !(config.quality instanceof Quality)) {
+        throw new TypeError('config.quality, when provided, must be a Quality.');
+    }
+    if (bitrate !== undefined && !(bitrate instanceof Quality) && (!Number.isInteger(bitrate) || bitrate <= 0)) {
+        throw new TypeError('config.bitrate, when provided, must be a positive integer or a quality.');
     }
     if (config.keyFrameInterval !== undefined
         && (!Number.isFinite(config.keyFrameInterval) || config.keyFrameInterval < 0)) {
@@ -27,11 +41,66 @@ export const validateVideoEncodingConfig = (config) => {
         throw new TypeError('config.sizeChangeBehavior, when provided, must be \'deny\', \'passThrough\', \'fill\', \'contain\''
             + ' or \'cover\'.');
     }
+    if (config.transform !== undefined) {
+        if (typeof config.transform !== 'object' || !config.transform) {
+            throw new TypeError('config.transform, when provided, must be an object.');
+        }
+        if (config.transform.width !== undefined
+            && (!Number.isInteger(config.transform.width) || config.transform.width <= 0)) {
+            throw new TypeError('config.transform.width, when provided, must be a positive integer.');
+        }
+        if (config.transform.height !== undefined
+            && (!Number.isInteger(config.transform.height) || config.transform.height <= 0)) {
+            throw new TypeError('config.transform.height, when provided, must be a positive integer.');
+        }
+        if (config.transform.fit !== undefined && !['fill', 'contain', 'cover'].includes(config.transform.fit)) {
+            throw new TypeError('config.transform.fit, when provided, must be one of "fill", "contain", or "cover".');
+        }
+        if (config.transform.width !== undefined
+            && config.transform.height !== undefined
+            && config.transform.fit === undefined
+            && !['fill', 'contain', 'cover'].includes(config.sizeChangeBehavior)) {
+            throw new TypeError('When both config.transform.width and config.transform.height are provided, config.transform.fit'
+                + ' must also be provided.');
+        }
+        if (config.transform.fit !== undefined
+            && ['fill', 'contain', 'cover'].includes(config.sizeChangeBehavior)
+            && config.transform.fit !== config.sizeChangeBehavior) {
+            throw new TypeError('config.transform.fit, when provided, cannot differ from config.sizeChangeBehavior when'
+                + ' config.sizeChangeBehavior is \'fill\', \'contain\' or \'cover\', as sizeChangeBehavior already'
+                + ' determines the fitting algorithm.');
+        }
+        if (config.transform.rotate !== undefined && ![0, 90, 180, 270].includes(config.transform.rotate)) {
+            throw new TypeError('config.transform.rotate, when provided, must be 0, 90, 180 or 270.');
+        }
+        if (config.transform.flip !== undefined && typeof config.transform.flip !== 'boolean') {
+            throw new TypeError('config.transform.flip, when provided, must be a boolean.');
+        }
+        if (config.transform.crop !== undefined) {
+            validateCropRectangle(config.transform.crop, 'config.transform.');
+        }
+        if (config.transform.alpha !== undefined && !['keep', 'discard'].includes(config.transform.alpha)) {
+            throw new TypeError('config.transform.alpha, when provided, must be \'keep\' or \'discard\'.');
+        }
+        if (config.transform.process !== undefined && typeof config.transform.process !== 'function') {
+            throw new TypeError('config.transform.process, when provided, must be a function.');
+        }
+        if (config.transform.frameRate !== undefined
+            && (!Number.isFinite(config.transform.frameRate) || config.transform.frameRate <= 0)) {
+            throw new TypeError('config.transform.frameRate, when provided, must be a finite positive number.');
+        }
+        if (config.transform.force !== undefined && typeof config.transform.force !== 'boolean') {
+            throw new TypeError('config.transform.force, when provided, must be a boolean.');
+        }
+    }
     if (config.onEncodedPacket !== undefined && typeof config.onEncodedPacket !== 'function') {
-        throw new TypeError('config.onEncodedChunk, when provided, must be a function.');
+        throw new TypeError('config.onEncodedPacket, when provided, must be a function.');
     }
     if (config.onEncoderConfig !== undefined && typeof config.onEncoderConfig !== 'function') {
         throw new TypeError('config.onEncoderConfig, when provided, must be a function.');
+    }
+    if (config.onEncodedSample !== undefined && typeof config.onEncodedSample !== 'function') {
+        throw new TypeError('config.onEncodedSample, when provided, must be a function.');
     }
     validateVideoEncodingAdditionalOptions(config.codec, config);
 };
@@ -42,7 +111,9 @@ export const validateVideoEncodingAdditionalOptions = (codec, options) => {
     if (options.alpha !== undefined && !['discard', 'keep'].includes(options.alpha)) {
         throw new TypeError('options.alpha, when provided, must be \'discard\' or \'keep\'.');
     }
-    if (options.bitrateMode !== undefined && !['constant', 'variable'].includes(options.bitrateMode)) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const bitrateMode = options.bitrateMode;
+    if (bitrateMode !== undefined && !['constant', 'variable'].includes(bitrateMode)) {
         throw new TypeError('bitrateMode, when provided, must be \'constant\' or \'variable\'.');
     }
     if (options.latencyMode !== undefined && !['quality', 'realtime'].includes(options.latencyMode)) {
@@ -66,18 +137,22 @@ export const validateVideoEncodingAdditionalOptions = (codec, options) => {
         throw new TypeError('contentHint, when provided, must be a string.');
     }
 };
-export const buildVideoEncoderConfig = (options) => {
-    const resolvedBitrate = options.bitrate instanceof Quality
-        ? options.bitrate._toVideoBitrate(options.codec, options.width, options.height)
-        : options.bitrate;
-    return {
-        codec: options.fullCodecString ?? buildVideoCodecString(options.codec, options.width, options.height, resolvedBitrate),
+/**
+ * Builds the encoder configs to attempt, in order of preference. Multiple configs are returned when a Quality can be
+ * satisfied by multiple rate control methods (quantizer-based encoding with a bitrate-based fallback).
+ */
+export const buildVideoEncoderConfigs = (options) => {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const fallbackBitrateMode = options.bitrateMode;
+    const rateControl = options.quality._toVideoRateControl(options.codec, options.width, options.height, fallbackBitrateMode);
+    const buildConfig = (bitrate, bitrateMode, bitrateEstimate) => ({
+        codec: options.fullCodecString ?? buildVideoCodecString(options.codec, options.width, options.height, bitrateEstimate, options.alpha === 'keep'),
         width: options.width,
         height: options.height,
         displayWidth: options.squarePixelWidth,
         displayHeight: options.squarePixelHeight,
-        bitrate: resolvedBitrate,
-        bitrateMode: options.bitrateMode,
+        bitrate,
+        bitrateMode,
         alpha: options.alpha ?? 'discard',
         framerate: options.framerate,
         latencyMode: options.latencyMode,
@@ -85,7 +160,22 @@ export const buildVideoEncoderConfig = (options) => {
         scalabilityMode: options.scalabilityMode,
         contentHint: options.contentHint,
         ...getVideoEncoderConfigExtension(options.codec),
-    };
+    });
+    const candidates = [];
+    if (rateControl.quantizer !== null) {
+        candidates.push({
+            config: buildConfig(undefined, 'quantizer', rateControl.bitrate),
+            quantizer: rateControl.quantizer,
+        });
+    }
+    if (rateControl.bitrateMode !== 'quantizer') {
+        candidates.push({
+            config: buildConfig(rateControl.bitrate, rateControl.bitrateMode, rateControl.bitrate),
+            quantizer: null,
+        });
+    }
+    assert(candidates.length > 0);
+    return candidates;
 };
 export const validateAudioEncodingConfig = (config) => {
     if (!config || typeof config !== 'object') {
@@ -94,20 +184,52 @@ export const validateAudioEncodingConfig = (config) => {
     if (!AUDIO_CODECS.includes(config.codec)) {
         throw new TypeError(`Invalid audio codec '${config.codec}'. Must be one of: ${AUDIO_CODECS.join(', ')}.`);
     }
-    if (config.bitrate === undefined
-        && (!PCM_AUDIO_CODECS.includes(config.codec) || config.codec === 'flac')) {
-        throw new TypeError('config.bitrate must be provided for compressed audio codecs.');
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const bitrate = config.bitrate;
+    if (config.quality === undefined
+        && bitrate === undefined
+        && !(PCM_AUDIO_CODECS.includes(config.codec)
+            || config.codec === 'flac'
+            || config.codec === 'truehd')) {
+        throw new TypeError('config.quality must be provided for compressed audio codecs.');
     }
-    if (config.bitrate !== undefined
-        && !(config.bitrate instanceof Quality)
-        && (!Number.isInteger(config.bitrate) || config.bitrate <= 0)) {
+    if (config.quality !== undefined && bitrate !== undefined) {
+        throw new TypeError('config.quality and config.bitrate cannot both be provided.');
+    }
+    if (config.quality !== undefined && !(config.quality instanceof Quality)) {
+        throw new TypeError('config.quality, when provided, must be a Quality.');
+    }
+    if (bitrate !== undefined && !(bitrate instanceof Quality) && (!Number.isInteger(bitrate) || bitrate <= 0)) {
         throw new TypeError('config.bitrate, when provided, must be a positive integer or a quality.');
     }
+    if (config.transform !== undefined) {
+        if (typeof config.transform !== 'object' || !config.transform) {
+            throw new TypeError('config.transform, when provided, must be an object.');
+        }
+        if (config.transform.numberOfChannels !== undefined
+            && (!Number.isInteger(config.transform.numberOfChannels) || config.transform.numberOfChannels <= 0)) {
+            throw new TypeError('config.transform.numberOfChannels, when provided, must be a positive integer.');
+        }
+        if (config.transform.sampleRate !== undefined
+            && (!Number.isInteger(config.transform.sampleRate) || config.transform.sampleRate <= 0)) {
+            throw new TypeError('config.transform.sampleRate, when provided, must be a positive integer.');
+        }
+        if (config.transform.sampleFormat !== undefined
+            && !['u8', 's16', 's32', 'f32'].includes(config.transform.sampleFormat)) {
+            throw new TypeError('config.transform.sampleFormat, when provided, must be one of: u8, s16, s32, f32.');
+        }
+        if (config.transform.process !== undefined && typeof config.transform.process !== 'function') {
+            throw new TypeError('config.transform.process, when provided, must be a function.');
+        }
+    }
     if (config.onEncodedPacket !== undefined && typeof config.onEncodedPacket !== 'function') {
-        throw new TypeError('config.onEncodedChunk, when provided, must be a function.');
+        throw new TypeError('config.onEncodedPacket, when provided, must be a function.');
     }
     if (config.onEncoderConfig !== undefined && typeof config.onEncoderConfig !== 'function') {
         throw new TypeError('config.onEncoderConfig, when provided, must be a function.');
+    }
+    if (config.onEncodedSample !== undefined && typeof config.onEncodedSample !== 'function') {
+        throw new TypeError('config.onEncodedSample, when provided, must be a function.');
     }
     validateAudioEncodingAdditionalOptions(config.codec, config);
 };
@@ -115,7 +237,9 @@ export const validateAudioEncodingAdditionalOptions = (codec, options) => {
     if (!options || typeof options !== 'object') {
         throw new TypeError('Encoding options must be an object.');
     }
-    if (options.bitrateMode !== undefined && !['constant', 'variable'].includes(options.bitrateMode)) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const bitrateMode = options.bitrateMode;
+    if (bitrateMode !== undefined && !['constant', 'variable'].includes(bitrateMode)) {
         throw new TypeError('bitrateMode, when provided, must be \'constant\' or \'variable\'.');
     }
     if (options.fullCodecString !== undefined && typeof options.fullCodecString !== 'string') {
@@ -126,51 +250,148 @@ export const validateAudioEncodingAdditionalOptions = (codec, options) => {
     }
 };
 export const buildAudioEncoderConfig = (options) => {
-    const resolvedBitrate = options.bitrate instanceof Quality
-        ? options.bitrate._toAudioBitrate(options.codec)
-        : options.bitrate;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const fallbackBitrateMode = options.bitrateMode;
     return {
-        codec: options.fullCodecString ?? buildAudioCodecString(options.codec, options.numberOfChannels, options.sampleRate),
+        codec: options.fullCodecString ?? buildAudioCodecString(options.codec),
         numberOfChannels: options.numberOfChannels,
         sampleRate: options.sampleRate,
-        bitrate: resolvedBitrate,
-        bitrateMode: options.bitrateMode,
+        bitrate: options.quality?._toAudioBitrate(options.codec, options.numberOfChannels),
+        bitrateMode: options.quality?._bitrateMode ?? fallbackBitrateMode,
         ...getAudioEncoderConfigExtension(options.codec),
     };
 };
 /**
- * Represents a subjective media quality level.
+ * Represents a desired encoding quality. Can express a qualitative quality level, an explicit bitrate, an explicit
+ * quantizer value, or a combination thereof.
  * @group Encoding
  * @public
  */
 export class Quality {
-    /** @internal */
-    constructor(factor) {
-        this._factor = factor;
+    constructor(options) {
+        if (typeof options === 'number' || typeof options === 'string') {
+            // Shorthand for directly specifying a qualitative quality level
+            options = { quality: options };
+        }
+        if (!options || typeof options !== 'object') {
+            throw new TypeError('options must be an object.');
+        }
+        if (options.bitrateMode !== undefined && !['constant', 'variable'].includes(options.bitrateMode)) {
+            throw new TypeError('options.bitrateMode, when provided, must be \'constant\' or \'variable\'.');
+        }
+        if ('quality' in options) {
+            if (typeof options.quality === 'string'
+                ? !Object.prototype.hasOwnProperty.call(QUALITY_LEVELS, options.quality)
+                : (typeof options.quality !== 'number' || Number.isNaN(options.quality)) // Infinities allowed
+            ) {
+                throw new TypeError('options.quality must be a number, or one of \'very-low\', \'low\', \'medium\', \'high\''
+                    + ' or \'very-high\'.');
+            }
+            if (options.preferBitrate !== undefined && typeof options.preferBitrate !== 'boolean') {
+                throw new TypeError('options.preferBitrate, when provided, must be a boolean.');
+            }
+            if ('bitrate' in options || 'quantizer' in options) {
+                throw new TypeError('options.quality cannot be combined with options.bitrate or options.quantizer.');
+            }
+            this._quality = typeof options.quality === 'string'
+                ? QUALITY_LEVELS[options.quality]
+                : options.quality;
+            this._preferBitrate = options.preferBitrate ?? false;
+            this._bitrate = undefined;
+            this._quantizer = undefined;
+        }
+        else {
+            if (options.bitrate !== undefined && (!Number.isInteger(options.bitrate) || options.bitrate <= 0)) {
+                throw new TypeError('options.bitrate, when provided, must be a positive integer.');
+            }
+            if (options.quantizer !== undefined && (!Number.isInteger(options.quantizer) || options.quantizer < 0)) {
+                throw new TypeError('options.quantizer, when provided, must be a non-negative integer.');
+            }
+            if (options.bitrate === undefined && options.quantizer === undefined) {
+                throw new TypeError('At least one of options.bitrate or options.quantizer must be set.');
+            }
+            if ('preferBitrate' in options) {
+                throw new TypeError('options.preferBitrate can only be combined with options.quality.');
+            }
+            this._quality = undefined;
+            this._preferBitrate = false;
+            this._bitrate = options.bitrate;
+            this._quantizer = options.quantizer;
+        }
+        this._bitrateMode = options.bitrateMode;
+    }
+    /**
+     * Determines the rate control methods usable for the given codec.
+     * @internal
+     */
+    _toVideoRateControl(codec, width, height, fallbackBitrateMode) {
+        const quantizerSupport = VIDEO_CODEC_QUANTIZER_SUPPORT[codec];
+        let quantizer = null;
+        let bitrateMode = this._bitrateMode ?? fallbackBitrateMode ?? 'variable';
+        if (this._quantizer !== undefined) {
+            // An explicit quantizer demands quantizer-based encoding, with an explicit bitrate (if any) being the
+            // only permitted fallback
+            if (!quantizerSupport) {
+                if (this._bitrate === undefined) {
+                    throw new Error(`Codec '${codec}' does not support quantizer-based encoding. Provide a bitrate in the Quality`
+                        + ` to define a fallback.`);
+                }
+            }
+            else if (this._quantizer < quantizerSupport.min || this._quantizer > quantizerSupport.max) {
+                if (this._bitrate === undefined) {
+                    throw new Error(`Quantizer ${this._quantizer} is out of range for codec '${codec}'; must be between`
+                        + ` ${quantizerSupport.min} and ${quantizerSupport.max}.`);
+                }
+            }
+            else {
+                quantizer = this._quantizer;
+                if (this._bitrate === undefined) {
+                    bitrateMode = 'quantizer';
+                }
+            }
+        }
+        else if (this._bitrate === undefined && quantizerSupport && !this._preferBitrate) {
+            // A qualitative quality level is set; offer quantizer-based encoding since the codec supports it. Since
+            // the quality may lie outside the 0-1 range, we clamp the result to the codec's legal quantizer range.
+            assert(this._quality !== undefined);
+            quantizer = clamp(Math.round(lerp(quantizerSupport.worst, quantizerSupport.best, this._quality)), quantizerSupport.min, quantizerSupport.max);
+        }
+        let bitrate;
+        if (this._bitrate !== undefined) {
+            bitrate = this._bitrate;
+        }
+        else {
+            let quality = this._quality;
+            if (quality === undefined) {
+                // Map the quantizer back onto the quality scale to derive a fitting bitrate estimate
+                assert(quantizer !== null && quantizerSupport);
+                quality = clamp((quantizer - quantizerSupport.worst) / (quantizerSupport.best - quantizerSupport.worst), 0, 1);
+            }
+            bitrate = computeVideoBitrate(codec, width, height, qualityToBitrateFactor(quality));
+        }
+        return { quantizer, bitrate, bitrateMode };
     }
     /** @internal */
     _toVideoBitrate(codec, width, height) {
-        const pixels = width * height;
-        const codecEfficiencyFactors = {
-            avc: 1.0, // H.264/AVC (baseline)
-            hevc: 0.6, // H.265/HEVC (~40% more efficient than AVC)
-            vp9: 0.6, // Similar to HEVC
-            av1: 0.4, // ~60% more efficient than AVC
-            vp8: 1.2, // Slightly less efficient than AVC
-        };
-        const referencePixels = 1920 * 1080;
-        const referenceBitrate = 3000000;
-        const scaleFactor = Math.pow(pixels / referencePixels, 0.95); // Slight non-linear scaling
-        const baseBitrate = referenceBitrate * scaleFactor;
-        const codecAdjustedBitrate = baseBitrate * codecEfficiencyFactors[codec];
-        const finalBitrate = codecAdjustedBitrate * this._factor;
-        return Math.ceil(finalBitrate / 1000) * 1000;
+        if (this._bitrate !== undefined) {
+            return this._bitrate;
+        }
+        assert(this._quality !== undefined);
+        return computeVideoBitrate(codec, width, height, qualityToBitrateFactor(this._quality));
     }
     /** @internal */
-    _toAudioBitrate(codec) {
-        if (PCM_AUDIO_CODECS.includes(codec) || codec === 'flac') {
+    _toAudioBitrate(codec, numberOfChannels) {
+        if (PCM_AUDIO_CODECS.includes(codec) || codec === 'flac' || codec === 'truehd') {
             return undefined;
         }
+        if (this._bitrate !== undefined) {
+            return this._bitrate;
+        }
+        if (this._quality === undefined) {
+            throw new Error('This Quality defines neither a quality level nor a bitrate and therefore cannot be used for audio'
+                + ' encoding.');
+        }
+        const factor = qualityToBitrateFactor(this._quality);
         const baseRates = {
             aac: 128000, // 128kbps base for AAC
             opus: 64000, // 64kbps base for Opus
@@ -178,12 +399,17 @@ export class Quality {
             vorbis: 64000, // 64kbps base for Vorbis
             ac3: 384000, // 384kbps base for AC-3
             eac3: 192000, // 192kbps base for E-AC-3
+            dts: 768000, // 768kbps base for DTS
         };
         const baseBitrate = baseRates[codec];
         if (!baseBitrate) {
             throw new Error(`Unhandled codec: ${codec}`);
         }
-        let finalBitrate = baseBitrate * this._factor;
+        let finalBitrate = baseBitrate * factor;
+        if (codec === 'opus' || codec === 'vorbis') {
+            // The base rates are for stereo
+            finalBitrate *= numberOfChannels / 2;
+        }
         if (codec === 'aac') {
             // AAC only works with specific bitrates, let's find the closest
             const validRates = [96000, 128000, 160000, 192000];
@@ -202,36 +428,97 @@ export class Quality {
         return Math.round(finalBitrate / 1000) * 1000;
     }
 }
+const QUALITY_LEVELS = {
+    'very-low': 0,
+    'low': 0.25,
+    'medium': 0.5,
+    'high': 0.75,
+    'very-high': 1,
+};
+// best and worse define the reasonable range
+const VIDEO_CODEC_QUANTIZER_SUPPORT = {
+    avc: { min: 0, max: 51, worst: 41, best: 16 },
+    hevc: { min: 0, max: 51, worst: 41, best: 16 },
+    // Chromium used the 0-63 scale before v145, see https://github.com/Vanilagy/mediabunny/issues/566
+    vp9: (getChromiumVersion() ?? Infinity) < 145
+        ? { min: 0, max: 63, worst: 52, best: 20 }
+        : { min: 0, max: 255, worst: 208, best: 80 },
+    av1: { min: 0, max: 255, worst: 208, best: 80 },
+};
+/**
+ * Maps the qualitative 0-1 quality scale to a bitrate multiplier. The curve is a least-squares exponential fit through
+ * the multipliers historically used by the predefined quality levels (0.3, 0.6, 1, 2, 4).
+ */
+const qualityToBitrateFactor = (quality) => 0.3 * Math.exp(2.5538 * quality);
+const computeVideoBitrate = (codec, width, height, factor) => {
+    const pixels = width * height;
+    const referencePixels = 1920 * 1080;
+    const referenceBitrate = 3_000_000;
+    const scaleFactor = Math.pow(pixels / referencePixels, 0.95); // Slight non-linear scaling
+    const baseBitrate = referenceBitrate * scaleFactor;
+    const codecEfficiencyFactors = {
+        avc: 1.0, // H.264/AVC (baseline)
+        hevc: 0.6, // H.265/HEVC (~40% more efficient than AVC)
+        vp9: 0.6, // Similar to HEVC
+        av1: 0.4, // ~60% more efficient than AVC
+        vp8: 1.2, // Slightly less efficient than AVC
+        prores: 220_000_000 / referenceBitrate, // Apple ProRes white paper claims 220 Mbps for 1080p 422 HQ @30Hz
+    };
+    const codecAdjustedBitrate = baseBitrate * codecEfficiencyFactors[codec];
+    const finalBitrate = codecAdjustedBitrate * factor;
+    return Math.ceil(finalBitrate / 1000) * 1000;
+};
+/** Builds the per-frame encode options that carry the quantizer value for the given codec. */
+export const buildQuantizerEncodeOptions = (codec, quantizer) => {
+    if (codec === 'avc') {
+        return { avc: { quantizer } };
+    }
+    else if (codec === 'hevc') {
+        return { hevc: { quantizer } };
+    }
+    else if (codec === 'vp9') {
+        return { vp9: { quantizer } };
+    }
+    else if (codec === 'av1') {
+        return { av1: { quantizer } };
+    }
+    assert(false);
+};
 /**
  * Represents a very low media quality.
+ * @deprecated Use `new Quality('very-low')` instead.
  * @group Encoding
  * @public
  */
-export const QUALITY_VERY_LOW = /* #__PURE__ */ new Quality(0.3);
+export const QUALITY_VERY_LOW = /* #__PURE__ */ new Quality('very-low');
 /**
  * Represents a low media quality.
+ * @deprecated Use `new Quality('low')` instead.
  * @group Encoding
  * @public
  */
-export const QUALITY_LOW = /* #__PURE__ */ new Quality(0.6);
+export const QUALITY_LOW = /* #__PURE__ */ new Quality('low');
 /**
  * Represents a medium media quality.
+ * @deprecated Use `new Quality('medium')` instead.
  * @group Encoding
  * @public
  */
-export const QUALITY_MEDIUM = /* #__PURE__ */ new Quality(1);
+export const QUALITY_MEDIUM = /* #__PURE__ */ new Quality('medium');
 /**
  * Represents a high media quality.
+ * @deprecated Use `new Quality('high')` instead.
  * @group Encoding
  * @public
  */
-export const QUALITY_HIGH = /* #__PURE__ */ new Quality(2);
+export const QUALITY_HIGH = /* #__PURE__ */ new Quality('high');
 /**
  * Represents a very high media quality.
+ * @deprecated Use `new Quality('very-high')` instead.
  * @group Encoding
  * @public
  */
-export const QUALITY_VERY_HIGH = /* #__PURE__ */ new Quality(4);
+export const QUALITY_VERY_HIGH = /* #__PURE__ */ new Quality('very-high');
 /**
  * Checks if the browser is able to encode the given codec.
  * @group Encoding
@@ -255,7 +542,9 @@ export const canEncode = (codec) => {
  * @public
  */
 export const canEncodeVideo = async (codec, options = {}) => {
-    const { width = 1280, height = 720, bitrate = 1e6, ...restOptions } = options;
+    const { width = 1280, height = 720, quality, 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    bitrate, frameRate, ...restOptions } = options;
     if (!VIDEO_CODECS.includes(codec)) {
         return false;
     }
@@ -265,79 +554,112 @@ export const canEncodeVideo = async (codec, options = {}) => {
     if (!Number.isInteger(height) || height <= 0) {
         throw new TypeError('height must be a positive integer.');
     }
-    if (!(bitrate instanceof Quality) && (!Number.isInteger(bitrate) || bitrate <= 0)) {
+    if (quality !== undefined && !(quality instanceof Quality)) {
+        throw new TypeError('quality, when provided, must be a Quality.');
+    }
+    if (quality !== undefined && bitrate !== undefined) {
+        throw new TypeError('quality and bitrate cannot both be provided.');
+    }
+    if (bitrate !== undefined && !(bitrate instanceof Quality) && (!Number.isInteger(bitrate) || bitrate <= 0)) {
         throw new TypeError('bitrate must be a positive integer or a quality.');
     }
+    if (frameRate !== undefined && (!Number.isFinite(frameRate) || frameRate <= 0)) {
+        throw new TypeError('frameRate, when provided, must be a finite positive number.');
+    }
     validateVideoEncodingAdditionalOptions(codec, restOptions);
-    let encoderConfig = null;
-    if (customVideoEncoders.length > 0) {
-        encoderConfig ??= buildVideoEncoderConfig({
+    const resolvedQuality = resolveQuality(quality, bitrate) ?? new Quality('medium');
+    let candidates;
+    try {
+        candidates = buildVideoEncoderConfigs({
             codec,
             width,
             height,
-            bitrate,
-            framerate: undefined,
+            quality: resolvedQuality,
+            framerate: frameRate,
             ...restOptions,
+            alpha: 'discard', // Since we handle alpha ourselves
         });
-        if (customVideoEncoders.some(x => x.supports(codec, encoderConfig))) {
-            // There's a custom encoder
-            return true;
+    }
+    catch {
+        // The requested rate control cannot be used with this codec (e.g. a quantizer with no fallback bitrate on a
+        // codec without quantizer support)
+        return false;
+    }
+    const key = JSON.stringify(candidates);
+    const memoized = canEncodeVideoMemo.get(key);
+    if (memoized) {
+        return memoized;
+    }
+    const promise = (async () => {
+        for (const { config } of candidates) {
+            if (customVideoEncoders.some(x => x.supports(codec, config))) {
+                // There's a custom encoder
+                return true;
+            }
         }
-    }
-    if (typeof VideoEncoder === 'undefined') {
-        return false;
-    }
-    const hasOddDimension = width % 2 === 1 || height % 2 === 1;
-    if (hasOddDimension
-        && (codec === 'avc' || codec === 'hevc')) {
-        // Disallow odd dimensions for certain codecs
-        return false;
-    }
-    encoderConfig ??= buildVideoEncoderConfig({
-        codec,
-        width,
-        height,
-        bitrate,
-        framerate: undefined,
-        ...restOptions,
-        alpha: 'discard', // Since we handle alpha ourselves
-    });
-    const support = await VideoEncoder.isConfigSupported(encoderConfig);
-    if (!support.supported) {
-        return false;
-    }
-    if (isFirefox()) {
-        // isConfigSupported on Firefox appears to unreliably indicate if encoding will actually succeed. Therefore, we
-        // just try encoding a frame to see if it actually works.
-        // https://github.com/Vanilagy/mediabunny/issues/222
-        // eslint-disable-next-line @typescript-eslint/no-misused-promises, no-async-promise-executor
-        return new Promise(async (resolve) => {
+        if (typeof VideoEncoder === 'undefined') {
+            return false;
+        }
+        const hasOddDimension = width % 2 === 1 || height % 2 === 1;
+        if (hasOddDimension
+            && (codec === 'avc' || codec === 'hevc')) {
+            // Disallow odd dimensions for certain codecs
+            return false;
+        }
+        for (const { config, quantizer } of candidates) {
             try {
+                const support = await VideoEncoder.isConfigSupported(config);
+                if (!support.supported) {
+                    continue;
+                }
+            }
+            catch {
+                // Can type-error when unknown config features are used
+                continue;
+            }
+            if (!isFirefox()) {
+                return true;
+            }
+            // isConfigSupported on Firefox appears to unreliably indicate if encoding will actually succeed. Therefore,
+            // we just try encoding a frame to see if it actually works.
+            // https://github.com/Vanilagy/mediabunny/issues/222
+            // eslint-disable-next-line @typescript-eslint/no-misused-promises, no-async-promise-executor
+            const success = await new Promise(async (resolve) => {
                 const encoder = new VideoEncoder({
                     output: () => { },
                     error: () => resolve(false),
                 });
-                encoder.configure(encoderConfig);
-                const frameData = new Uint8Array(width * height * 4);
-                const frame = new VideoFrame(frameData, {
-                    format: 'RGBA',
-                    codedWidth: width,
-                    codedHeight: height,
-                    timestamp: 0,
-                });
-                encoder.encode(frame);
-                frame.close();
-                await encoder.flush();
-                resolve(true);
+                try {
+                    encoder.configure(config);
+                    const frameData = new Uint8Array(width * height * 4);
+                    const frame = new VideoFrame(frameData, {
+                        format: 'RGBA',
+                        codedWidth: width,
+                        codedHeight: height,
+                        timestamp: 0,
+                    });
+                    encoder.encode(frame, quantizer !== null ? buildQuantizerEncodeOptions(codec, quantizer) : undefined);
+                    frame.close();
+                    await encoder.flush();
+                    resolve(true);
+                }
+                catch {
+                    resolve(false);
+                }
+                finally {
+                    if (encoder.state !== 'closed') {
+                        encoder.close();
+                    }
+                }
+            });
+            if (success) {
+                return true;
             }
-            catch {
-                resolve(false);
-            }
-        });
-    }
-    else {
-        return true;
-    }
+        }
+        return false;
+    })();
+    canEncodeVideoMemo.set(key, promise);
+    return promise;
 };
 /**
  * Checks if the browser is able to encode the given audio codec with the given parameters.
@@ -345,7 +667,9 @@ export const canEncodeVideo = async (codec, options = {}) => {
  * @public
  */
 export const canEncodeAudio = async (codec, options = {}) => {
-    const { numberOfChannels = 2, sampleRate = 48000, bitrate = 128e3, ...restOptions } = options;
+    const { numberOfChannels = 2, sampleRate = 48000, quality, 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    bitrate, ...restOptions } = options;
     if (!AUDIO_CODECS.includes(codec)) {
         return false;
     }
@@ -355,39 +679,64 @@ export const canEncodeAudio = async (codec, options = {}) => {
     if (!Number.isInteger(sampleRate) || sampleRate <= 0) {
         throw new TypeError('sampleRate must be a positive integer.');
     }
-    if (!(bitrate instanceof Quality) && (!Number.isInteger(bitrate) || bitrate <= 0)) {
+    if (quality !== undefined && !(quality instanceof Quality)) {
+        throw new TypeError('quality, when provided, must be a Quality.');
+    }
+    if (quality !== undefined && bitrate !== undefined) {
+        throw new TypeError('quality and bitrate cannot both be provided.');
+    }
+    if (bitrate !== undefined && !(bitrate instanceof Quality) && (!Number.isInteger(bitrate) || bitrate <= 0)) {
         throw new TypeError('bitrate must be a positive integer.');
     }
     validateAudioEncodingAdditionalOptions(codec, restOptions);
-    let encoderConfig = null;
-    if (customAudioEncoders.length > 0) {
-        encoderConfig ??= buildAudioEncoderConfig({
-            codec,
-            numberOfChannels,
-            sampleRate,
-            bitrate,
-            ...restOptions,
-        });
+    const resolvedQuality = resolveQuality(quality, bitrate) ?? new Quality('medium');
+    const encoderConfig = buildAudioEncoderConfig({
+        codec,
+        numberOfChannels,
+        sampleRate,
+        quality: resolvedQuality,
+        ...restOptions,
+    });
+    const key = JSON.stringify(encoderConfig);
+    const memoized = canEncodeAudioMemo.get(key);
+    if (memoized) {
+        return memoized;
+    }
+    const promise = (async () => {
         if (customAudioEncoders.some(x => x.supports(codec, encoderConfig))) {
             // There's a custom encoder
             return true;
         }
+        if (PCM_AUDIO_CODECS.includes(codec)) {
+            return true; // Because we encode these ourselves
+        }
+        if (typeof AudioEncoder === 'undefined') {
+            return false;
+        }
+        try {
+            const support = await AudioEncoder.isConfigSupported(encoderConfig);
+            return support.supported === true;
+        }
+        catch {
+            // Can type-error when unknown config features are used
+            return false;
+        }
+    })();
+    canEncodeAudioMemo.set(key, promise);
+    return promise;
+};
+/**
+ * Resolves the `quality` and deprecated `bitrate` fields from the public API into a {@link Quality}, the norm used
+ * internally.
+ */
+export const resolveQuality = (quality, bitrate) => {
+    if (quality !== undefined) {
+        return quality;
     }
-    if (PCM_AUDIO_CODECS.includes(codec)) {
-        return true; // Because we encode these ourselves
+    if (bitrate === undefined) {
+        return undefined;
     }
-    if (typeof AudioEncoder === 'undefined') {
-        return false;
-    }
-    encoderConfig ??= buildAudioEncoderConfig({
-        codec,
-        numberOfChannels,
-        sampleRate,
-        bitrate,
-        ...restOptions,
-    });
-    const support = await AudioEncoder.isConfigSupported(encoderConfig);
-    return support.supported === true;
+    return bitrate instanceof Quality ? bitrate : new Quality({ bitrate });
 };
 /**
  * Checks if the browser is able to encode the given subtitle codec.

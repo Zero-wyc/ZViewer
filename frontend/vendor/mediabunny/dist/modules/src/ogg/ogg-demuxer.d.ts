@@ -7,8 +7,11 @@
  */
 import { Demuxer } from '../demuxer.js';
 import { Input } from '../input.js';
-import { InputAudioTrack } from '../input-track.js';
-import { MetadataTags } from '../metadata.js';
+import { InputAudioTrackBacking } from '../input-track.js';
+import { PacketRetrievalOptions } from '../media-sink.js';
+import { MetadataTags, TrackDisposition } from '../metadata.js';
+import { AsyncMutex } from '../misc.js';
+import { EncodedPacket } from '../packet.js';
 import { Reader } from '../reader.js';
 import { OggCodecInfo } from './ogg-misc.js';
 import { Page } from './ogg-reader.js';
@@ -30,7 +33,7 @@ export declare class OggDemuxer extends Demuxer {
     reader: Reader;
     metadataPromise: Promise<void> | null;
     bitstreams: LogicalBitstream[];
-    tracks: InputAudioTrack[];
+    trackBackings: OggAudioTrackBacking[];
     metadataTags: MetadataTags;
     constructor(input: Input);
     readMetadata(): Promise<void>;
@@ -42,9 +45,55 @@ export declare class OggDemuxer extends Demuxer {
         startSegmentIndex: number;
     } | null>;
     getMimeType(): Promise<string>;
-    getTracks(): Promise<InputAudioTrack[]>;
-    computeDuration(): Promise<number>;
+    getTrackBackings(): Promise<OggAudioTrackBacking[]>;
     getMetadataTags(): Promise<MetadataTags>;
+}
+type EncodedPacketMetadata = {
+    packet: Packet;
+    timestampInSamples: number;
+    durationInSamples: number;
+    vorbisLastBlockSize: number | null;
+    vorbisBlockSize: number | null;
+};
+declare class OggAudioTrackBacking implements InputAudioTrackBacking {
+    bitstream: LogicalBitstream;
+    demuxer: OggDemuxer;
+    internalSampleRate: number;
+    encodedPacketToMetadata: WeakMap<EncodedPacket, EncodedPacketMetadata>;
+    sequentialScanCache: EncodedPacketMetadata[];
+    sequentialScanMutex: AsyncMutex;
+    firstTimestampInSamplesPromise: Promise<number> | null;
+    constructor(bitstream: LogicalBitstream, demuxer: OggDemuxer);
+    getType(): "audio";
+    getNumber(): number;
+    getNumberOfChannels(): number;
+    getSampleRate(): number;
+    getTimeResolution(): number;
+    isRelativeToUnixEpoch(): boolean;
+    getUnixTimeForTimestamp(): null;
+    getPairingMask(): bigint;
+    getBitrate(): null;
+    getAverageBitrate(): null;
+    getDurationFromMetadata(): Promise<null>;
+    getLiveRefreshInterval(): Promise<null>;
+    getCodec(): "opus" | "vorbis" | null;
+    getInternalCodecId(): null;
+    getDecoderConfig(): Promise<AudioDecoderConfig | null>;
+    getName(): null;
+    getLanguageCode(): string;
+    getDisposition(): TrackDisposition;
+    granulePositionToTimestampInSamples(granulePosition: number): number;
+    createEncodedPacketFromOggPacket(packet: Packet | null, additional: {
+        timestampInSamples: number;
+        vorbisLastBlocksize: number | null;
+    }, options: PacketRetrievalOptions): EncodedPacket | null;
+    getFirstTimestampInSamples(): Promise<number>;
+    getFirstPacket(options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getNextPacket(prevPacket: EncodedPacket, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getPacket(timestamp: number, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getPacketSequential(timestamp: number, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getKeyPacket(timestamp: number, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getNextKeyPacket(packet: EncodedPacket, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
 }
 export {};
 //# sourceMappingURL=ogg-demuxer.d.ts.map

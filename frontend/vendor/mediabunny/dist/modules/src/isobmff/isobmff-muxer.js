@@ -5,22 +5,22 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { free, ftyp, IsobmffBoxWriter, mdat, mfra, moof, moov, vtta, vttc, vtte } from './isobmff-boxes.js';
+import { free, ftyp, IsobmffBoxWriter, mdat, mfra, moof, moov, sidx, styp, vtta, vttc, vtte, } from './isobmff-boxes.js';
 import { Muxer } from '../muxer.js';
-import { BufferTargetWriter } from '../writer.js';
+import { Writer } from '../writer.js';
+import { BufferTarget } from '../target.js';
 import { assert, computeRationalApproximation, last, promiseWithResolvers, simplifyRational } from '../misc.js';
-import { MovOutputFormat } from '../output-format.js';
+import { MovOutputFormat, CmafOutputFormat } from '../output-format.js';
 import { inlineTimestampRegex } from '../subtitles.js';
-import { aacChannelMap, aacFrequencyTable, buildAacAudioSpecificConfig } from '../../shared/aac-misc.js';
-import { parsePcmCodec, PCM_AUDIO_CODECS, validateAudioChunkMetadata, validateSubtitleMetadata, validateVideoChunkMetadata, } from '../codec.js';
+import { aacChannelMap, aacFrequencyTable, buildAacAudioSpecificConfig, getAacProgramConfigElementChannelCount, readAdtsProgramConfigElement, } from '../../shared/aac-misc.js';
+import { OPUS_PRE_ROLL_DURATION, OPUS_SAMPLE_RATE, parsePcmCodec, PCM_AUDIO_CODECS, validateAudioChunkMetadata, validateSubtitleMetadata, validateVideoChunkMetadata, } from '../codec.js';
 import { MAX_ADTS_FRAME_HEADER_SIZE, MIN_ADTS_FRAME_HEADER_SIZE, readAdtsFrameHeader } from '../adts/adts-reader.js';
 import { FileSlice } from '../reader.js';
-import { BufferTarget } from '../target.js';
-import { concatNalUnitsInLengthPrefixed, extractAvcDecoderConfigurationRecord, extractHevcDecoderConfigurationRecord, iterateNalUnitsInAnnexB, serializeAvcDecoderConfigurationRecord, serializeHevcDecoderConfigurationRecord, } from '../codec-data.js';
-import { buildIsobmffMimeType } from './isobmff-misc.js';
+import { concatNalUnitsInLengthPrefixed, extractAvcDecoderConfigurationRecord, extractHevcDecoderConfigurationRecord, iterateNalUnitsInAnnexB, parseOpusTocByte, serializeAvcDecoderConfigurationRecord, serializeHevcDecoderConfigurationRecord, splitEac3AudioFrames, } from '../codec-data.js';
+import { buildIsobmffMimeType, TIMESTAMP_OFFSET } from './isobmff-misc.js';
 import { MAX_BOX_HEADER_SIZE, MIN_BOX_HEADER_SIZE } from './isobmff-reader.js';
-export const GLOBAL_TIMESCALE = 1000;
-const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
+export const GLOBAL_TIMESCALE = 57600; // LCM of a bunch of common frame rates (24, 25, 30, 60, 144, ...)
+const MIN_CHUNK_DURATION = 0.5; // In seconds
 export const getTrackMetadata = (trackData) => {
     const metadata = {};
     const track = trackData.track;
@@ -33,83 +33,168 @@ export const intoTimescale = (timeInSeconds, timescale, round = true) => {
     const value = timeInSeconds * timescale;
     return round ? Math.round(value) : value;
 };
+export const presentationSpan = (trackData) => {
+    if (trackData.samples.length === 0) {
+        return 0;
+    }
+    let minTimestamp = Infinity;
+    let maxEndTimestamp = -Infinity;
+    for (let i = 0; i < trackData.samples.length; i++) {
+        const sample = trackData.samples[i];
+        if (sample.timestamp < minTimestamp) {
+            minTimestamp = sample.timestamp;
+        }
+        if (sample.timestamp + sample.duration > maxEndTimestamp) {
+            maxEndTimestamp = sample.timestamp + sample.duration;
+        }
+    }
+    if (minTimestamp === Infinity) {
+        return 0;
+    }
+    return maxEndTimestamp - minTimestamp;
+};
 export class IsobmffMuxer extends Muxer {
     constructor(output, format) {
         super(output);
+        this.writer = null;
+        this.boxWriter = null;
+        this.initWriter = null;
+        this.initBoxWriter = null;
         this.auxTarget = new BufferTarget();
-        this.auxWriter = this.auxTarget._createWriter();
+        this.auxWriter = new Writer(this.auxTarget, false);
         this.auxBoxWriter = new IsobmffBoxWriter(this.auxWriter);
         this.mdat = null;
         this.ftypSize = null;
         this.trackDatas = [];
+        this.closedTracks = new Set();
         this.allTracksKnown = promiseWithResolvers();
-        this.creationTime = Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET;
         this.finalizedChunks = [];
+        this.wroteFragmentedHeader = false;
         this.nextFragmentNumber = 1;
         // Only relevant for fragmented files, to make sure new fragments start with the highest timestamp seen so far
         this.maxWrittenTimestamp = -Infinity;
+        this.minWrittenTimestamp = Infinity;
+        this.maxWrittenEndTimestamp = -Infinity;
+        this.segmentHeaderSize = null;
         this.format = format;
-        this.writer = output._writer;
-        this.boxWriter = new IsobmffBoxWriter(this.writer);
+        this.formatOptions = { ...format._options };
         this.isQuickTime = format instanceof MovOutputFormat;
-        // If the fastStart option isn't defined, enable in-memory fast start if the target is an ArrayBuffer, as the
-        // memory usage remains identical
-        const fastStartDefault = this.writer instanceof BufferTargetWriter ? 'in-memory' : false;
-        this.fastStart = format._options.fastStart ?? fastStartDefault;
-        this.isFragmented = this.fastStart === 'fragmented';
-        if (this.fastStart === 'in-memory' || this.isFragmented) {
-            this.writer.ensureMonotonicity = true;
-        }
-        this.minimumFragmentDuration = format._options.minimumFragmentDuration ?? 1;
+        this.isCmaf = format instanceof CmafOutputFormat;
+        this.minimumFragmentDuration = this.formatOptions.minimumFragmentDuration
+            ?? (format instanceof CmafOutputFormat ? Infinity : 1);
+        this.auxWriter.start();
     }
     async start() {
         const release = await this.mutex.acquire();
-        const holdsAvc = this.output._tracks.some(x => x.type === 'video' && x.source._codec === 'avc');
-        // Write the header
-        {
-            if (this.format._options.onFtyp) {
-                this.writer.startTrackingWrites();
+        try {
+            const creationDate = this.output._metadataTags.creationTime === undefined
+                ? new Date()
+                : this.output._metadataTags.creationTime;
+            this.creationTime = creationDate
+                ? Math.floor(creationDate.getTime() / 1000) + TIMESTAMP_OFFSET
+                : 0;
+            if (creationDate && this.creationTime <= 0) {
+                throw new Error('creationTime must be after 1904-01-01T00:00:00Z for MP4/QuickTime files.');
             }
-            this.boxWriter.writeBox(ftyp({
-                isQuickTime: this.isQuickTime,
-                holdsAvc: holdsAvc,
-                fragmented: this.isFragmented,
-            }));
-            if (this.format._options.onFtyp) {
-                const { data, start } = this.writer.stopTrackingWrites();
-                this.format._options.onFtyp(data, start);
+            if (!this.isCmaf) {
+                this.writer = await this.output._getRootWriter(target => (this.formatOptions.fastStart !== undefined
+                    ? this.formatOptions.fastStart === 'in-memory' || this.formatOptions.fastStart === 'fragmented'
+                    : target instanceof BufferTarget // Since if this is the case we'll use 'in-memory'
+                ));
+                this.boxWriter = new IsobmffBoxWriter(this.writer);
+                // If the fastStart option isn't defined, enable in-memory fast start if the target is an ArrayBuffer,
+                // as the memory usage remains identical
+                this.fastStart = this.formatOptions.fastStart
+                    ?? (this.writer.target instanceof BufferTarget ? 'in-memory' : false);
+                this.isFragmented = this.fastStart === 'fragmented';
             }
-        }
-        this.ftypSize = this.writer.getPos();
-        if (this.fastStart === 'in-memory') {
-            // We're write at finalization
-        }
-        else if (this.fastStart === 'reserve') {
-            // Validate that all tracks have set maximumPacketCount
-            for (const track of this.output._tracks) {
-                if (track.metadata.maximumPacketCount === undefined) {
-                    throw new Error('All tracks must specify maximumPacketCount in their metadata when using'
-                        + ' fastStart: \'reserve\'.');
+            else {
+                this.fastStart = 'fragmented';
+                this.isFragmented = true;
+            }
+            if (this.isCmaf) {
+                if (!this.output._hasInitTarget()) {
+                    throw new Error(`CMAF outputs require the initTarget field in OutputOptions to be set; the init segment`
+                        + ` will be written to it.`);
+                }
+                // Set up the init writer to which we'll write the init segment
+                const initTarget = await this.output._getInitTarget();
+                const initWriter = new Writer(initTarget, true);
+                initWriter.start();
+                this.initWriter = initWriter;
+                this.initBoxWriter = new IsobmffBoxWriter(initWriter);
+            }
+            const holdsAvc = this.output.tracks.some(x => x.isVideoTrack() && x.source._codec === 'avc');
+            // Write the header
+            {
+                const boxWriter = this.initBoxWriter ?? this.boxWriter;
+                assert(boxWriter);
+                if (this.formatOptions.onFtyp) {
+                    boxWriter.writer.startTrackingWrites();
+                }
+                boxWriter.writeBox(ftyp({
+                    isQuickTime: this.isQuickTime,
+                    holdsAvc: holdsAvc,
+                    fragmented: this.isFragmented,
+                    cmaf: this.isCmaf,
+                }));
+                if (this.formatOptions.onFtyp) {
+                    const { data, start } = boxWriter.writer.stopTrackingWrites();
+                    this.formatOptions.onFtyp(data, start);
+                }
+                this.ftypSize = boxWriter.writer.getPos();
+                if (this.isCmaf) {
+                    await this.initWriter.flush();
                 }
             }
-            // We'll start writing once we know all tracks
-        }
-        else if (this.isFragmented) {
-            // We write the moov box once we write out the first fragment to make sure we get the decoder configs
-        }
-        else {
-            if (this.format._options.onMdat) {
-                this.writer.startTrackingWrites();
+            if (this.fastStart === 'in-memory') {
+                // We're write at finalization
             }
-            this.mdat = mdat(true); // Reserve large size by default, can refine this when finalizing.
-            this.boxWriter.writeBox(this.mdat);
+            else if (this.fastStart === 'reserve') {
+                // Validate that all tracks have set maximumPacketCount
+                for (const track of this.output.tracks) {
+                    if (track.metadata.maximumPacketCount === undefined) {
+                        throw new Error('All tracks must specify maximumPacketCount in their metadata when using'
+                            + ' fastStart: \'reserve\'.');
+                    }
+                    // Sample counts are stored as u32 in the sample table
+                    if (track.metadata.maximumPacketCount > 2 ** 32 - 1) {
+                        throw new Error(`Track #${track.id} has a maximumPacketCount of ${track.metadata.maximumPacketCount}, which`
+                            + ` exceeds the maximum of ${2 ** 32 - 1} packets per track that a non-fragmented file can`
+                            + ' hold.');
+                    }
+                }
+                // We'll start writing once we know all tracks
+            }
+            else if (this.isFragmented) {
+                // We write the moov box once we write out the first fragment to make sure we get the decoder configs
+            }
+            else {
+                assert(this.writer);
+                assert(this.boxWriter);
+                if (this.formatOptions.onMdat) {
+                    this.writer.startTrackingWrites();
+                }
+                this.mdat = mdat(true); // Reserve large size by default, can refine this when finalizing.
+                this.boxWriter.writeBox(this.mdat);
+            }
+            await this.writer?.flush();
+            for (const track of this.output.tracks) {
+                if (track.isVideoTrack() && track.metadata.decoderConfig) {
+                    this.getVideoTrackData(track, track.metadata.primingPacket ?? null, { decoderConfig: track.metadata.decoderConfig });
+                }
+                else if (track.isAudioTrack() && track.metadata.decoderConfig) {
+                    this.getAudioTrackData(track, track.metadata.primingPacket ?? null, { decoderConfig: track.metadata.decoderConfig });
+                }
+            }
         }
-        await this.writer.flush();
-        release();
+        finally {
+            release();
+        }
     }
     allTracksAreKnown() {
-        for (const track of this.output._tracks) {
-            if (!track.source._closed && !this.trackDatas.some(x => x.track === track)) {
+        for (const track of this.output.tracks) {
+            if (!this.closedTracks.has(track) && !this.trackDatas.some(x => x.track === track)) {
                 return false; // We haven't seen a sample from this open track yet
             }
         }
@@ -127,11 +212,6 @@ export class IsobmffMuxer extends Muxer {
             else {
                 const map = {
                     webvtt: 'wvtt',
-                    tx3g: 'tx3g',
-                    ttml: 'stpp',
-                    srt: 'wvtt', // MP4 stores SRT as WebVTT
-                    ass: 'wvtt', // MP4 stores ASS as WebVTT
-                    ssa: 'wvtt', // MP4 stores SSA as WebVTT
                 };
                 return map[trackData.track.source._codec];
             }
@@ -148,7 +228,7 @@ export class IsobmffMuxer extends Muxer {
         if (existingTrackData) {
             return existingTrackData;
         }
-        validateVideoChunkMetadata(meta);
+        validateVideoChunkMetadata(meta, track.source._codec);
         assert(meta);
         assert(meta.decoderConfig);
         const decoderConfig = { ...meta.decoderConfig };
@@ -158,6 +238,9 @@ export class IsobmffMuxer extends Muxer {
         if (track.source._codec === 'avc' && !decoderConfig.description) {
             // ISOBMFF can only hold AVC in the AVCC format, not in Annex B, but the missing description indicates
             // Annex B. This means we'll need to do some converterino.
+            if (!packet) {
+                throw new Error('No AVC description provided; you must therefore provide a priming packet.');
+            }
             const decoderConfigurationRecord = extractAvcDecoderConfigurationRecord(packet.data);
             if (!decoderConfigurationRecord) {
                 throw new Error('Couldn\'t extract an AVCDecoderConfigurationRecord from the AVC packet. Make sure the packets are'
@@ -171,6 +254,9 @@ export class IsobmffMuxer extends Muxer {
         else if (track.source._codec === 'hevc' && !decoderConfig.description) {
             // ISOBMFF can only hold HEVC in the HEVC format, not in Annex B, but the missing description indicates
             // Annex B. This means we'll need to do some converterino.
+            if (!packet) {
+                throw new Error('No HEVC description provided; you must therefore provide a priming packet.');
+            }
             const decoderConfigurationRecord = extractHevcDecoderConfigurationRecord(packet.data);
             if (!decoderConfigurationRecord) {
                 throw new Error('Couldn\'t extract an HEVCDecoderConfigurationRecord from the HEVC packet. Make sure the packets'
@@ -184,7 +270,7 @@ export class IsobmffMuxer extends Muxer {
         // The frame rate set by the user may not be an integer. Since timescale is an integer, we'll approximate the
         // frame time (inverse of frame rate) with a rational number, then use that approximation's denominator
         // as the timescale.
-        const timescale = computeRationalApproximation(1 / (track.metadata.frameRate ?? 57600), 1e6).denominator;
+        const timescale = computeRationalApproximation(1 / (track.metadata.frameRate ?? GLOBAL_TIMESCALE), 1e6).den;
         const displayAspectWidth = decoderConfig.displayAspectWidth;
         const displayAspectHeight = decoderConfig.displayAspectHeight;
         const pixelAspectRatio = displayAspectWidth === undefined || displayAspectHeight === undefined
@@ -193,6 +279,8 @@ export class IsobmffMuxer extends Muxer {
                 num: displayAspectWidth * decoderConfig.codedHeight,
                 den: displayAspectHeight * decoderConfig.codedWidth,
             });
+        // Kicks for ProRes 4444.
+        const hasAlphaChannel = decoderConfig.codec === 'ap4h' || decoderConfig.codec === 'ap4x';
         const newTrackData = {
             muxer: this,
             track,
@@ -203,6 +291,7 @@ export class IsobmffMuxer extends Muxer {
                 pixelAspectRatio,
                 decoderConfig: decoderConfig,
                 requiresAnnexBTransformation,
+                hasAlphaChannel,
             },
             timescale,
             samples: [],
@@ -212,9 +301,13 @@ export class IsobmffMuxer extends Muxer {
             compositionTimeOffsetTable: [],
             lastTimescaleUnits: null,
             lastSample: null,
+            startTimestampOffset: null,
             finalizedChunks: [],
             currentChunk: null,
+            tfraEntries: [],
             compactlyCodedChunkTable: [],
+            avgBitrate: track.source._nominalBitrate ?? track.metadata.averageBitrate ?? 0,
+            maxBitrate: track.source._nominalBitrate ?? track.metadata.bitrate ?? 0,
         };
         this.trackDatas.push(newTrackData);
         this.trackDatas.sort((a, b) => a.track.id - b.track.id);
@@ -228,7 +321,7 @@ export class IsobmffMuxer extends Muxer {
         if (existingTrackData) {
             return existingTrackData;
         }
-        validateAudioChunkMetadata(meta);
+        validateAudioChunkMetadata(meta, track.source._codec);
         assert(meta);
         assert(meta.decoderConfig);
         const decoderConfig = { ...meta.decoderConfig };
@@ -236,6 +329,9 @@ export class IsobmffMuxer extends Muxer {
         if (track.source._codec === 'aac' && !decoderConfig.description) {
             // ISOBMFF can only hold AAC in raw format, not ADTS, but the missing description indicates ADTS.
             // Parse the first packet to extract the AudioSpecificConfig.
+            if (!packet) {
+                throw new Error('No AAC description provided; you must therefore provide a priming packet.');
+            }
             const adtsFrame = readAdtsFrameHeader(FileSlice.tempFromBytes(packet.data));
             if (!adtsFrame) {
                 throw new Error('Couldn\'t parse ADTS header from the AAC packet. Make sure the packets are in ADTS format'
@@ -243,17 +339,41 @@ export class IsobmffMuxer extends Muxer {
                     + ' (must be an AudioSpecificConfig as specified in ISO 14496-3) and ensure the packets'
                     + ' are raw AAC data.');
             }
-            const sampleRate = aacFrequencyTable[adtsFrame.samplingFrequencyIndex];
-            const numberOfChannels = aacChannelMap[adtsFrame.channelConfiguration];
-            if (sampleRate === undefined || numberOfChannels === undefined) {
-                throw new Error('Invalid ADTS frame header.');
+            let numberOfChannels;
+            let programConfigElement = null;
+            if (adtsFrame.channelConfiguration === 0) {
+                // The channel layout is described by a PCE in the frame, which has to move into the description
+                const headerSize = adtsFrame.crcCheck === null
+                    ? MIN_ADTS_FRAME_HEADER_SIZE
+                    : MAX_ADTS_FRAME_HEADER_SIZE;
+                const result = readAdtsProgramConfigElement(packet.data.subarray(headerSize));
+                if (!result) {
+                    throw new Error('ADTS frames with channel configuration 0 must begin with a program config element.');
+                }
+                programConfigElement = result.programConfigElement;
+                numberOfChannels = getAacProgramConfigElementChannelCount(programConfigElement);
+            }
+            else {
+                numberOfChannels = aacChannelMap[adtsFrame.channelConfiguration];
             }
             decoderConfig.description = buildAacAudioSpecificConfig({
                 objectType: adtsFrame.objectType,
-                sampleRate,
-                numberOfChannels,
+                outputSampleRate: aacFrequencyTable[adtsFrame.samplingFrequencyIndex],
+                outputNumberOfChannels: numberOfChannels,
+                programConfigElement,
             });
             requiresAdtsStripping = true;
+        }
+        if (!packet) {
+            if (track.source._codec === 'ac3' || track.source._codec === 'eac3') {
+                throw new Error('AC-3/E-AC-3 require a priming packet.');
+            }
+            if (track.source._codec === 'dts') {
+                throw new Error('DTS requires a priming packet.');
+            }
+            if (track.source._codec === 'truehd') {
+                throw new Error('TrueHD requires a priming packet.');
+            }
         }
         const newTrackData = {
             muxer: this,
@@ -265,8 +385,15 @@ export class IsobmffMuxer extends Muxer {
                 decoderConfig,
                 requiresPcmTransformation: !this.isFragmented
                     && PCM_AUDIO_CODECS.includes(track.source._codec),
+                expectedNextPcmPacketTimestamp: null,
                 requiresAdtsStripping,
-                firstPacket: packet,
+                primingPacket: packet,
+                pendingEac3Packets: [],
+                preroll: {
+                    packetCount: 0,
+                    accumulatedAudioSamples: 0,
+                    audioSampleDurationHistory: [],
+                },
             },
             timescale: decoderConfig.sampleRate,
             samples: [],
@@ -276,9 +403,13 @@ export class IsobmffMuxer extends Muxer {
             compositionTimeOffsetTable: [],
             lastTimescaleUnits: null,
             lastSample: null,
+            startTimestampOffset: null,
             finalizedChunks: [],
             currentChunk: null,
+            tfraEntries: [],
             compactlyCodedChunkTable: [],
+            avgBitrate: track.source._nominalBitrate ?? track.metadata.averageBitrate ?? 0,
+            maxBitrate: track.source._nominalBitrate ?? track.metadata.bitrate ?? 0,
         };
         this.trackDatas.push(newTrackData);
         this.trackDatas.sort((a, b) => a.track.id - b.track.id);
@@ -310,10 +441,14 @@ export class IsobmffMuxer extends Muxer {
             compositionTimeOffsetTable: [],
             lastTimescaleUnits: null,
             lastSample: null,
+            startTimestampOffset: null,
             finalizedChunks: [],
             currentChunk: null,
+            tfraEntries: [],
             compactlyCodedChunkTable: [],
-            lastCueEndTimestamp: 0,
+            avgBitrate: track.source._nominalBitrate ?? track.metadata.averageBitrate ?? 0,
+            maxBitrate: track.source._nominalBitrate ?? track.metadata.bitrate ?? 0,
+            lastCueEndTimestamp: null,
             cueQueue: [],
             nextSourceId: 0,
             cueToSourceId: new WeakMap(),
@@ -342,8 +477,8 @@ export class IsobmffMuxer extends Muxer {
                 // of a stream and potentially modify the parameters of it. So, let's just leave them in to be sure.
                 packetData = concatNalUnitsInLengthPrefixed(nalUnits, 4);
             }
-            const timestamp = this.validateAndNormalizeTimestamp(trackData.track, packet.timestamp, packet.type === 'key');
-            const internalSample = this.createSampleForTrack(trackData, packetData, timestamp, packet.duration, packet.type);
+            this.validateTimestamp(trackData.track, packet.timestamp, packet.type === 'key');
+            const internalSample = this.createSampleForTrack(trackData, packetData, packet.timestamp, packet.duration, packet.type, 0);
             await this.registerSample(trackData, internalSample);
         }
         finally {
@@ -364,47 +499,124 @@ export class IsobmffMuxer extends Muxer {
                     ? MIN_ADTS_FRAME_HEADER_SIZE
                     : MAX_ADTS_FRAME_HEADER_SIZE;
                 packetData = packetData.subarray(headerLength);
+                if (adtsFrame.channelConfiguration === 0) {
+                    // The description already carries the PCE
+                    const result = readAdtsProgramConfigElement(packetData);
+                    if (result) {
+                        packetData = packetData.subarray(result.size);
+                    }
+                }
             }
-            const timestamp = this.validateAndNormalizeTimestamp(trackData.track, packet.timestamp, packet.type === 'key');
-            const internalSample = this.createSampleForTrack(trackData, packetData, timestamp, packet.duration, packet.type);
+            this.validateTimestamp(trackData.track, packet.timestamp, packet.type === 'key');
+            if (track.source._codec === 'eac3') {
+                // An MP4 sample holds six blocks' worth of E-AC-3 frames (ETSI TS 102 366, Annex F), so shorter frames
+                // get merged
+                const frames = splitEac3AudioFrames(packetData);
+                const blockCount = frames
+                    ? frames.reduce((sum, frame) => sum + frame.blockCount, 0)
+                    : 6; // Unparsable data counts as a whole sample
+                const pending = trackData.info.pendingEac3Packets;
+                const totalBlockCount = pending.reduce((sum, x) => sum + x.blockCount, 0) + blockCount;
+                if (totalBlockCount > 6) {
+                    throw new Error('E-AC-3 frames must add up to exactly six blocks to be muxed into MP4 samples.');
+                }
+                pending.push({
+                    packet,
+                    blockCount,
+                });
+                if (totalBlockCount === 6) {
+                    await this.writePendingEac3Packets(trackData);
+                }
+                return;
+            }
+            let timestamp = packet.timestamp;
+            let duration = packet.duration;
             if (trackData.info.requiresPcmTransformation) {
-                await this.maybePadWithSilence(trackData, timestamp);
+                // Packets may have only approximate timestamp/duration information, but for our PCM logic, we need it
+                // to be precise. So here, we refine the values.
+                const pcmInfo = parsePcmCodec(trackData.info.decoderConfig.codec);
+                const frameSize = pcmInfo.sampleSize * trackData.info.numberOfChannels;
+                // Compute the precise duration
+                duration = packetData.byteLength / frameSize / trackData.info.sampleRate;
+                if (trackData.info.expectedNextPcmPacketTimestamp !== null) {
+                    const diff = timestamp - trackData.info.expectedNextPcmPacketTimestamp;
+                    if (diff < 0.01) {
+                        timestamp = trackData.info.expectedNextPcmPacketTimestamp;
+                    }
+                    else {
+                        const paddedDuration = await this.padWithSilence(trackData, trackData.info.expectedNextPcmPacketTimestamp, diff);
+                        timestamp = trackData.info.expectedNextPcmPacketTimestamp + paddedDuration;
+                    }
+                }
+                trackData.info.expectedNextPcmPacketTimestamp = timestamp + duration;
             }
+            const { preroll } = trackData.info;
+            // Let's specify how many samples (packets) worth of preroll are needed to decode audio properly, based on
+            // the codec.
+            let prerollSamples = 0;
+            if (track.source._codec === 'aac' || track.source._codec === 'vorbis') {
+                prerollSamples = -Math.min(1, preroll.packetCount);
+            }
+            else if (track.source._codec === 'mp3') {
+                // One packet of overlap plus one for the bit reservoir, which usually doesn't reach back further.
+                // ESTIMATE!!
+                prerollSamples = -Math.min(2, preroll.packetCount);
+            }
+            else if (track.source._codec === 'opus') {
+                const OPUS_PREROLL_SAMPLES = Math.round(OPUS_PRE_ROLL_DURATION * OPUS_SAMPLE_RATE);
+                prerollSamples = -preroll.audioSampleDurationHistory.length;
+                const toc = parseOpusTocByte(packetData);
+                preroll.accumulatedAudioSamples += toc.durationInSamples;
+                preroll.audioSampleDurationHistory.push(toc.durationInSamples);
+                while (preroll.accumulatedAudioSamples - preroll.audioSampleDurationHistory[0]
+                    >= OPUS_PREROLL_SAMPLES) {
+                    preroll.accumulatedAudioSamples -= preroll.audioSampleDurationHistory.shift();
+                    assert(preroll.audioSampleDurationHistory.length > 0);
+                }
+            }
+            preroll.packetCount++;
+            const internalSample = this.createSampleForTrack(trackData, packetData, timestamp, duration, packet.type, prerollSamples);
             await this.registerSample(trackData, internalSample);
         }
         finally {
             release();
         }
     }
-    async maybePadWithSilence(trackData, untilTimestamp) {
-        // The PCM transformation assumes that all samples are contiguous. This is not something that is enforced, so
-        // we need to pad the "holes" in between samples (and before the first sample) with additional
-        // "silence samples".
-        const lastSample = last(trackData.samples);
-        const lastEndTimestamp = lastSample
-            ? lastSample.timestamp + lastSample.duration
-            : 0;
-        const delta = untilTimestamp - lastEndTimestamp;
-        const deltaInTimescale = intoTimescale(delta, trackData.timescale);
-        if (deltaInTimescale > 0) {
-            const { sampleSize, silentValue } = parsePcmCodec(trackData.info.decoderConfig.codec);
-            const samplesNeeded = deltaInTimescale * trackData.info.numberOfChannels;
-            const data = new Uint8Array(sampleSize * samplesNeeded).fill(silentValue);
-            const paddingSample = this.createSampleForTrack(trackData, new Uint8Array(data.buffer), lastEndTimestamp, delta, 'key');
+    async padWithSilence(trackData, timestamp, duration) {
+        const deltaInTimescale = intoTimescale(duration, trackData.timescale);
+        const { sampleSize, silentValue } = parsePcmCodec(trackData.info.decoderConfig.codec);
+        // Pad at most a second at a time so long gaps don't need huge allocations
+        const bytesPerFrame = sampleSize * trackData.info.numberOfChannels;
+        const silence = new Uint8Array(bytesPerFrame * Math.min(deltaInTimescale, trackData.timescale))
+            .fill(silentValue);
+        for (let offset = 0; offset < deltaInTimescale; offset += trackData.timescale) {
+            const frameCount = Math.min(deltaInTimescale - offset, trackData.timescale);
+            const paddingSample = this.createSampleForTrack(trackData, silence.subarray(0, bytesPerFrame * frameCount), timestamp + offset / trackData.timescale, frameCount / trackData.timescale, 'key', 0);
             await this.registerSample(trackData, paddingSample);
         }
+        return deltaInTimescale / trackData.timescale;
     }
     async addSubtitleCue(track, cue, meta) {
         const release = await this.mutex.acquire();
         try {
             const trackData = this.getSubtitleTrackData(track, meta);
-            this.validateAndNormalizeTimestamp(trackData.track, cue.timestamp, true);
+            this.validateTimestamp(trackData.track, cue.timestamp, true);
             if (track.source._codec === 'webvtt') {
-                trackData.cueQueue.push(cue);
-                await this.processWebVTTCues(trackData, cue.timestamp);
+                // Snapping to the timescale makes touching cues compare equal despite floating point error
+                const start = intoTimescale(cue.timestamp, trackData.timescale) / trackData.timescale;
+                const end = intoTimescale(cue.timestamp + cue.duration, trackData.timescale) / trackData.timescale;
+                // Cues without duration are never visible and can't be laid out into samples, so they're dropped
+                if (end > start) {
+                    trackData.cueQueue.push({
+                        cue,
+                        start,
+                        end,
+                    });
+                }
+                await this.processWebVTTCues(trackData, start);
             }
             else {
-                throw new Error(`${track.source._codec} subtitles are not supported in ${this.format._name}. Only WebVTT is supported.`);
+                // TODO
             }
         }
         finally {
@@ -415,12 +627,13 @@ export class IsobmffMuxer extends Muxer {
         // WebVTT cues need to undergo special processing as empty sections need to be padded out with samples, and
         // overlapping samples require special logic. The algorithm produces the format specified in ISO 14496-30.
         while (trackData.cueQueue.length > 0) {
+            trackData.lastCueEndTimestamp ??= Math.min(0, trackData.cueQueue[0].start);
             const timestamps = new Set([]);
-            for (const cue of trackData.cueQueue) {
-                assert(cue.timestamp <= until);
-                assert(trackData.lastCueEndTimestamp <= cue.timestamp + cue.duration);
-                timestamps.add(Math.max(cue.timestamp, trackData.lastCueEndTimestamp)); // Start timestamp
-                timestamps.add(cue.timestamp + cue.duration); // End timestamp
+            for (const { start, end } of trackData.cueQueue) {
+                assert(start <= until);
+                assert(trackData.lastCueEndTimestamp <= end);
+                timestamps.add(Math.max(start, trackData.lastCueEndTimestamp)); // Start timestamp
+                timestamps.add(end); // End timestamp
             }
             const sortedTimestamps = [...timestamps].sort((a, b) => a - b);
             // These are the timestamps of the next sample we'll create:
@@ -434,22 +647,21 @@ export class IsobmffMuxer extends Muxer {
                 this.auxWriter.seek(0);
                 const box = vtte();
                 this.auxBoxWriter.writeBox(box);
-                const body = this.auxWriter.getSlice(0, this.auxWriter.getPos());
-                const sample = this.createSampleForTrack(trackData, body, trackData.lastCueEndTimestamp, sampleStart - trackData.lastCueEndTimestamp, 'key');
+                const body = this.auxTarget._getSlice(0, this.auxWriter.getPos());
+                const sample = this.createSampleForTrack(trackData, body, trackData.lastCueEndTimestamp, sampleStart - trackData.lastCueEndTimestamp, 'key', 0);
                 await this.registerSample(trackData, sample);
                 trackData.lastCueEndTimestamp = sampleStart;
             }
             this.auxWriter.seek(0);
             for (let i = 0; i < trackData.cueQueue.length; i++) {
-                const cue = trackData.cueQueue[i];
-                if (cue.timestamp >= sampleEnd) {
+                const { cue, start, end } = trackData.cueQueue[i];
+                if (start >= sampleEnd) {
                     break;
                 }
                 inlineTimestampRegex.lastIndex = 0;
                 const containsTimestamp = inlineTimestampRegex.test(cue.text);
-                const endTimestamp = cue.timestamp + cue.duration;
                 let sourceId = trackData.cueToSourceId.get(cue);
-                if (sourceId === undefined && sampleEnd < endTimestamp) {
+                if (sourceId === undefined && sampleEnd < end) {
                     // We know this cue will appear in more than one sample, therefore we need to mark it with a
                     // unique ID
                     sourceId = trackData.nextSourceId++;
@@ -462,18 +674,18 @@ export class IsobmffMuxer extends Muxer {
                 }
                 const box = vttc(cue.text, containsTimestamp ? sampleStart : null, cue.identifier ?? null, cue.settings ?? null, sourceId ?? null);
                 this.auxBoxWriter.writeBox(box);
-                if (endTimestamp === sampleEnd) {
+                if (end === sampleEnd) {
                     // The cue won't appear in any future sample, so we're done with it
                     trackData.cueQueue.splice(i--, 1);
                 }
             }
-            const body = this.auxWriter.getSlice(0, this.auxWriter.getPos());
-            const sample = this.createSampleForTrack(trackData, body, sampleStart, sampleEnd - sampleStart, 'key');
+            const body = this.auxTarget._getSlice(0, this.auxWriter.getPos());
+            const sample = this.createSampleForTrack(trackData, body, sampleStart, sampleEnd - sampleStart, 'key', 0);
             await this.registerSample(trackData, sample);
             trackData.lastCueEndTimestamp = sampleEnd;
         }
     }
-    createSampleForTrack(trackData, data, timestamp, duration, type) {
+    createSampleForTrack(trackData, data, timestamp, duration, type, prerollSamples) {
         const sample = {
             timestamp,
             decodeTimestamp: timestamp, // This may be refined later
@@ -482,6 +694,7 @@ export class IsobmffMuxer extends Muxer {
             size: data.byteLength,
             type,
             timescaleUnitsToNextSample: intoTimescale(duration, trackData.timescale), // Will be refined
+            prerollSamples,
         };
         return sample;
     }
@@ -490,6 +703,9 @@ export class IsobmffMuxer extends Muxer {
             return;
         }
         if (trackData.type === 'audio' && trackData.info.requiresPcmTransformation) {
+            assert(!this.isFragmented);
+            // The first timestamp is the lowest
+            trackData.startTimestampOffset ??= trackData.timestampProcessingQueue[0].timestamp;
             let totalDuration = 0;
             // Compute the total duration in the track timescale (which is equal to the amount of PCM audio samples)
             // and simply say that's how many new samples there are.
@@ -512,6 +728,12 @@ export class IsobmffMuxer extends Muxer {
             return;
         }
         const sortedTimestamps = trackData.timestampProcessingQueue.map(x => x.timestamp).sort((a, b) => a - b);
+        if (this.isFragmented) {
+            trackData.startTimestampOffset ??= Math.min(sortedTimestamps[0], 0);
+        }
+        else {
+            trackData.startTimestampOffset ??= sortedTimestamps[0];
+        }
         for (let i = 0; i < trackData.timestampProcessingQueue.length; i++) {
             const sample = trackData.timestampProcessingQueue[i];
             // Since the user only supplies presentation time, but these may be out of order, we reverse-engineer from
@@ -519,11 +741,6 @@ export class IsobmffMuxer extends Muxer {
             // (presentation timestamp & decode order are all you need), but it is a concept in ISOBMFF so we need to
             // model it.
             sample.decodeTimestamp = sortedTimestamps[i];
-            if (!this.isFragmented && trackData.lastTimescaleUnits === null) {
-                // In non-fragmented files, the first decode timestamp is always zero. If the first presentation
-                // timestamp isn't zero, we'll simply use the composition time offset to achieve it.
-                sample.decodeTimestamp = 0;
-            }
             const sampleCompositionTimeOffset = intoTimescale(sample.timestamp - sample.decodeTimestamp, trackData.timescale);
             const durationInTimescale = intoTimescale(sample.duration, trackData.timescale);
             if (trackData.lastTimescaleUnits !== null) {
@@ -616,16 +833,8 @@ export class IsobmffMuxer extends Muxer {
             this.processTimestamps(trackData, sample);
         }
         trackData.timestampProcessingQueue.push(sample);
-        if (this.isFragmented) {
-            trackData.sampleQueue.push(sample);
-            await this.interleaveSamples();
-        }
-        else if (this.fastStart === 'reserve') {
-            await this.registerSampleFastStartReserve(trackData, sample);
-        }
-        else {
-            await this.addSampleToTrack(trackData, sample);
-        }
+        trackData.sampleQueue.push(sample);
+        await this.interleaveSamples();
     }
     async addSampleToTrack(trackData, sample) {
         if (!this.isFragmented) {
@@ -635,7 +844,7 @@ export class IsobmffMuxer extends Muxer {
                 assert(maximumPacketCount !== undefined);
                 if (trackData.samples.length > maximumPacketCount) {
                     throw new Error(`Track #${trackData.track.id} has already reached the maximum packet count`
-                        + ` (${maximumPacketCount}). Either add less packets or increase the maximum packet count.`);
+                        + ` (${maximumPacketCount}). Either add fewer packets or increase the maximum packet count.`);
                 }
             }
         }
@@ -659,22 +868,35 @@ export class IsobmffMuxer extends Muxer {
                     if (firstQueuedSample) {
                         return firstQueuedSample.type === 'key';
                     }
-                    return otherTrackData.track.source._closed;
+                    return this.closedTracks.has(otherTrackData.track);
                 });
+                // The first fragment comes with the moov box, whose edit lists need the start offset of every track
+                const startOffsetsKnown = this.wroteFragmentedHeader
+                    || this.trackDatas.every(x => x.startTimestampOffset !== null || this.closedTracks.has(x.track));
                 if (currentChunkDuration >= this.minimumFragmentDuration
                     && keyFrameQueuedEverywhere
-                    && sample.timestamp > this.maxWrittenTimestamp) {
+                    && sample.timestamp > this.maxWrittenTimestamp
+                    && startOffsetsKnown) {
                     beginNewChunk = true;
                     await this.finalizeFragment();
                 }
             }
             else {
-                beginNewChunk = currentChunkDuration >= 0.5; // Chunk is long enough, we need a new one
+                beginNewChunk = currentChunkDuration >= MIN_CHUNK_DURATION; // Chunk is long enough, we need a new one
             }
         }
         if (beginNewChunk) {
-            if (trackData.currentChunk) {
-                await this.finalizeCurrentChunk(trackData);
+            if (!this.isFragmented) {
+                // See if we can finalize the chunk of the other tracks too. We can do this because samples are added
+                // interleaved by timestamp anyway. It's important that chunks are finalized and emitted in
+                // chronological order because some players behave better if this is the case.
+                const tracksToFinalize = this.trackDatas
+                    .filter(x => (x.currentChunk
+                    && sample.timestamp - x.currentChunk.startTimestamp >= MIN_CHUNK_DURATION))
+                    .sort((a, b) => a.currentChunk.startTimestamp - b.currentChunk.startTimestamp);
+                for (const otherTrackData of tracksToFinalize) {
+                    await this.finalizeCurrentChunk(otherTrackData);
+                }
             }
             trackData.currentChunk = {
                 startTimestamp: sample.timestamp,
@@ -687,17 +909,20 @@ export class IsobmffMuxer extends Muxer {
         trackData.currentChunk.samples.push(sample);
         if (this.isFragmented) {
             this.maxWrittenTimestamp = Math.max(this.maxWrittenTimestamp, sample.timestamp);
+            this.maxWrittenEndTimestamp = Math.max(this.maxWrittenEndTimestamp, sample.timestamp + sample.duration);
+            this.minWrittenTimestamp = Math.min(this.minWrittenTimestamp, sample.timestamp);
         }
     }
     async finalizeCurrentChunk(trackData) {
         assert(!this.isFragmented);
-        if (!trackData.currentChunk)
-            return;
-        trackData.finalizedChunks.push(trackData.currentChunk);
-        this.finalizedChunks.push(trackData.currentChunk);
-        let sampleCount = trackData.currentChunk.samples.length;
+        assert(this.writer);
+        const chunk = trackData.currentChunk;
+        assert(chunk);
+        trackData.currentChunk = null;
+        trackData.finalizedChunks.push(chunk);
+        let sampleCount = chunk.samples.length;
         if (trackData.type === 'audio' && trackData.info.requiresPcmTransformation) {
-            sampleCount = trackData.currentChunk.samples
+            sampleCount = chunk.samples
                 .reduce((acc, sample) => acc + intoTimescale(sample.duration, trackData.timescale), 0);
         }
         if (trackData.compactlyCodedChunkTable.length === 0
@@ -708,28 +933,32 @@ export class IsobmffMuxer extends Muxer {
             });
         }
         if (this.fastStart === 'in-memory') {
-            trackData.currentChunk.offset = 0; // We'll compute the proper offset when finalizing
+            chunk.offset = 0; // We'll compute the proper offset when finalizing
+            this.finalizedChunks.push(chunk);
             return;
         }
         // Write out the data
-        trackData.currentChunk.offset = this.writer.getPos();
-        for (const sample of trackData.currentChunk.samples) {
+        chunk.offset = this.writer.getPos();
+        for (const sample of chunk.samples) {
             assert(sample.data);
             this.writer.write(sample.data);
             sample.data = null; // Can be GC'd
         }
+        chunk.samples.length = 0; // Only the chunk's offset is needed from now on
         await this.writer.flush();
     }
     async interleaveSamples(isFinalCall = false) {
-        assert(this.isFragmented);
         if (!isFinalCall && !this.allTracksAreKnown()) {
             return; // We can't interleave yet as we don't yet know how many tracks we'll truly have
+        }
+        if (this.fastStart === 'reserve' && !this.mdat) {
+            await this.createFastStartReserveMdat();
         }
         outer: while (true) {
             let trackWithMinTimestamp = null;
             let minTimestamp = Infinity;
             for (const trackData of this.trackDatas) {
-                if (!isFinalCall && trackData.sampleQueue.length === 0 && !trackData.track.source._closed) {
+                if (!isFinalCall && trackData.sampleQueue.length === 0 && !this.closedTracks.has(trackData.track)) {
                     break outer;
                 }
                 if (trackData.sampleQueue.length > 0 && trackData.sampleQueue[0].timestamp < minTimestamp) {
@@ -744,38 +973,70 @@ export class IsobmffMuxer extends Muxer {
             await this.addSampleToTrack(trackWithMinTimestamp, sample);
         }
     }
-    async finalizeFragment(flushWriter = true) {
+    async finalizeFragment(flushWriter = !this.isCmaf) {
         assert(this.isFragmented);
-        const fragmentNumber = this.nextFragmentNumber++;
-        if (fragmentNumber === 1) {
-            if (this.format._options.onMoov) {
-                this.writer.startTrackingWrites();
+        if (!this.wroteFragmentedHeader) {
+            this.wroteFragmentedHeader = true;
+            const boxWriter = this.initBoxWriter ?? this.boxWriter;
+            assert(boxWriter);
+            if (this.formatOptions.onMoov) {
+                boxWriter.writer.startTrackingWrites();
             }
+            this.ensureOneEnabledTrack();
             // Write the moov box now that we have all decoder configs
             const movieBox = moov(this);
-            this.boxWriter.writeBox(movieBox);
-            if (this.format._options.onMoov) {
-                const { data, start } = this.writer.stopTrackingWrites();
-                this.format._options.onMoov(data, start);
+            boxWriter.writeBox(movieBox);
+            if (this.formatOptions.onMoov) {
+                const { data, start } = boxWriter.writer.stopTrackingWrites();
+                this.formatOptions.onMoov(data, start);
+            }
+            if (this.isCmaf) {
+                assert(this.initWriter);
+                await this.initWriter.flush();
+                await this.initWriter.finalize(); // Init segment is done
+                // Only now, init the main writer; this way the init writer is fully done before the main writer is
+                // even acquired
+                this.writer = await this.output._getRootWriter(true);
+                this.boxWriter = new IsobmffBoxWriter(this.writer);
+                const stypSize = this.boxWriter.measureBox(styp());
+                const sidxSize = this.boxWriter.measureBox(sidx(this, 0));
+                this.segmentHeaderSize = stypSize + sidxSize;
+                this.writer.seek(this.segmentHeaderSize); // Make room for the header to be written later
             }
         }
+        assert(this.writer);
+        assert(this.boxWriter);
         // Not all tracks need to be present in every fragment
         const tracksInFragment = this.trackDatas.filter(x => x.currentChunk);
+        if (tracksInFragment.length === 0) {
+            // Zero tracks in this fragment and thus no fragment data
+            if (flushWriter) {
+                await this.writer.flush();
+            }
+            return;
+        }
+        const fragmentNumber = this.nextFragmentNumber++;
         // Create an initial moof box and measure it; we need this to know where the following mdat box will begin
         const moofBox = moof(fragmentNumber, tracksInFragment);
         const moofOffset = this.writer.getPos();
         const mdatStartPos = moofOffset + this.boxWriter.measureBox(moofBox);
         let currentPos = mdatStartPos + MIN_BOX_HEADER_SIZE;
         let fragmentStartTimestamp = Infinity;
-        for (const trackData of tracksInFragment) {
+        for (let i = 0; i < tracksInFragment.length; i++) {
+            const trackData = tracksInFragment[i];
+            assert(trackData.currentChunk);
+            assert(trackData.startTimestampOffset !== null);
+            fragmentStartTimestamp = Math.min(fragmentStartTimestamp, trackData.currentChunk.startTimestamp);
             trackData.currentChunk.offset = currentPos;
             trackData.currentChunk.moofOffset = moofOffset;
+            trackData.currentChunk.startTimestamp -= trackData.startTimestampOffset;
             for (const sample of trackData.currentChunk.samples) {
                 currentPos += sample.size;
+                sample.timestamp -= trackData.startTimestampOffset;
+                sample.decodeTimestamp -= trackData.startTimestampOffset;
             }
-            fragmentStartTimestamp = Math.min(fragmentStartTimestamp, trackData.currentChunk.startTimestamp);
         }
-        const mdatSize = currentPos - mdatStartPos;
+        let mdatSize = currentPos - mdatStartPos;
         const needsLargeMdatSize = mdatSize >= 2 ** 32;
         if (needsLargeMdatSize) {
             // Shift all offsets by 8. Previously, all chunks were shifted assuming the large box size, but due to what
@@ -783,18 +1044,23 @@ export class IsobmffMuxer extends Muxer {
             for (const trackData of tracksInFragment) {
                 trackData.currentChunk.offset += MAX_BOX_HEADER_SIZE - MIN_BOX_HEADER_SIZE;
             }
+            mdatSize += MAX_BOX_HEADER_SIZE - MIN_BOX_HEADER_SIZE;
         }
-        if (this.format._options.onMoof) {
+        // trun's data offset is a signed 32-bit integer relative to the moof
+        if (last(tracksInFragment).currentChunk.offset - moofOffset >= 2 ** 31) {
+            throw new Error('The data of a fragment\'s track must start less than 2 GiB after its moof box; use shorter fragments.');
+        }
+        if (this.formatOptions.onMoof) {
             this.writer.startTrackingWrites();
         }
         const newMoofBox = moof(fragmentNumber, tracksInFragment);
         this.boxWriter.writeBox(newMoofBox);
-        if (this.format._options.onMoof) {
+        if (this.formatOptions.onMoof) {
             const { data, start } = this.writer.stopTrackingWrites();
-            this.format._options.onMoof(data, start, fragmentStartTimestamp);
+            this.formatOptions.onMoof(data, start, fragmentStartTimestamp);
         }
         assert(this.writer.getPos() === mdatStartPos);
-        if (this.format._options.onMdat) {
+        if (this.formatOptions.onMdat) {
             this.writer.startTrackingWrites();
         }
         const mdatBox = mdat(needsLargeMdatSize);
@@ -808,49 +1074,49 @@ export class IsobmffMuxer extends Muxer {
                 sample.data = null; // Can be GC'd
             }
         }
-        if (this.format._options.onMdat) {
+        if (this.formatOptions.onMdat) {
             const { data, start } = this.writer.stopTrackingWrites();
-            this.format._options.onMdat(data, start);
+            this.formatOptions.onMdat(data, start);
         }
-        for (const trackData of tracksInFragment) {
-            trackData.finalizedChunks.push(trackData.currentChunk);
-            this.finalizedChunks.push(trackData.currentChunk);
+        for (let i = 0; i < tracksInFragment.length; i++) {
+            const trackData = tracksInFragment[i];
+            assert(trackData.currentChunk);
+            if (!this.isCmaf) {
+                // tfra must point to sync samples, so skip fragments without one. This should never happen in practice
+                // since all fragments begin with a sync sample for every track anyways.
+                const sampleIndex = trackData.currentChunk.samples.findIndex(sample => sample.type === 'key');
+                if (sampleIndex !== -1) {
+                    trackData.tfraEntries.push({
+                        timestamp: trackData.currentChunk.samples[sampleIndex].timestamp,
+                        moofOffset,
+                        trafIndex: i,
+                        sampleIndex,
+                    });
+                }
+            }
             trackData.currentChunk = null;
         }
         if (flushWriter) {
             await this.writer.flush();
         }
     }
-    async registerSampleFastStartReserve(trackData, sample) {
-        if (this.allTracksAreKnown()) {
-            if (!this.mdat) {
-                // We finally know all tracks, let's reserve space for the moov box
-                const moovBox = moov(this);
-                const moovSize = this.boxWriter.measureBox(moovBox);
-                const reservedSize = moovSize
-                    + this.computeSampleTableSizeUpperBound()
-                    + 4096; // Just a little extra headroom
-                assert(this.ftypSize !== null);
-                this.writer.seek(this.ftypSize + reservedSize);
-                if (this.format._options.onMdat) {
-                    this.writer.startTrackingWrites();
-                }
-                this.mdat = mdat(true);
-                this.boxWriter.writeBox(this.mdat);
-                // Now write everything that was queued
-                for (const trackData of this.trackDatas) {
-                    for (const sample of trackData.sampleQueue) {
-                        await this.addSampleToTrack(trackData, sample);
-                    }
-                    trackData.sampleQueue.length = 0;
-                }
-            }
-            await this.addSampleToTrack(trackData, sample);
+    async createFastStartReserveMdat() {
+        assert(this.writer);
+        assert(this.boxWriter);
+        this.ensureOneEnabledTrack();
+        // We finally know all tracks, let's reserve space for the moov box
+        const moovBox = moov(this);
+        const moovSize = this.boxWriter.measureBox(moovBox);
+        const reservedSize = moovSize
+            + this.computeSampleTableSizeUpperBound()
+            + 4096; // Just a little extra headroom
+        assert(this.ftypSize !== null);
+        this.writer.seek(this.ftypSize + reservedSize);
+        if (this.formatOptions.onMdat) {
+            this.writer.startTrackingWrites();
         }
-        else {
-            // Queue it for when we know all tracks
-            trackData.sampleQueue.push(sample);
-        }
+        this.mdat = mdat(true);
+        this.boxWriter.writeBox(this.mdat);
     }
     computeSampleTableSizeUpperBound() {
         assert(this.fastStart === 'reserve');
@@ -872,62 +1138,179 @@ export class IsobmffMuxer extends Muxer {
             upperBound += 4 * n;
             // co64 box - we assume 1 sample per chunk and 64-bit chunk offsets (co64 instead of stco)
             upperBound += 8 * n;
+            if (trackData.type === 'audio') {
+                // sgpd box - 1 roll distance per sample, in case each sample's preroll differs from the one before
+                upperBound += 2 * n;
+                // sbgp box - 1 entry per sample, for the same reason
+                upperBound += (4 + 4) * n;
+            }
         }
         return upperBound;
     }
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     async onTrackClose(track) {
         const release = await this.mutex.acquire();
-        const trackData = this.trackDatas.find(x => x.track === track);
-        if (trackData) {
-            if (trackData.type === 'subtitle' && track.source._codec === 'webvtt') {
+        try {
+            const trackData = this.trackDatas.find(x => x.track === track);
+            if (trackData?.type === 'subtitle' && track.source._codec === 'webvtt') {
                 await this.processWebVTTCues(trackData, Infinity);
             }
-            this.processTimestamps(trackData);
-        }
-        if (this.allTracksAreKnown()) {
-            this.allTracksKnown.resolve();
-        }
-        if (this.isFragmented) {
+            if (trackData?.type === 'audio' && trackData.info.pendingEac3Packets.length > 0) {
+                await this.writePendingEac3Packets(trackData);
+            }
+            this.closedTracks.add(track);
+            if (trackData) {
+                this.processTimestamps(trackData);
+            }
+            if (this.allTracksAreKnown()) {
+                this.allTracksKnown.resolve();
+            }
             // Since a track is now closed, we may be able to write out chunks that were previously waiting
             await this.interleaveSamples();
         }
-        release();
+        finally {
+            release();
+        }
+    }
+    ensureOneEnabledTrack() {
+        // If no track of a given type is enabled, force the first one to be enabled. Otherwise the video won't play in
+        // players like QuickTime.
+        // https://github.com/Vanilagy/mediabunny/pull/391
+        for (const type of ['video', 'audio', 'subtitle']) {
+            const tracks = this.trackDatas.filter(t => t.type === type);
+            if (tracks.length === 0) {
+                continue;
+            }
+            const hasEnabled = tracks.some(t => t.track.metadata.disposition?.default !== false);
+            if (!hasEnabled) {
+                const firstTrack = tracks[0];
+                firstTrack.track.metadata.disposition = {
+                    ...firstTrack.track.metadata.disposition,
+                    default: true,
+                };
+            }
+        }
+    }
+    /** Internal function for external callers who want to full control fragment boundaries. */
+    async forceFragmentFinalization() {
+        assert(this.isFragmented);
+        const release = await this.mutex.acquire();
+        try {
+            for (const trackData of this.trackDatas) {
+                if (trackData.type === 'subtitle' && trackData.track.source._codec === 'webvtt') {
+                    await this.processWebVTTCues(trackData, Infinity);
+                }
+                this.processTimestamps(trackData);
+            }
+            await this.interleaveSamples(true);
+            await this.finalizeFragment();
+        }
+        finally {
+            release();
+        }
+    }
+    async writePendingEac3Packets(trackData) {
+        const packets = trackData.info.pendingEac3Packets.map(x => x.packet);
+        trackData.info.pendingEac3Packets.length = 0;
+        let data = packets[0].data;
+        if (packets.length > 1) {
+            data = new Uint8Array(packets.reduce((sum, packet) => sum + packet.data.byteLength, 0));
+            let offset = 0;
+            for (const packet of packets) {
+                data.set(packet.data, offset);
+                offset += packet.data.byteLength;
+            }
+        }
+        const duration = packets.reduce((sum, packet) => sum + packet.duration, 0);
+        const sample = this.createSampleForTrack(trackData, data, packets[0].timestamp, duration, 'key', 0);
+        await this.registerSample(trackData, sample);
     }
     /** Finalizes the file, making it ready for use. Must be called after all video and audio chunks have been added. */
     async finalize() {
         const release = await this.mutex.acquire();
         this.allTracksKnown.resolve();
+        this.ensureOneEnabledTrack();
         for (const trackData of this.trackDatas) {
             if (trackData.type === 'subtitle' && trackData.track.source._codec === 'webvtt') {
                 await this.processWebVTTCues(trackData, Infinity);
             }
+            if (trackData.type === 'audio' && trackData.info.pendingEac3Packets.length > 0) {
+                await this.writePendingEac3Packets(trackData);
+            }
+            this.closedTracks.add(trackData.track);
             this.processTimestamps(trackData);
         }
+        await this.interleaveSamples(true);
         if (this.isFragmented) {
-            await this.interleaveSamples(true);
             await this.finalizeFragment(false); // Don't flush the last fragment as we will flush it with the mfra box
         }
         else {
-            for (const trackData of this.trackDatas) {
+            const tracksToFinalize = this.trackDatas
+                .filter(x => x.currentChunk)
+                .sort((a, b) => a.currentChunk.startTimestamp - b.currentChunk.startTimestamp);
+            for (const trackData of tracksToFinalize) {
                 await this.finalizeCurrentChunk(trackData);
             }
+            for (const trackData of this.trackDatas) {
+                // Now that we have all samples, we can replace the nominal bitrates with measured ones
+                const span = presentationSpan(trackData);
+                if (span > 0) {
+                    let totalBytes = 0;
+                    for (const sample of trackData.samples) {
+                        totalBytes += sample.size;
+                    }
+                    trackData.avgBitrate = Math.round(8 * totalBytes / span);
+                }
+                else {
+                    trackData.avgBitrate = 0;
+                }
+                // Sliding one-second window over the samples in decode order
+                let windowStart = 0;
+                let windowBytes = 0;
+                let maxWindowBytes = 0;
+                for (let i = 0; i < trackData.samples.length; i++) {
+                    const sample = trackData.samples[i];
+                    windowBytes += sample.size;
+                    while (sample.decodeTimestamp - trackData.samples[windowStart].decodeTimestamp >= 1) {
+                        windowBytes -= trackData.samples[windowStart].size;
+                        windowStart++;
+                    }
+                    maxWindowBytes = Math.max(maxWindowBytes, windowBytes);
+                }
+                trackData.maxBitrate = 8 * maxWindowBytes;
+                if (trackData.startTimestampOffset !== null) {
+                    // Shift all of the samples by the start offset. We'll then write out an edit list that will shift
+                    // them back to their proper spot in the composition.
+                    for (let i = 0; i < trackData.samples.length; i++) {
+                        const sample = trackData.samples[i];
+                        sample.timestamp -= trackData.startTimestampOffset;
+                        sample.decodeTimestamp -= trackData.startTimestampOffset;
+                    }
+                }
+            }
         }
+        assert(this.writer);
+        assert(this.boxWriter);
         if (this.fastStart === 'in-memory') {
             this.mdat = mdat(false);
             let mdatSize;
             // We know how many chunks there are, but computing the chunk positions requires an iterative approach:
             // In order to know where the first chunk should go, we first need to know the size of the moov box. But we
-            // cannot write a proper moov box without first knowing all chunk positions. So, we generate a tentative
-            // moov box with placeholder values (0) for the chunk offsets to be able to compute its size. If it then
-            // turns out that appending all chunks exceeds 4 GiB, we need to repeat this process, now with the co64 box
-            // being used in the moov box instead, which will make it larger. After that, we definitely know the final
-            // size of the moov box and can compute the proper chunk positions.
-            for (let i = 0; i < 2; i++) {
-                const movieBox = moov(this);
-                const movieBoxSize = this.boxWriter.measureBox(movieBox);
-                mdatSize = this.boxWriter.measureBox(this.mdat);
-                let currentChunkPos = this.writer.getPos() + movieBoxSize + mdatSize;
+            // cannot write a proper moov box without first knowing all chunk positions, since tracks with chunks past
+            // 4 GiB need the larger co64 box, and a large mdat needs a larger header. So, we measure the boxes, place
+            // the chunks after them, and repeat until the measured sizes stop changing. This converges eventually:
+            // boxes only ever switch to their larger variants, which pushes the chunks further back, so they can never
+            // switch back.
+            let previousHeaderSize = null;
+            while (true) {
+                const movieBoxSize = this.boxWriter.measureBox(moov(this));
+                const mdatHeaderSize = this.boxWriter.measureBox(this.mdat);
+                const headerSize = movieBoxSize + mdatHeaderSize;
+                if (headerSize === previousHeaderSize) {
+                    break;
+                }
+                previousHeaderSize = headerSize;
+                mdatSize = mdatHeaderSize;
+                let currentChunkPos = this.writer.getPos() + headerSize;
                 for (const chunk of this.finalizedChunks) {
                     chunk.offset = currentChunkPos;
                     for (const { data } of chunk.samples) {
@@ -936,21 +1319,20 @@ export class IsobmffMuxer extends Muxer {
                         mdatSize += data.byteLength;
                     }
                 }
-                if (currentChunkPos < 2 ** 32)
-                    break;
-                if (mdatSize >= 2 ** 32)
+                if (mdatSize >= 2 ** 32) {
                     this.mdat.largeSize = true;
+                }
             }
-            if (this.format._options.onMoov) {
+            if (this.formatOptions.onMoov) {
                 this.writer.startTrackingWrites();
             }
             const movieBox = moov(this);
             this.boxWriter.writeBox(movieBox);
-            if (this.format._options.onMoov) {
+            if (this.formatOptions.onMoov) {
                 const { data, start } = this.writer.stopTrackingWrites();
-                this.format._options.onMoov(data, start);
+                this.formatOptions.onMoov(data, start);
             }
-            if (this.format._options.onMdat) {
+            if (this.formatOptions.onMdat) {
                 this.writer.startTrackingWrites();
             }
             this.mdat.size = mdatSize;
@@ -961,21 +1343,36 @@ export class IsobmffMuxer extends Muxer {
                     this.writer.write(sample.data);
                     sample.data = null;
                 }
+                await this.writer.flush(); // Flush now so that the target doesn't buffer excessively
             }
-            if (this.format._options.onMdat) {
+            if (this.formatOptions.onMdat) {
                 const { data, start } = this.writer.stopTrackingWrites();
-                this.format._options.onMdat(data, start);
+                this.formatOptions.onMdat(data, start);
             }
         }
         else if (this.isFragmented) {
-            // Append the mfra box to the end of the file for better random access
-            const startPos = this.writer.getPos();
-            const mfraBox = mfra(this.trackDatas);
-            this.boxWriter.writeBox(mfraBox);
-            // Patch the 'size' field of the mfro box at the end of the mfra box now that we know its actual size
-            const mfraBoxSize = this.writer.getPos() - startPos;
-            this.writer.seek(this.writer.getPos() - 4);
-            this.boxWriter.writeU32(mfraBoxSize);
+            if (this.isCmaf) {
+                const contentSize = this.segmentHeaderSize !== null
+                    ? this.writer.getPos() - this.segmentHeaderSize
+                    : 0;
+                if (contentSize >= 2 ** 31) {
+                    throw new Error('CMAF segments must be smaller than 2 GiB, as their sidx box can\'t index anything larger.');
+                }
+                this.writer.seek(0);
+                // Write styp and sidx to the start; we recently made space for these
+                this.boxWriter.writeBox(styp());
+                this.boxWriter.writeBox(sidx(this, contentSize));
+            }
+            else {
+                // Append the mfra box to the end of the file for better random access
+                const startPos = this.writer.getPos();
+                const mfraBox = mfra(this.trackDatas);
+                this.boxWriter.writeBox(mfraBox);
+                // Patch the 'size' field of the mfro box at the end of the mfra box now that we know its actual size
+                const mfraBoxSize = this.writer.getPos() - startPos;
+                this.writer.seek(this.writer.getPos() - 4);
+                this.boxWriter.writeU32(mfraBoxSize);
+            }
         }
         else {
             assert(this.mdat);
@@ -985,31 +1382,31 @@ export class IsobmffMuxer extends Muxer {
             this.mdat.size = mdatSize;
             this.mdat.largeSize = mdatSize >= 2 ** 32; // Only use the large size if we need it
             this.boxWriter.patchBox(this.mdat);
-            if (this.format._options.onMdat) {
+            if (this.formatOptions.onMdat) {
                 const { data, start } = this.writer.stopTrackingWrites();
-                this.format._options.onMdat(data, start);
+                this.formatOptions.onMdat(data, start);
             }
             const movieBox = moov(this);
             if (this.fastStart === 'reserve') {
                 assert(this.ftypSize !== null);
+                const reservedSpace = this.boxWriter.offsets.get(this.mdat) - this.ftypSize;
+                const moovSize = this.boxWriter.measureBox(movieBox);
+                if (moovSize + 8 > reservedSpace) {
+                    throw new Error(`The moov box (${moovSize} bytes) plus a free box (8 bytes) exceed the space reserved for them`
+                        + ` (${reservedSpace} bytes) with fastStart: 'reserve'. This is a bug; please report it.`);
+                }
+                // The free box fills up the rest of the reserved space, behind the moov box
+                this.writer.seek(this.ftypSize + moovSize);
+                this.boxWriter.writeBox(free(reservedSpace - moovSize));
                 this.writer.seek(this.ftypSize);
-                if (this.format._options.onMoov) {
-                    this.writer.startTrackingWrites();
-                }
-                this.boxWriter.writeBox(movieBox);
-                // Fill the remaining space with a free box. If there are less than 8 bytes left, sucks I guess
-                const remainingSpace = this.boxWriter.offsets.get(this.mdat) - this.writer.getPos();
-                this.boxWriter.writeBox(free(remainingSpace));
             }
-            else {
-                if (this.format._options.onMoov) {
-                    this.writer.startTrackingWrites();
-                }
-                this.boxWriter.writeBox(movieBox);
+            if (this.formatOptions.onMoov) {
+                this.writer.startTrackingWrites();
             }
-            if (this.format._options.onMoov) {
+            this.boxWriter.writeBox(movieBox);
+            if (this.formatOptions.onMoov) {
                 const { data, start } = this.writer.stopTrackingWrites();
-                this.format._options.onMoov(data, start);
+                this.formatOptions.onMoov(data, start);
             }
         }
         release();

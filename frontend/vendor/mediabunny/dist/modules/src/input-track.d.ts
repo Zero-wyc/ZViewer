@@ -5,14 +5,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { AudioCodec, MediaCodec, SubtitleCodec, VideoCodec } from './codec.js';
+import { AudioCodec, MediaCodec, VideoCodec } from './codec.js';
 import { Input } from './input.js';
 import { PacketRetrievalOptions } from './media-sink.js';
-import { Rational, Rotation } from './misc.js';
+import { MaybePromise, Rational, TransformationMatrix } from './misc.js';
 import { TrackType } from './output.js';
 import { EncodedPacket, PacketType } from './packet.js';
 import { TrackDisposition } from './metadata.js';
-import { SubtitleCue } from './subtitles.js';
+import { DurationMetadataRequestOptions } from './demuxer.js';
 /**
  * Contains aggregate statistics about the encoded packets of a track.
  * @group Input files & tracks
@@ -21,22 +21,100 @@ import { SubtitleCue } from './subtitles.js';
 export type PacketStats = {
     /** The total number of packets. */
     packetCount: number;
-    /** The average number of packets per second. For video tracks, this will equal the average frame rate (FPS). */
+    /**
+     * The average number of packets per second. For video tracks, this will equal the average frame rate (FPS).
+     * Infinite if all packets sit at a single instant.
+     */
     averagePacketRate: number;
-    /** The average number of bits per second. */
+    /** The average number of bits per second. Infinite if all packets sit at a single instant. */
     averageBitrate: number;
 };
+/**
+ * Computed metrics about the frame rate of a video track.
+ * @group Input files & tracks
+ * @public
+ */
+export type FrameRateMetrics = {
+    /**
+     * The true, underlying frame rate of the video that produced the frame timestamps. This value is heuristically
+     * determined by examining the time differences between frames, excluding outliers, and then fitting them to
+     * fractions. This algorithm is stable even when frames are dropped, as long as all frames lie roughly on one
+     * uniform lattice.
+     *
+     * If this field is not `null`, Mediabunny is extremely confident in having found the actual frame rate of
+     * the video.
+     *
+     * This field is `null` for videos where no consistent underlying frame rate was detected, indicating a variable
+     * frame-rate (VFR) video.
+     */
+    underlyingFrameRate: number | null;
+    /**
+     * Mediabunny's best guess for the video's actual intended frame rate.
+     *
+     * This value is determined heuristically. If `underlyingFrameRate` exists, this field will be equal to it. If it
+     * doesn't, Mediabunny will check if `medianFrameRate` is close to a "common" frame rate and if so, snap to it.
+     * Otherwise, this field simply falls back to `medianFrameRate`.
+     */
+    bestGuessFrameRate: number;
+    /**
+     * The minimum frame rate of the video at any given point, based on the largest distance between two
+     * consecutive frames.
+     */
+    minFrameRate: number;
+    /**
+     * The maximum frame rate of the video at any given point, based on the smallest distance between two
+     * consecutive frames.
+     */
+    maxFrameRate: number;
+    /**
+     * The average frame rate across the duration of the probed packets. This value represents the average frames per
+     * second; it is not the average of frame rates across the video.
+     */
+    averageFrameRate: number;
+    /**
+     * The median frame rate, as determined by the distance between any two consecutive frames. For variable frame-rate
+     * (VFR) videos, this field gives you a good idea of the _de facto_ frame rate of the video.
+     */
+    medianFrameRate: number;
+    /** Is `true` only when the underlying video is CFR (constant frame-rate) and no frames are skipped. */
+    frameRateIsConstant: boolean;
+    /**
+     * The number of packets that were probed/inspected to estimate the frame rate. Probe at least 256 packets for a
+     * reliable estimation of frame rate.
+     */
+    probedPacketCount: number;
+};
+/**
+ * Options for controlling how a video track's {@link FrameRateMetrics} are computed.
+ * @group Input files & tracks
+ * @public
+ */
+export type FrameRateMetricsOptions = {
+    /**
+     * The target number of packets to inspect to compute the frame rate. Defaults to `256`. Pass `Infinity` to scan
+     * the entire file.
+     */
+    targetPacketCount?: number;
+};
 export interface InputTrackBacking {
-    getId(): number;
+    getType(): TrackType;
     getNumber(): number;
-    getCodec(): MediaCodec | null;
-    getInternalCodecId(): string | number | Uint8Array | null;
-    getName(): string | null;
-    getLanguageCode(): string;
-    getTimeResolution(): number;
-    getDisposition(): TrackDisposition;
-    getFirstTimestamp(): Promise<number>;
-    computeDuration(): Promise<number>;
+    getCodec(): MaybePromise<MediaCodec | null>;
+    getInternalCodecId(): MaybePromise<string | number | Uint8Array | null>;
+    getName(): MaybePromise<string | null>;
+    getLanguageCode(): MaybePromise<string>;
+    getTimeResolution(): MaybePromise<number>;
+    isRelativeToUnixEpoch(): MaybePromise<boolean>;
+    getUnixTimeForTimestamp(timestamp: number): MaybePromise<number | null>;
+    getDisposition(): MaybePromise<TrackDisposition>;
+    getPairingMask(): bigint;
+    getBitrate(): MaybePromise<number | null>;
+    getAverageBitrate(): MaybePromise<number | null>;
+    getDurationFromMetadata(options: DurationMetadataRequestOptions): Promise<number | null>;
+    getLiveRefreshInterval(): Promise<number | null>;
+    getHasOnlyKeyPackets?(): MaybePromise<boolean | null>;
+    getDecoderConfig(): Promise<VideoDecoderConfig | AudioDecoderConfig | null>;
+    getMetadataCodecParameterString?(): MaybePromise<string | null>;
     getFirstPacket(options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
     getPacket(timestamp: number, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
     getNextPacket(packet: EncodedPacket, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
@@ -53,7 +131,12 @@ export declare abstract class InputTrack {
     readonly input: Input;
     /** The type of the track. */
     abstract get type(): TrackType;
-    /** The codec of the track's packets. */
+    /** Returns the codec of the track's packets. */
+    abstract getCodec(): Promise<MediaCodec | null>;
+    /**
+     * The codec of the track's packets.
+     * @deprecated Use {@link InputTrack.getCodec} instead.
+     */
     abstract get codec(): MediaCodec | null;
     /** Returns the full codec parameter string for this track. */
     abstract getCodecParameterString(): Promise<string | null>;
@@ -64,13 +147,19 @@ export declare abstract class InputTrack {
      * into its bitstream. Returns null if the type couldn't be determined.
      */
     abstract determinePacketType(packet: EncodedPacket): Promise<PacketType | null>;
+    /**
+     * Returns whether the track metadata says that this track only contains key packets. The actual packets may
+     * differ.
+     */
+    abstract hasOnlyKeyPackets(): Promise<boolean>;
     /** Returns true if and only if this track is a video track. */
     isVideoTrack(): this is InputVideoTrack;
     /** Returns true if and only if this track is an audio track. */
     isAudioTrack(): this is InputAudioTrack;
-    /** Returns true if and only if this track is a subtitle track. */
-    isSubtitleTrack(): this is InputSubtitleTrack;
-    /** The unique ID of this track in the input file. */
+    /**
+     * The unique ID of this track in the input file, which is its 1-based index in the list of tracks returned by
+     * {@link Input.getTracks}.
+     */
     get id(): number;
     /**
      * The 1-based index of this track among all tracks of the same type in the input file. For example, the first
@@ -79,40 +168,129 @@ export declare abstract class InputTrack {
      */
     get number(): number;
     /**
-     * The identifier of the codec used internally by the container. It is not homogenized by Mediabunny
+     * Returns the identifier of the codec used internally by the container. It is not homogenized by Mediabunny
      * and depends entirely on the container format.
      *
-     * This field can be used to determine the codec of a track in case Mediabunny doesn't know that codec.
+     * This method can be used to determine the codec of a track in case Mediabunny doesn't know that codec.
      *
-     * - For ISOBMFF files, this field returns the name of the Sample Description Box (e.g. `'avc1'`).
-     * - For Matroska files, this field returns the value of the `CodecID` element.
-     * - For WAVE files, this field returns the value of the format tag in the `'fmt '` chunk.
-     * - For ADTS files, this field contains the `MPEG-4 Audio Object Type`.
-     * - For MPEG-TS files, this field contains the `streamType` value from the Program Map Table.
-     * - In all other cases, this field is `null`.
+     * - For ISOBMFF files, this resolves to the name of the Sample Description Box (e.g. `'avc1'`).
+     * - For Matroska files, this resolves to the value of the `CodecID` element.
+     * - For WAVE files, this resolves to the value of the format tag in the `'fmt '` chunk.
+     * - For ADTS files, this resolves to the `MPEG-4 Audio Object Type`.
+     * - For MPEG-TS files, this resolves to the `streamType` value from the Program Map Table.
+     * - In all other cases, this resolves to `null`.
+     */
+    getInternalCodecId(): Promise<string | number | Uint8Array<ArrayBufferLike> | null>;
+    /**
+     * See {@link InputTrack.getInternalCodecId}.
+     * @deprecated Use {@link InputTrack.getInternalCodecId} instead.
      */
     get internalCodecId(): string | number | Uint8Array<ArrayBufferLike> | null;
     /**
+     * Returns the ISO 639-2/T language code for this track. If the language is unknown, this resolves to `'und'`
+     * (undetermined).
+     */
+    getLanguageCode(): Promise<string>;
+    /**
      * The ISO 639-2/T language code for this track. If the language is unknown, this field is `'und'` (undetermined).
+     * @deprecated Use {@link InputTrack.getLanguageCode} instead.
      */
     get languageCode(): string;
-    /** A user-defined name for this track. */
+    /** Returns the user-defined name for this track. */
+    getName(): Promise<string | null>;
+    /**
+     * A user-defined name for this track.
+     * @deprecated Use {@link InputTrack.getName} instead.
+     */
     get name(): string | null;
+    /**
+     * Returns a positive number x such that all timestamps and durations of all packets of this track are
+     * integer multiples of 1/x.
+     */
+    getTimeResolution(): Promise<number>;
     /**
      * A positive number x such that all timestamps and durations of all packets of this track are
      * integer multiples of 1/x.
+     * @deprecated Use {@link InputTrack.getTimeResolution} instead.
      */
     get timeResolution(): number;
-    /** The track's disposition, i.e. information about its intended usage. */
+    /**
+     * Returns whether the timestamps of this track are relative to the Unix epoch (January 1, 1970 00:00:00 UTC).
+     * When `true`, each timestamp maps to a definitive point in time.
+     */
+    isRelativeToUnixEpoch(): Promise<boolean>;
+    /**
+     * Returns the Unix time (in seconds since January 1, 1970 00:00:00 UTC) that the given track timestamp (in seconds)
+     * maps to, or `null` if there is no such mapping. This provides a piecewise-continuous mapping from this track's
+     * timestamp space into wall-clock time. Such mapping exists, for example, for HLS playlists with
+     * `#EXT-X-PROGRAM-DATE-TIME` tags present.
+     *
+     * This mapping can be available even when {@link InputTrack.isRelativeToUnixEpoch} is `false`, for example for HLS
+     * streams with program date time information but with {@link HlsInputFormatOptions.offsetTimestampsByDateTime}
+     * set to `false`.
+     */
+    getUnixTimeForTimestamp(timestamp: number): Promise<number | null>;
+    /**
+     * Whether the track's timestamps can be mapped to Unix wall clock time via
+     * {@link InputTrack.getUnixTimeForTimestamp}.
+     */
+    hasUnixTimeMapping(): Promise<boolean>;
+    /** Returns the track's disposition, i.e. information about its intended usage. */
+    getDisposition(): Promise<TrackDisposition>;
+    /**
+     * The track's disposition, i.e. information about its intended usage.
+     * @deprecated Use {@link InputTrack.getDisposition} instead.
+     */
     get disposition(): TrackDisposition;
+    /**
+     * Returns the peak bitrate of the track in bits per second, as specified in the track's metadata. This might not
+     * match the actual media data's bitrate.
+     */
+    getBitrate(): Promise<number | null>;
+    /**
+     * Returns the average bitrate of the track in bits per second, as specified in the track's metadata. This might
+     * not match the actual media data's bitrate.
+     */
+    getAverageBitrate(): Promise<number | null>;
     /**
      * Returns the start timestamp of the first packet of this track, in seconds. While often near zero, this value
      * may be positive or even negative. A negative starting timestamp means the track's timing has been offset. Samples
      * with a negative timestamp should not be presented.
+     *
+     * Returns 0 if the track has no packets. Use {@link InputTrack.getFirstTimestampOrNull} to have it
+     * return `null` instead.
      */
     getFirstTimestamp(): Promise<number>;
-    /** Returns the end timestamp of the last packet of this track, in seconds. */
-    computeDuration(): Promise<number>;
+    /**
+     * Like {@link InputTrack.getFirstTimestamp}, but returns `null` when the track has no packets.
+     */
+    getFirstTimestampOrNull(): Promise<number | null>;
+    /**
+     * Returns the end timestamp of the last packet of this track, in seconds.
+     *
+     * By default, when the underlying media is live, this method will only resolve once the live stream ends. If you
+     * want to query the current end timestamp of the stream, set {@link PacketRetrievalOptions.skipLiveWait} to `true`
+     * in the options.
+     *
+     * Returns 0 if the track has no packets. Use {@link InputTrack.computeDurationOrNull} to have it
+     * return `null` instead.
+     */
+    computeDuration(options?: PacketRetrievalOptions): Promise<number>;
+    /**
+     * Like {@link InputTrack.computeDuration}, but returns `null` when the track has no packets.
+     */
+    computeDurationOrNull(options?: PacketRetrievalOptions): Promise<number | null>;
+    /**
+     * Gets the duration (end timestamp) in seconds of this track from metadata stored in the file. This value may be
+     * approximate or diverge from the actual, precise duration returned by `.computeDuration()`, but compared to that
+     * method, this method is cheaper. When the duration cannot be determined from the file metadata, `null`
+     * is returned.
+     *
+     * By default, when the underlying media is live, this method will only resolve once the live stream
+     * ends. If you want to query the current duration of the media, set
+     * {@link DurationMetadataRequestOptions.skipLiveWait} to `true` in the options.
+     */
+    getDurationFromMetadata(options?: DurationMetadataRequestOptions): Promise<number | null>;
     /**
      * Computes aggregate packet statistics for this track, such as average packet rate or bitrate.
      *
@@ -120,16 +298,68 @@ export declare abstract class InputTrack {
      * looked at before it can return early; this means, you can use it to aggregate only a subset (prefix) of all
      * packets. This is very useful for getting a great estimate of video frame rate without having to scan through the
      * entire file.
+     *
+     * By default, when the underlying media is live and `targetPacketCount` is not set, this method will only resolve
+     * once the live stream ends. If you want to query the current packet statistics of the stream, set
+     * {@link PacketRetrievalOptions.skipLiveWait} to `true` in the options.
      */
-    computePacketStats(targetPacketCount?: number): Promise<PacketStats>;
+    computePacketStats(targetPacketCount?: number, options?: PacketRetrievalOptions): Promise<PacketStats>;
+    /**
+     * Whether or not this track is currently live, meaning the media's end is still unknown.
+     *
+     * The value returned by this method may change over time as the track stops being live. To keep track of the
+     * track's live status, poll this method at the track's refresh interval
+     * via {@link InputTrack.getLiveRefreshInterval}.
+     */
+    isLive(): Promise<boolean>;
+    /**
+     * Returns the track's live refresh interval in seconds, or `null` if the track is not live. This interval describes
+     * the time it takes, on average, for new live media data to become available.
+     */
+    getLiveRefreshInterval(): Promise<number | null>;
+    /**
+     * Returns `true` if this track can be paired with the given track. Two tracks being pairable means they can be
+     * presented (displayed) together.
+     *
+     * Returns `false` if `other` equals `this`.
+     */
+    canBePairedWith(other: InputTrack): boolean;
+    /**
+     * Gets the list of other tracks that can be paired with this track. An optional query can be provided to narrow
+     * down the results.
+     */
+    getPairableTracks(query?: InputTrackQuery<InputTrack>): Promise<InputTrack[]>;
+    /**
+     * Gets the list of other video tracks that can be paired with this track. An optional query can be provided to
+     * narrow down the results.
+     */
+    getPairableVideoTracks(query?: InputTrackQuery<InputVideoTrack>): Promise<InputVideoTrack[]>;
+    /**
+     * Gets the list of other audio tracks that can be paired with this track. An optional query can be provided to
+     * narrow down the results.
+     */
+    getPairableAudioTracks(query?: InputTrackQuery<InputAudioTrack>): Promise<InputAudioTrack[]>;
+    /** Returns the primary track that can be paired with this track, optionally steered by the provided query. */
+    getPrimaryPairableVideoTrack(query?: InputTrackQuery<InputVideoTrack>): Promise<InputVideoTrack | null>;
+    /** Returns the primary track that can be paired with this track, optionally steered by the provided query. */
+    getPrimaryPairableAudioTrack(query?: InputTrackQuery<InputAudioTrack>): Promise<InputAudioTrack | null>;
+    /** Returns `true` if there is another track that can be paired with this track. */
+    hasPairableTrack(predicate?: (track: InputTrack) => MaybePromise<boolean>): Promise<boolean>;
+    /** Returns `true` if there is a video track that can be paired with this track. */
+    hasPairableVideoTrack(predicate?: (track: InputVideoTrack) => MaybePromise<boolean>): Promise<boolean>;
+    /** Returns `true` if there is an audio track that can be paired with this track. */
+    hasPairableAudioTrack(predicate?: (track: InputAudioTrack) => MaybePromise<boolean>): Promise<boolean>;
 }
 export interface InputVideoTrackBacking extends InputTrackBacking {
-    getCodec(): VideoCodec | null;
-    getCodedWidth(): number;
-    getCodedHeight(): number;
-    getSquarePixelWidth(): number;
-    getSquarePixelHeight(): number;
-    getRotation(): Rotation;
+    getType(): 'video';
+    getCodec(): MaybePromise<VideoCodec | null>;
+    getCodedWidth(): MaybePromise<number>;
+    getCodedHeight(): MaybePromise<number>;
+    getSquarePixelWidth(): MaybePromise<number>;
+    getSquarePixelHeight(): MaybePromise<number>;
+    getMetadataDisplayWidth?(): MaybePromise<number | null>;
+    getMetadataDisplayHeight?(): MaybePromise<number | null>;
+    getTransformationMatrix(): MaybePromise<TransformationMatrix>;
     getColorSpace(): Promise<VideoColorSpaceInit>;
     canBeTransparent(): Promise<boolean>;
     getDecoderConfig(): Promise<VideoDecoderConfig | null>;
@@ -140,26 +370,94 @@ export interface InputVideoTrackBacking extends InputTrackBacking {
  * @public
  */
 export declare class InputVideoTrack extends InputTrack {
+    get type(): TrackType;
+    /** The codec of the track's packets. */
+    getCodec(): Promise<VideoCodec | null>;
+    /**
+     * The codec of the track's packets.
+     * @deprecated Use {@link InputVideoTrack.getCodec} instead.
+     */
+    get codec(): VideoCodec | null;
+    hasOnlyKeyPackets(): Promise<boolean>;
+    /** Returns the width in pixels of the track's coded samples, before any transformations or rotations. */
+    getCodedWidth(): Promise<number>;
+    /**
+     * The width in pixels of the track's coded samples, before any transformations or rotations.
+     * @deprecated Use {@link InputVideoTrack.getCodedWidth} instead.
+     */
+    get codedWidth(): number;
+    /** Returns the height in pixels of the track's coded samples, before any transformations or rotations. */
+    getCodedHeight(): Promise<number>;
+    /**
+     * The height in pixels of the track's coded samples, before any transformations or rotations.
+     * @deprecated Use {@link InputVideoTrack.getCodedHeight} instead.
+     */
+    get codedHeight(): number;
+    /**
+     * Returns the row-major 3x3 affine transformation matrix that is used to transform the raw video frames before they
+     * are displayed. The raw frames are assumed to be placed with their top-left corner at the origin (0,0).
+     *
+     * Usually, this matrix models a rotation and a flip. Depending on the file, it may also contain a translation
+     * component. When displaying video, you should typically ignore the translation component and display the center of
+     * the transformed frame in the center of the viewport.
+     */
+    getTransformationMatrix(): Promise<TransformationMatrix>;
+    /**
+     * Returns the angle in degrees by which the track's frames should be rotated (clockwise). The rotation is
+     * applied before flipping.
+     */
+    getRotation(): Promise<import("./misc.js").Rotation>;
+    /**
+     * The angle in degrees by which the track's frames should be rotated (clockwise).
+     * @deprecated Use {@link InputVideoTrack.getRotation} instead.
+     */
+    get rotation(): import("./misc.js").Rotation;
+    /**
+     * Returns whether the track's frames should be flipped horizontally (about the vertical axis), after rotation.
+     */
+    getFlip(): Promise<boolean>;
+    /**
+     * Returns the width of the track's frames in square pixels, adjusted for pixel aspect ratio but before rotation.
+     */
+    getSquarePixelWidth(): Promise<number>;
+    /**
+     * The width of the track's frames in square pixels, adjusted for pixel aspect ratio but before rotation.
+     * @deprecated Use {@link InputVideoTrack.getSquarePixelWidth} instead.
+     */
+    get squarePixelWidth(): number;
+    /**
+     * Returns the height of the track's frames in square pixels, adjusted for pixel aspect ratio but before rotation.
+     */
+    getSquarePixelHeight(): Promise<number>;
+    /**
+     * The height of the track's frames in square pixels, adjusted for pixel aspect ratio but before rotation.
+     * @deprecated Use {@link InputVideoTrack.getSquarePixelHeight} instead.
+     */
+    get squarePixelHeight(): number;
+    /**
+     * Returns the pixel aspect ratio of the track's frames as a rational number in its reduced form. Most videos use
+     * square pixels (1:1).
+     */
+    getPixelAspectRatio(): Promise<Rational>;
     /**
      * The pixel aspect ratio of the track's frames, as a rational number in its reduced form. Most videos use
      * square pixels (1:1).
+     * @deprecated Use {@link InputVideoTrack.getPixelAspectRatio} instead.
      */
-    readonly pixelAspectRatio: Rational;
-    get type(): TrackType;
-    get codec(): VideoCodec | null;
-    /** The width in pixels of the track's coded samples, before any transformations or rotations. */
-    get codedWidth(): number;
-    /** The height in pixels of the track's coded samples, before any transformations or rotations. */
-    get codedHeight(): number;
-    /** The angle in degrees by which the track's frames should be rotated (clockwise). */
-    get rotation(): Rotation;
-    /** The width of the track's frames in square pixels, adjusted for pixel aspect ratio but before rotation. */
-    get squarePixelWidth(): number;
-    /** The height of the track's frames in square pixels, adjusted for pixel aspect ratio but before rotation. */
-    get squarePixelHeight(): number;
-    /** The display width of the track's frames in pixels, after aspect ratio adjustment and rotation. */
+    get pixelAspectRatio(): Rational;
+    /** Returns the display width of the track's frames in pixels, after aspect ratio adjustment and rotation. */
+    getDisplayWidth(): Promise<number>;
+    /**
+     * The display width of the track's frames in pixels, after aspect ratio adjustment and rotation.
+     * @deprecated Use {@link InputVideoTrack.getDisplayWidth} instead.
+     */
     get displayWidth(): number;
-    /** The display height of the track's frames in pixels, after aspect ratio adjustment and rotation. */
+    /** Returns the display height of the track's frames in pixels, after aspect ratio adjustment and rotation. */
+    getDisplayHeight(): Promise<number>;
+    /**
+     * The display height of the track's frames in pixels, after aspect ratio adjustment and rotation.
+     * @deprecated Use {@link InputVideoTrack.getDisplayHeight} instead.
+     */
     get displayHeight(): number;
     /** Returns the color space of the track's samples. */
     getColorSpace(): Promise<VideoColorSpaceInit>;
@@ -176,11 +474,18 @@ export declare class InputVideoTrack extends InputTrack {
     getCodecParameterString(): Promise<string | null>;
     canDecode(): Promise<boolean>;
     determinePacketType(packet: EncodedPacket): Promise<PacketType | null>;
+    /**
+     * Computes frame rate metrics for this video track, i.e. estimates the video's frame rate. Frame rate is never
+     * determined from file metadata (which is unreliable) but is always deduced directly from the actual frame
+     * timestamps.
+     */
+    computeFrameRateMetrics(options?: FrameRateMetricsOptions): Promise<FrameRateMetrics>;
 }
 export interface InputAudioTrackBacking extends InputTrackBacking {
-    getCodec(): AudioCodec | null;
-    getNumberOfChannels(): number;
-    getSampleRate(): number;
+    getType(): 'audio';
+    getCodec(): MaybePromise<AudioCodec | null>;
+    getNumberOfChannels(): MaybePromise<number>;
+    getSampleRate(): MaybePromise<number>;
     getDecoderConfig(): Promise<AudioDecoderConfig | null>;
 }
 /**
@@ -190,10 +495,27 @@ export interface InputAudioTrackBacking extends InputTrackBacking {
  */
 export declare class InputAudioTrack extends InputTrack {
     get type(): TrackType;
+    /** The codec of the track's packets. */
+    getCodec(): Promise<AudioCodec | null>;
+    /**
+     * The codec of the track's packets.
+     * @deprecated Use {@link InputAudioTrack.getCodec} instead.
+     */
     get codec(): AudioCodec | null;
-    /** The number of audio channels in the track. */
+    hasOnlyKeyPackets(): Promise<boolean>;
+    /** Returns the number of audio channels in the track. */
+    getNumberOfChannels(): Promise<number>;
+    /**
+     * The number of audio channels in the track.
+     * @deprecated Use {@link InputAudioTrack.getNumberOfChannels} instead.
+     */
     get numberOfChannels(): number;
-    /** The track's audio sample rate in hertz. */
+    /** Returns the track's audio sample rate in hertz. */
+    getSampleRate(): Promise<number>;
+    /**
+     * The track's audio sample rate in hertz.
+     * @deprecated Use {@link InputAudioTrack.getSampleRate} instead.
+     */
     get sampleRate(): number;
     /**
      * Returns the [decoder configuration](https://www.w3.org/TR/webcodecs/#audio-decoder-config) for decoding the
@@ -202,33 +524,73 @@ export declare class InputAudioTrack extends InputTrack {
      */
     getDecoderConfig(): Promise<AudioDecoderConfig | null>;
     getCodecParameterString(): Promise<string | null>;
+    /**
+     * Returns the decoder pre-roll duration for this track. It specifies how far ahead of any given timestamp,
+     * in seconds, decoding must start so that the audio at that timestamp comes out correctly and the codec state has
+     * properly converged. Returns `null` if the track's codec is unknown.
+     */
+    getPreRollDuration(): Promise<number | null>;
     canDecode(): Promise<boolean>;
     determinePacketType(packet: EncodedPacket): Promise<PacketType | null>;
 }
-export interface InputSubtitleTrackBacking extends InputTrackBacking {
-    getCodec(): SubtitleCodec | null;
-    getCodecPrivate(): string | null;
-    getCues(): AsyncGenerator<SubtitleCue>;
-}
 /**
- * Represents a subtitle track in an input file.
+ * Defines a query for input tracks. Can be used to query tracks tersely and expressively, which is especially useful
+ * for media inputs with many tracks, such as HLS manifests.
+ *
  * @group Input files & tracks
  * @public
  */
-export declare class InputSubtitleTrack extends InputTrack {
-    get type(): TrackType;
-    get codec(): SubtitleCodec | null;
+export type InputTrackQuery<T extends InputTrack> = {
     /**
-     * Returns an async iterator that yields all subtitle cues in this track.
+     * A filter predicate function called for every track. Returning or resolving to `false` excludes the track from
+     * the result.
      */
-    getCues(): AsyncGenerator<SubtitleCue>;
+    filter?: (track: T) => MaybePromise<boolean>;
     /**
-     * Exports all subtitle cues to text format. If targetFormat is specified,
-     * attempts to convert to that format (limited conversion support).
+     * A function called for every track, used to define a track ordering. Tracks are ordered in ascending order using
+     * the value returned by this function. When the function returns an array of numbers `arr`, tracks will be sorted
+     * by `arr[0]` unless they have the same value, in which case they will be sorted by `arr[1]`, and so on. This
+     * allows you to construct a list of ordering criteria, sorted by importance.
+     *
+     * To help construct complex ordering criteria, the {@link asc}, {@link desc}, and {@link prefer} helper functions
+     * can be used.
      */
-    exportToText(targetFormat?: SubtitleCodec): Promise<string>;
-    getCodecParameterString(): Promise<string | null>;
-    canDecode(): Promise<boolean>;
-    determinePacketType(packet: EncodedPacket): Promise<PacketType | null>;
-}
+    sortBy?: (track: T) => MaybePromise<number | number[]>;
+};
+/**
+ * Helper function for use in {@link InputTrackQuery.sortBy}, used to describe sorting tracks by a numeric property in
+ * ascending order. `null` and `undefined` are accepted too and are last in the order (sorted to the end).
+ *
+ * @group Input files & tracks
+ * @public
+ */
+export declare const asc: (value: number | null | undefined) => number;
+/**
+ * Helper function for use in {@link InputTrackQuery.sortBy}, used to describe sorting tracks by a numeric property in
+ * descending order. `null` and `undefined` are accepted too and are last in the order (sorted to the end).
+ *
+ * @group Input files & tracks
+ * @public
+ */
+export declare const desc: (value: number | null | undefined) => number;
+/**
+ * Helper function for use in {@link InputTrackQuery.sortBy}, used to sort tracks by boolean properties. `true` is
+ * sorted to the start, `false` to the end. Useful for expressing soft preferences (e.g., "I'd prefer 1080p, but other
+ * resolutions are fine too") as opposed to {@link InputTrackQuery.filter} which expresses hard requirements for
+ * tracks.
+ *
+ * @group Input files & tracks
+ * @public
+ */
+export declare const prefer: (value: boolean) => number;
+export declare const toValidatedInputTrackQuery: <T extends InputTrack>(query: InputTrackQuery<T>) => InputTrackQuery<T>;
+export declare const mergeInputTrackQueries: <T extends InputTrack>(queryA: InputTrackQuery<T> | undefined, queryB: InputTrackQuery<T> | undefined) => InputTrackQuery<T>;
+export declare const queryInputTracks: <T extends InputTrack>(tracks: T[], query?: InputTrackQuery<T>) => Promise<T[]>;
+/**
+ * Estimates the underlying CFR-like frame rate from timestamp deltas.
+ *
+ * Each delta is modeled as an integer multiple of one frame period, allowing dropped frames and a small number of
+ * malformed timestamps.
+ */
+export declare const findUnderlyingFrameRate: (ticks: Float64Array, resolution: number) => number | null;
 //# sourceMappingURL=input-track.d.ts.map

@@ -8,8 +8,10 @@
 import { AudioCodec } from '../codec.js';
 import { Demuxer } from '../demuxer.js';
 import { Input } from '../input.js';
-import { InputAudioTrack } from '../input-track.js';
+import { InputAudioTrackBacking } from '../input-track.js';
+import { PacketRetrievalOptions } from '../media-sink.js';
 import { MetadataTags } from '../metadata.js';
+import { EncodedPacket } from '../packet.js';
 import { Reader } from '../reader.js';
 export declare enum WaveFormat {
     PCM = 1,
@@ -23,6 +25,8 @@ export declare class WaveDemuxer extends Demuxer {
     metadataPromise: Promise<void> | null;
     dataStart: number;
     dataSize: number;
+    dataSizeCapped: boolean;
+    dataSizeIsPlaceholder: boolean;
     audioInfo: {
         format: number;
         numberOfChannels: number;
@@ -30,8 +34,7 @@ export declare class WaveDemuxer extends Demuxer {
         sampleSizeInBytes: number;
         blockSizeInBytes: number;
     } | null;
-    tracks: InputAudioTrack[];
-    lastKnownPacketIndex: number;
+    trackBackings: WaveAudioTrackBacking[];
     metadataTags: MetadataTags;
     constructor(input: Input);
     readMetadata(): Promise<void>;
@@ -39,9 +42,46 @@ export declare class WaveDemuxer extends Demuxer {
     private parseListChunk;
     private parseId3Chunk;
     getCodec(): AudioCodec | null;
+    maybeCapDataSize(): void;
     getMimeType(): Promise<string>;
-    computeDuration(): Promise<number>;
-    getTracks(): Promise<InputAudioTrack[]>;
+    getTrackBackings(): Promise<WaveAudioTrackBacking[]>;
     getMetadataTags(): Promise<MetadataTags>;
 }
+declare class WaveAudioTrackBacking implements InputAudioTrackBacking {
+    demuxer: WaveDemuxer;
+    constructor(demuxer: WaveDemuxer);
+    getType(): "audio";
+    getNumber(): number;
+    getCodec(): "aac" | "opus" | "mp3" | "vorbis" | "flac" | "ac3" | "eac3" | "dts" | "truehd" | "pcm-s16" | "pcm-s16be" | "pcm-s24" | "pcm-s24be" | "pcm-s32" | "pcm-s32be" | "pcm-f32" | "pcm-f32be" | "pcm-f64" | "pcm-f64be" | "pcm-u8" | "pcm-s8" | "ulaw" | "alaw" | null;
+    getInternalCodecId(): number;
+    getDecoderConfig(): Promise<AudioDecoderConfig | null>;
+    getNumberOfChannels(): number;
+    getSampleRate(): number;
+    getTimeResolution(): number;
+    isRelativeToUnixEpoch(): boolean;
+    getUnixTimeForTimestamp(): null;
+    getPairingMask(): bigint;
+    getBitrate(): null;
+    getAverageBitrate(): null;
+    getDurationFromMetadata(): Promise<number | null>;
+    getLiveRefreshInterval(): Promise<null>;
+    getName(): null;
+    getLanguageCode(): string;
+    getDisposition(): {
+        default: boolean;
+        primary: boolean;
+        forced: boolean;
+        original: boolean;
+        commentary: boolean;
+        hearingImpaired: boolean;
+        visuallyImpaired: boolean;
+    };
+    private getPacketAtIndex;
+    getFirstPacket(options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getPacket(timestamp: number, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getNextPacket(packet: EncodedPacket, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getKeyPacket(timestamp: number, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+    getNextKeyPacket(packet: EncodedPacket, options: PacketRetrievalOptions): Promise<EncodedPacket | null>;
+}
+export {};
 //# sourceMappingURL=wave-demuxer.d.ts.map

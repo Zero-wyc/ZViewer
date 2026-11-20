@@ -7,7 +7,10 @@
  */
 import { AudioCodec, MediaCodec, SubtitleCodec, VideoCodec } from './codec.js';
 import { MediaSource } from './media-source.js';
-import { TrackType } from './output.js';
+import { NullMuxer } from './muxer.js';
+import { Output, OutputTrack, TrackType } from './output.js';
+import { MaybePromise, FilePath } from './misc.js';
+import { Target } from './target.js';
 /**
  * Specifies an inclusive range of integers.
  * @group Miscellaneous
@@ -44,8 +47,13 @@ export declare abstract class OutputFormat {
     abstract getSupportedCodecs(): MediaCodec[];
     /** Returns the number of tracks that this output format supports. */
     abstract getSupportedTrackCounts(): TrackCountLimits;
-    /** Whether this output format supports video rotation metadata. */
-    abstract get supportsVideoRotationMetadata(): boolean;
+    /** Whether this output format supports video rotation and flip metadata. */
+    abstract get supportsVideoTransformationMetadata(): boolean;
+    /**
+     * Whether this output format supports video rotation metadata.
+     * @deprecated Use {@link OutputFormat.supportsVideoTransformationMetadata} instead.
+     */
+    get supportsVideoRotationMetadata(): boolean;
     /**
      * Whether this output format's tracks store timestamped media data. When `true`, the timestamps of added packets
      * will be respected, allowing things like gaps in media data or non-zero start times. When `false`, the format's
@@ -53,6 +61,19 @@ export declare abstract class OutputFormat {
      * durations of the media data.
      */
     abstract get supportsTimestampedMediaData(): boolean;
+    /**
+     * The degree to which this output format supports writing media data with negative timestamps.
+     * - `'full'` - Negative timestamps are fully supported.
+     * - `'prefer-non-negative'` - Negative timestamps are technically supported, but their use is discouraged.
+     * - `'none'` - Negative timestamps are not supported.
+     * - `null` - Not applicable since the container doesn't support timestamped media at all.
+     */
+    abstract get negativeTimestampSupport(): 'full' | 'prefer-non-negative' | 'none' | null;
+    /**
+     * Whether this output format, as configured, requires {@link BaseTrackMetadata.maximumPacketCount} to be set in
+     * the metadata of every track added to it.
+     */
+    get requiresMaximumPacketCount(): boolean;
     /** Returns a list of video codecs that this output format can contain. */
     getSupportedVideoCodecs(): VideoCodec[];
     /** Returns a list of audio codecs that this output format can contain. */
@@ -80,7 +101,7 @@ export type IsobmffOutputFormatOptions = {
      * Use `'reserve'` to reserve space at the start of the file into which the metadata will be written later.	This
      * produces a file with Fast Start but requires knowledge about the expected length of the file beforehand. When
      * using this option, you must set the {@link BaseTrackMetadata.maximumPacketCount} field in the track metadata
-     * for all tracks.
+     * for all tracks. {@link Conversion} estimates this count automatically if no override is provided.
      *
      * Use `'fragmented'` to place metadata at the start of the file by creating a fragmented file (fMP4). In a
      * fragmented file, chunks of media and their metadata are written to the file in "fragments", eliminating the need
@@ -151,8 +172,10 @@ export declare abstract class IsobmffOutputFormat extends OutputFormat {
     /** Internal constructor. */
     constructor(options?: IsobmffOutputFormatOptions);
     getSupportedTrackCounts(): TrackCountLimits;
-    get supportsVideoRotationMetadata(): boolean;
+    get supportsVideoTransformationMetadata(): boolean;
     get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): "full";
+    get requiresMaximumPacketCount(): boolean;
 }
 /**
  * MPEG-4 Part 14 (MP4) file format. Supports most codecs.
@@ -162,6 +185,31 @@ export declare abstract class IsobmffOutputFormat extends OutputFormat {
 export declare class Mp4OutputFormat extends IsobmffOutputFormat {
     /** Creates a new {@link Mp4OutputFormat} configured with the specified `options`. */
     constructor(options?: IsobmffOutputFormatOptions);
+    get fileExtension(): string;
+    get mimeType(): string;
+    getSupportedCodecs(): MediaCodec[];
+}
+/**
+ * CMAF-specific output options.
+ * @group Output formats
+ * @public
+ */
+export type CmafOutputFormatOptions = Omit<IsobmffOutputFormatOptions, 'fastStart'> & {
+    /**
+     * Controls the minimum duration of each fragment, in seconds. New fragments will only be created when the current
+     * fragment is longer than this value. Defaults to `Infinity`, meaning the file will contain only one fragment.
+     */
+    minimumFragmentDuration?: number;
+};
+/**
+ * Creates a single Common Media Application Format (CMAF) segment. An init segment will be written to the
+ * {@link Target} specified in {@link OutputOptions.initTarget}. Supports most codecs.
+ * @group Output formats
+ * @public
+ */
+export declare class CmafOutputFormat extends IsobmffOutputFormat {
+    /** Creates a new {@link CmafOutputFormat} configured with the specified `options`. */
+    constructor(options?: CmafOutputFormatOptions);
     get fileExtension(): string;
     get mimeType(): string;
     getSupportedCodecs(): MediaCodec[];
@@ -235,8 +283,9 @@ export declare class MkvOutputFormat extends OutputFormat {
     get fileExtension(): string;
     get mimeType(): string;
     getSupportedCodecs(): MediaCodec[];
-    get supportsVideoRotationMetadata(): boolean;
+    get supportsVideoTransformationMetadata(): boolean;
     get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): "prefer-non-negative";
 }
 /**
  * WebM-specific output options.
@@ -291,8 +340,9 @@ export declare class Mp3OutputFormat extends OutputFormat {
     get fileExtension(): string;
     get mimeType(): string;
     getSupportedCodecs(): MediaCodec[];
-    get supportsVideoRotationMetadata(): boolean;
+    get supportsVideoTransformationMetadata(): boolean;
     get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): null;
 }
 /**
  * WAVE-specific output options.
@@ -300,6 +350,11 @@ export declare class Mp3OutputFormat extends OutputFormat {
  * @public
  */
 export type WavOutputFormatOptions = {
+    /**
+     * Configures the output to only append new data at the end, useful for live-streaming the file as it's being
+     * created. When enabled, the header won't state the file's actual size.
+     */
+    appendOnly?: boolean;
     /**
      * When enabled, an RF64 file will be written, allowing for file sizes to exceed 4 GiB, which is otherwise not
      * possible for regular WAVE files.
@@ -316,7 +371,7 @@ export type WavOutputFormatOptions = {
     metadataFormat?: 'info' | 'id3';
     /**
      * Will be called once the file header is written. The header consists of the RIFF header, the format chunk,
-     * metadata chunks, and the start of the data chunk (with a placeholder size of 0).
+     * metadata chunks, and the start of the data chunk (with placeholder sizes).
      */
     onHeader?: (data: Uint8Array, position: number) => unknown;
 };
@@ -332,8 +387,9 @@ export declare class WavOutputFormat extends OutputFormat {
     get fileExtension(): string;
     get mimeType(): string;
     getSupportedCodecs(): MediaCodec[];
-    get supportsVideoRotationMetadata(): boolean;
+    get supportsVideoTransformationMetadata(): boolean;
     get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): null;
 }
 /**
  * Ogg-specific output options.
@@ -367,8 +423,9 @@ export declare class OggOutputFormat extends OutputFormat {
     get fileExtension(): string;
     get mimeType(): string;
     getSupportedCodecs(): MediaCodec[];
-    get supportsVideoRotationMetadata(): boolean;
+    get supportsVideoTransformationMetadata(): boolean;
     get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): "prefer-non-negative";
 }
 /**
  * ADTS-specific output options.
@@ -396,8 +453,9 @@ export declare class AdtsOutputFormat extends OutputFormat {
     get fileExtension(): string;
     get mimeType(): string;
     getSupportedCodecs(): MediaCodec[];
-    get supportsVideoRotationMetadata(): boolean;
+    get supportsVideoTransformationMetadata(): boolean;
     get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): null;
 }
 /**
  * FLAC-specific output options.
@@ -405,6 +463,12 @@ export declare class AdtsOutputFormat extends OutputFormat {
  * @public
  */
 export type FlacOutputFormatOptions = {
+    /**
+     * Configures the output to only append new data at the end, useful for live-streaming the file as it's being
+     * created. When enabled, the STREAMINFO block will not be finalized with accurate min/max block sizes, frame sizes,
+     * or total sample count, so don't use this option when you want to write out a clean file for later use.
+     */
+    appendOnly?: boolean;
     /**
      * Will be called for each FLAC frame that is written.
      *
@@ -425,8 +489,9 @@ export declare class FlacOutputFormat extends OutputFormat {
     get fileExtension(): string;
     get mimeType(): string;
     getSupportedCodecs(): MediaCodec[];
-    get supportsVideoRotationMetadata(): boolean;
+    get supportsVideoTransformationMetadata(): boolean;
     get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): null;
 }
 /**
  * MPEG-TS-specific output options.
@@ -434,6 +499,14 @@ export declare class FlacOutputFormat extends OutputFormat {
  * @public
  */
 export type MpegTsOutputFormatOptions = {
+    /**
+     * An offset in seconds that is added to all timestamps written to the file. It keeps timestamps that would
+     * otherwise be negative (caused by audio priming samples or B-frames) positive in the final file, since negative
+     * timestamps trip up some players. A recommended value is 10 seconds.
+     *
+     * Defaults to 0. When writing HLS, prefer {@link HlsOutputFormatOptions.mediaTimestampBase} instead.
+     */
+    timestampOffset?: number;
     /**
      * Will be called for each 188-byte Transport Stream packet that is written.
      *
@@ -454,7 +527,177 @@ export declare class MpegTsOutputFormat extends OutputFormat {
     get fileExtension(): string;
     get mimeType(): string;
     getSupportedCodecs(): MediaCodec[];
-    get supportsVideoRotationMetadata(): boolean;
+    get supportsVideoTransformationMetadata(): boolean;
     get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): "prefer-non-negative";
+}
+/**
+ * Info about an HLS media playlist.
+ * @group Output formats
+ * @public
+ */
+export type HlsOutputPlaylistInfo = {
+    /** The 1-based index of the media playlist in the master playlist. */
+    n: number;
+    /** The output tracks contained in this playlist. */
+    tracks: OutputTrack[];
+    /** The format of the media segments in this playlist. */
+    segmentFormat: OutputFormat;
+};
+/**
+ * Info about an HLS media segment.
+ * @group Output formats
+ * @public
+ */
+export type HlsOutputSegmentInfo = {
+    /** The 1-based index of the segment in the containing media playlist. */
+    n: number;
+    /** If the segment is a single file, meaning it is a single segment file that covers the entire playlist. */
+    isSingleFile: boolean;
+    /** The format of the media segment. */
+    format: OutputFormat;
+    /** The media playlist to which this segment belongs. */
+    playlist: HlsOutputPlaylistInfo;
+};
+/**
+ * HLS-specific output options.
+ * @group Output formats
+ * @public
+ */
+export type HlsOutputFormatOptions = {
+    /**
+     * Specifies the file format of each media segment. Not all formats are supported by all players; prefer sticking
+     * to the most commonly used ones: {@link MpegTsOutputFormat}, {@link CmafOutputFormat}, {@link AdtsOutputFormat},
+     * and {@link Mp3OutputFormat}.
+     *
+     * When an array of formats is specified, for each playlist, the first format that can contain all of the playlist's
+     * tracks is chosen. This allows you to, for example, package audio into .aac files and video into .ts files.
+     */
+    segmentFormat: OutputFormat | OutputFormat[];
+    /**
+     * Specifies the target (max) duration in seconds for each media segment, defaulting to 2 seconds.
+     *
+     * Mediabunny will try not to emit media segments longer than the target duration, but it is forced to if key frames
+     * are provided with a longer period than the target duration. Therefore, make sure to encode a key frame at least
+     * every `targetDuration` seconds to guarantee segment length, controllable via
+     * {@link VideoEncodingConfig.keyFrameInterval}.
+     *
+     * Outside of live mode, this can be set to `Infinity` to give each playlist only a single segment.
+     */
+    targetDuration?: number;
+    /**
+     * Whether to bundle all media segments for a playlist into a single file. Individual segments are then extracted
+     * via range requests.
+     */
+    singleFilePerPlaylist?: boolean;
+    /**
+     * If `true`, the muxer will be in "live mode", continuously emitting updated playlists as new segments are created.
+     * The master playlist will be emitted as soon as all playlists have been emitted at least once, and will continue
+     * to be emitted each time a segment is finalized to further refine the accuracy of the `BANDWIDTH` attribute.
+     *
+     * When `false` (the default), all playlists will only be emitted once, upon output finalization.
+     */
+    live?: boolean;
+    /**
+     * When in live mode, this controls the maximum number of segments contained in each playlist. Defaults to
+     * `Infinity`, meaning playlists continually grow in size.
+     */
+    maxLiveSegmentCount?: number;
+    /**
+     * The timestamp in seconds at which the media written into the segments starts. All media is shifted such that
+     * the first packet added to the output lands on this timestamp, no matter its original timestamp. A positive base
+     * keeps timestamps positive that would otherwise be negative (caused by audio priming samples, B-frames, or tracks
+     * starting slightly before the first packet). The timestamps in the playlists are not affected.
+     *
+     * Defaults to 10 seconds.
+     */
+    mediaTimestampBase?: number;
+    /**
+     * Returns the file path for a given media playlist. If the returned path is relative, it is relative to the root
+     * path.
+     *
+     * Defaults to `'playlist-{n}.m3u8'`, where `n` is the 1-based index of the media playlist in the master playlist.
+     */
+    getPlaylistPath?: (info: HlsOutputPlaylistInfo) => MaybePromise<FilePath>;
+    /**
+     * Returns the file path for a given media segment. If the returned path is relative, it is relative to the path
+     * of the containing playlist.
+     *
+     * Defaults to `'segment-{n}-{k}{ext}'`, where `n` is the 1-based index of the containing media playlist in the
+     * master playlist, `k` is the 1-based index of the segment in its playlist, and `ext` is the file extension of the
+     * segment format (including the leading dot).
+     *
+     * If {@link HlsOutputFormatOptions.singleFilePerPlaylist} is true, it defaults to `'segments-{n}{ext}'` instead.
+     */
+    getSegmentPath?: (info: HlsOutputSegmentInfo) => MaybePromise<FilePath>;
+    /**
+     * Returns the file path for a given media init segment. If the returned path is relative, it is relative to the
+     * path of the containing playlist.
+     *
+     * Only necessary for segment formats that require an init file, such as {@link CmafOutputFormat}.
+     *
+     * Defaults to `'init-{n}{ext}'`, where `n` is the 1-based index of the containing media playlist in the master
+     * playlist and `ext` is the file extension of the segment format (including the leading dot).
+     */
+    getInitPath?: (info: HlsOutputPlaylistInfo) => MaybePromise<FilePath>;
+    /** Called whenever the master playlist is written. */
+    onMaster?: (content: string) => unknown;
+    /** Called whenever a media playlist is written. */
+    onPlaylist?: (content: string, info: HlsOutputPlaylistInfo) => unknown;
+    /**
+     * Called whenever a media segment has been fully written. In single-file mode, this function will only be called
+     * once when the playlist is finalized.
+     */
+    onSegment?: (target: Target, info: HlsOutputSegmentInfo) => unknown;
+    /**
+     * Called when a media playlist is initialized, before any segments have been written. In single-file mode, this
+     * function is never called.
+     */
+    onInit?: (target: Target, info: HlsOutputPlaylistInfo) => unknown;
+    /**
+     * Called when a media segment is removed from the start of a media playlist due to
+     * {@link HlsOutputFormatOptions.maxLiveSegmentCount}. Will not be called when
+     * {@link HlsOutputFormatOptions.singleFilePerPlaylist} is `true`.
+     */
+    onSegmentPopped?: (path: string, info: HlsOutputSegmentInfo) => unknown;
+};
+/**
+ * HTTP Live Streaming (HLS) output format. HLS media is represented by a set of .m3u8 playlist files and media segment
+ * files, meaning this format writes out multiple files, requiring the use of a _pathed Output_
+ * ({@link OutputOptions.target} must be a {@link PathedTarget}).
+ *
+ * This output format creates the following files:
+ * - A master playlist .m3u8 file, containing the list of available playlists. A master playlist is always emitted,
+ * written to the root path.
+ * - One .m3u8 file for each playlist, each containing a list of media segments.
+ * - Many media segments, containing the actual media data.
+ *
+ * To emit media playlists that use the `#EXT-X-PROGRAM-DATE-TIME` tag to map segment timestamps to real-world time,
+ * set {@link BaseTrackMetadata.isRelativeToUnixEpoch} to `true` for all tracks.
+ *
+ * @group Output formats
+ * @public
+ */
+export declare class HlsOutputFormat extends OutputFormat {
+    /** Creates a new {@link HlsOutputFormat} configured with the specified `options`. */
+    constructor(options: HlsOutputFormatOptions);
+    get fileExtension(): string;
+    get mimeType(): string;
+    getSupportedCodecs(): MediaCodec[];
+    getSupportedTrackCounts(): TrackCountLimits;
+    get supportsVideoTransformationMetadata(): boolean;
+    get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): "none" | "full" | "prefer-non-negative" | null;
+}
+export declare class NullOutputFormat extends OutputFormat {
+    _createMuxer(output: Output): NullMuxer;
+    get _name(): string;
+    getSupportedTrackCounts(): TrackCountLimits;
+    get fileExtension(): string;
+    get mimeType(): string;
+    getSupportedCodecs(): MediaCodec[];
+    get supportsVideoTransformationMetadata(): boolean;
+    get supportsTimestampedMediaData(): boolean;
+    get negativeTimestampSupport(): "full";
 }
 //# sourceMappingURL=output-format.d.ts.map

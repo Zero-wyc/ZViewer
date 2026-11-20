@@ -6,13 +6,54 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 import { Bitstream } from '../../shared/bitstream.js';
-import { readBytes } from '../reader.js';
+import { aacFrequencyTable } from '../../shared/aac-misc.js';
+import { isThenable } from '../misc.js';
+import { readBytes, readU16Be, readU8 } from '../reader.js';
 export const MIN_ADTS_FRAME_HEADER_SIZE = 7;
 export const MAX_ADTS_FRAME_HEADER_SIZE = 9;
+export const readConfirmedAdtsFrameHeader = async (reader, startPos, searchLength, ref) => {
+    const headersMatch = (a, b) => a.objectType === b.objectType
+        && a.samplingFrequencyIndex === b.samplingFrequencyIndex
+        && a.channelConfiguration === b.channelConfiguration;
+    let slice = reader.requestSliceRange(startPos, MIN_ADTS_FRAME_HEADER_SIZE, searchLength + MAX_ADTS_FRAME_HEADER_SIZE);
+    if (isThenable(slice))
+        slice = await slice;
+    if (!slice) {
+        return null;
+    }
+    // A header is only confirmed by what follows it, since sync words show up in junk all the time
+    for (let pos = startPos; pos < Math.min(startPos + searchLength, slice.end); pos++) {
+        slice.filePos = pos;
+        if (readU8(slice) !== 0xff) {
+            continue;
+        }
+        slice.filePos = pos;
+        const header = readAdtsFrameHeader(slice);
+        if (!header || (ref && !headersMatch(header, ref))) {
+            continue;
+        }
+        const frameEndPos = pos + header.frameLength;
+        if (frameEndPos === reader.fileSize) {
+            // The frame ends the file
+            return header;
+        }
+        let nextSlice = reader.requestSliceRange(frameEndPos, MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE);
+        if (isThenable(nextSlice))
+            nextSlice = await nextSlice;
+        const nextHeader = nextSlice && readAdtsFrameHeader(nextSlice);
+        if (nextHeader && headersMatch(header, nextHeader)) {
+            return header;
+        }
+    }
+    return null;
+};
 export const readAdtsFrameHeader = (slice) => {
     // https://wiki.multimedia.cx/index.php/ADTS (last visited: 2025/08/17)
     const startPos = slice.filePos;
-    const bytes = readBytes(slice, 9); // 9 with CRC, 7 without CRC
+    if (slice.remainingLength < MIN_ADTS_FRAME_HEADER_SIZE) {
+        return null;
+    }
+    const bytes = readBytes(slice, MIN_ADTS_FRAME_HEADER_SIZE);
     const bitstream = new Bitstream(bytes);
     const syncword = bitstream.readBits(12);
     if (syncword !== 0b1111_11111111) {
@@ -26,14 +67,11 @@ export const readAdtsFrameHeader = (slice) => {
     const protectionAbsence = bitstream.readBits(1);
     const objectType = bitstream.readBits(2) + 1;
     const samplingFrequencyIndex = bitstream.readBits(4);
-    if (samplingFrequencyIndex === 15) {
+    if (samplingFrequencyIndex >= aacFrequencyTable.length) {
         return null;
     }
     bitstream.skipBits(1); // Private bit
     const channelConfiguration = bitstream.readBits(3);
-    if (channelConfiguration === 0) {
-        throw new Error('ADTS frames with channel configuration 0 are not supported.');
-    }
     bitstream.skipBits(1); // Originality
     bitstream.skipBits(1); // Home
     bitstream.skipBits(1); // Copyright ID bit
@@ -42,14 +80,17 @@ export const readAdtsFrameHeader = (slice) => {
     bitstream.skipBits(11); // Buffer fullness
     const numberOfAacFrames = bitstream.readBits(2) + 1;
     if (numberOfAacFrames !== 1) {
-        throw new Error('ADTS frames with more than one AAC frame are not supported.');
+        return null; // Not supported
     }
     let crcCheck = null;
-    if (protectionAbsence === 1) { // No CRC
-        slice.filePos -= 2;
+    if (protectionAbsence === 0) { // CRC
+        if (slice.remainingLength < 2) {
+            return null;
+        }
+        crcCheck = readU16Be(slice);
     }
-    else { // CRC
-        crcCheck = bitstream.readBits(16);
+    if (frameLength < slice.filePos - startPos) {
+        return null; // The frame must at least contain its own header
     }
     return {
         objectType,

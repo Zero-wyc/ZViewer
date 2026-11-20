@@ -9,10 +9,12 @@ import { MaybePromise } from './misc.js';
 import { Source } from './source.js';
 export declare class Reader {
     source: Source;
-    fileSize: number | null;
     constructor(source: Source);
+    get fileSize(): number | null;
+    get fileSizeNonStrict(): number | null;
     requestSlice(start: number, length: number): MaybePromise<FileSlice | null>;
     requestSliceRange(start: number, minLength: number, maxLength: number): MaybePromise<FileSlice | null>;
+    requestEntireFile(): MaybePromise<FileSlice | null>;
 }
 export declare class FileSlice {
     /** The underlying bytes backing this slice. Avoid using this directly and prefer reader functions instead. */
@@ -66,4 +68,7 @@ export declare const readI64Le: (slice: FileSlice) => number;
 export declare const readF32Be: (slice: FileSlice) => number;
 export declare const readF64Be: (slice: FileSlice) => number;
 export declare const readAscii: (slice: FileSlice, length: number) => string;
+export declare const readAllLines: (slice: FileSlice, length: number, options?: {
+    ignore?: (line: string) => boolean;
+}) => string[];
 //# sourceMappingURL=reader.d.ts.map

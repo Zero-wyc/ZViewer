@@ -22,5 +22,5 @@ export type Page = {
     lacingValues: Uint8Array;
 };
 export declare const readPageHeader: (slice: FileSlice) => Page | null;
-export declare const findNextPageHeader: (slice: FileSlice, until: number) => boolean;
+export declare const findNextPageHeader: (slice: FileSlice, until: number, serialNumber?: number) => boolean;
 //# sourceMappingURL=ogg-reader.d.ts.map

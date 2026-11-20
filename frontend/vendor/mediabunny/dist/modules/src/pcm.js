@@ -5,11 +5,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+// Original source:
 // https://github.com/dystopiancode/pcm-g711/blob/master/pcm-g711/g711.c
 export const toUlaw = (s16) => {
     const MULAW_MAX = 0x1FFF;
     const MULAW_BIAS = 33;
-    let number = s16;
+    let number = s16 >> 2;
     let mask = 0x1000;
     let sign = 0;
     let position = 12;
@@ -41,7 +42,7 @@ export const fromUlaw = (u8) => {
     position = ((number & 0xF0) >> 4) + 5;
     const decoded = ((1 << position) | ((number & 0x0F) << (position - 4))
         | (1 << (position - 5))) - MULAW_BIAS;
-    return (sign === 0) ? decoded : -decoded;
+    return ((sign === 0) ? decoded : -decoded) << 2;
 };
 export const toAlaw = (s16) => {
     const ALAW_MAX = 0xFFF;
@@ -49,9 +50,11 @@ export const toAlaw = (s16) => {
     let sign = 0;
     let position = 11;
     let lsb = 0;
-    let number = s16;
+    let number = s16 >> 3;
     if (number < 0) {
-        number = -number;
+        number = -number - 1;
+    }
+    else {
         sign = 0x80;
     }
     if (number > ALAW_MAX) {
@@ -81,5 +84,5 @@ export const fromAlaw = (u8) => {
     else {
         decoded = (number << 1) | 1;
     }
-    return (sign === 0) ? decoded : -decoded;
+    return ((sign === 0) ? -decoded : decoded) << 3;
 };

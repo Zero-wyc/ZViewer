@@ -8,7 +8,7 @@
 import { Writer } from '../writer.js';
 import { IsobmffAudioTrackData, IsobmffMuxer, IsobmffSubtitleTrackData, IsobmffTrackData, IsobmffVideoTrackData } from './isobmff-muxer.js';
 export declare class IsobmffBoxWriter {
-    private writer;
+    writer: Writer;
     private helper;
     private helperView;
     /**
@@ -45,7 +45,12 @@ export declare const ftyp: (details: {
     isQuickTime: boolean;
     holdsAvc: boolean;
     fragmented: boolean;
+    cmaf: boolean;
 }) => Box;
+/** Segment Type Box */
+export declare const styp: () => Box;
+/** Segment Index Box */
+export declare const sidx: (muxer: IsobmffMuxer, referencedSize: number) => Box;
 /** Movie Sample Data Box. Contains the actual frames/samples of the media. */
 export declare const mdat: (reserveLargeSize: boolean) => Box;
 /** Free Space Box: A box that designates unused space in the movie data file. */
@@ -65,12 +70,14 @@ export declare const mvhd: (creationTime: number, trackDatas: IsobmffTrackData[]
 export declare const trak: (trackData: IsobmffTrackData, creationTime: number) => Box;
 /** Track Header Box: Specifies the characteristics of a single track within a movie. */
 export declare const tkhd: (trackData: IsobmffTrackData, creationTime: number) => Box;
+/** Edit Box: Specifies edits to the track's media. */
+export declare const edts: (trackData: IsobmffTrackData) => Box;
 /** Media Box: Describes and define a track's media type and sample data. */
 export declare const mdia: (trackData: IsobmffTrackData, creationTime: number) => Box;
 /** Media Header Box: Specifies the characteristics of a media, including timescale and duration. */
 export declare const mdhd: (trackData: IsobmffTrackData, creationTime: number) => Box;
 /** Handler Reference Box. */
-export declare const hdlr: (hasComponentType: boolean, handlerType: string, name: string, manufacturer?: string) => Box;
+export declare const hdlr: (hasComponentType: boolean, handlerType: string, name: string, manufacturer?: string, isQuickTime?: boolean) => Box;
 /**
  * Media Information Box: Stores handler-specific information for a track's media data. The media handler uses this
  * information to map from media time to media data and to process the media data.
@@ -104,6 +111,8 @@ export declare const stbl: (trackData: IsobmffTrackData) => Box;
 export declare const stsd: (trackData: IsobmffTrackData) => Box;
 /** Video Sample Description Box: Contains information that defines how to interpret video media data. */
 export declare const videoSampleDescription: (compressionType: string, trackData: IsobmffVideoTrackData) => Box;
+/** Bit Rate Box: Signals the average and peak bitrate of the track. */
+export declare const btrt: (trackData: IsobmffTrackData) => Box | null;
 /** Pixel Aspect Ratio Box: Specifies pixel width:height spacing for non-square pixels. */
 export declare const pasp: (trackData: IsobmffVideoTrackData) => Box | null;
 /** Colour Information Box: Specifies the color space of the video. */
@@ -190,7 +199,7 @@ export declare const trun: (trackData: IsobmffTrackData) => Box;
  */
 export declare const mfra: (trackDatas: IsobmffTrackData[]) => Box;
 /** Track Fragment Random Access Box: Provides pointers to sync samples within the file for random access. */
-export declare const tfra: (trackData: IsobmffTrackData, trackIndex: number) => Box;
+export declare const tfra: (trackData: IsobmffTrackData) => Box;
 /**
  * Movie Fragment Random Access Offset Box: Provides the size of the enclosing mfra box. This box can be used by readers
  * to quickly locate the mfra box by searching from the end of the file.

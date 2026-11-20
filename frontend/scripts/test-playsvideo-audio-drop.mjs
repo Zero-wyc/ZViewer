@@ -5,13 +5,19 @@
  * 整片播放失败，报
  *   `TypeError: Audio chunk metadata must be provided.`
  *
- * 根因：mediabunny 未登记的容器 CodecID（Matroska `A_TRUEHD` 等）会让音轨
- * 「存在但 codec 为 null」，`getDecoderConfig()` 返回 null；上游仍按
- * 「有音轨」继续，doTranscode 因 `audioCodec !== null` 前置条件为 false，
- * 最终把无 decoderConfig 的音频包送进 fMP4 muxer，建轨时抛错，整段失败。
+ * 根因（第一种形态，mediabunny ≤1.38）：未登记的容器 CodecID（Matroska
+ * `A_TRUEHD` 等）会让音轨「存在但 codec 为 null」，`getDecoderConfig()`
+ * 返回 null；上游仍按「有音轨」继续，doTranscode 因 `audioCodec !== null`
+ * 前置条件为 false，最终把无 decoderConfig 的音频包送进 fMP4 muxer，
+ * 建轨时抛错，整段失败。
  *
- * 修复：demux 阶段择优（跳过不可用音轨），全部不可用时按「无音轨」降级；
- * mux 阶段只在「有音频包 且 有 decoderConfig」时建音轨。
+ * 根因（第二种形态，mediabunny ≥1.66）：上游认了 `truehd`（decoderConfig
+ * codec 为 `mlpa`），配置非空 ⇒ doTranscode = true ⇒ 送进只有 audio tier 的
+ * wasm ffmpeg ⇒ `Full ffmpeg tier is not currently enabled`，同样整段失败。
+ *
+ * 修复：demux 阶段按「codec 可识别 + 有 decoderConfig + 在管线可处理白名单内」
+ * 择优（跳过不可用音轨），全部不可用时按「无音轨」降级；mux 阶段只在
+ * 「有音频包 且 有 decoderConfig」时建音轨。
  *
  * 运行：npm run test:playsvideo -w frontend
  */
@@ -48,15 +54,23 @@ const AUDIO_DECODER_CONFIG = {
 }
 
 /** 假音轨：模拟 mediabunny 的 InputAudioTrack 可用属性 */
-function fakeTrack({ codec, internalCodecId = null, throws = false }) {
+function fakeTrack({ codec, internalCodecId = null, throws = false, config }) {
   return {
     codec,
     internalCodecId,
     async getDecoderConfig() {
       if (throws) throw new Error('malformed track')
+      if (config !== undefined) return config
       return codec ? AUDIO_DECODER_CONFIG : null
     },
   }
+}
+
+/** mediabunny 1.66 对 TrueHD 给出的真实形态：codec 已识别，config 为 mlpa */
+const TRUEHD_DECODER_CONFIG = {
+  codec: 'mlpa',
+  numberOfChannels: 8,
+  sampleRate: 48000,
 }
 
 function makePackets() {
@@ -115,6 +129,49 @@ test('无音轨时返回 null 且不产生 codecIds', async () => {
   const picked = await pickPlayableAudioTrack([])
   assert.equal(picked.track, null)
   assert.deepEqual(picked.unsupportedCodecIds, [])
+})
+
+test('mediabunny 1.66 形态：TrueHD 有 decoderConfig 仍被判不可用', async () => {
+  // 上游认了 truehd 且给出 mlpa 配置，仅凭「有配置」会误判为可转码，
+  // 实际 wasm ffmpeg 只有 audio tier（无 truehd）→ 转码必失败
+  const truehd = fakeTrack({
+    codec: 'truehd',
+    internalCodecId: 'A_TRUEHD',
+    config: TRUEHD_DECODER_CONFIG,
+  })
+  const picked = await pickPlayableAudioTrack([truehd])
+  assert.equal(picked.track, null)
+  assert.equal(picked.config, null)
+  assert.deepEqual(picked.unsupportedCodecIds, ['A_TRUEHD'])
+})
+
+test('TrueHD + AC-3 双轨：跳过 TrueHD，选中 AC-3', async () => {
+  const tracks = [
+    fakeTrack({
+      codec: 'truehd',
+      internalCodecId: 'A_TRUEHD',
+      config: TRUEHD_DECODER_CONFIG,
+    }),
+    fakeTrack({ codec: 'ac3', internalCodecId: 'A_AC3' }),
+  ]
+  const picked = await pickPlayableAudioTrack(tracks)
+  assert.equal(picked.track, tracks[1])
+  assert.deepEqual(picked.unsupportedCodecIds, ['A_TRUEHD'])
+})
+
+test('管线可处理的编码全部能被选中', async () => {
+  for (const codec of ['aac', 'opus', 'mp3', 'flac', 'ac3', 'eac3', 'dts']) {
+    const track = fakeTrack({ codec })
+    const picked = await pickPlayableAudioTrack([track])
+    assert.equal(picked.track, track, `${codec} 应可用`)
+  }
+})
+
+test('白名单外编码（vorbis / PCM）跳过，不送进没有解码器的转码链', async () => {
+  const tracks = [fakeTrack({ codec: 'vorbis' }), fakeTrack({ codec: 'pcm-s16' })]
+  const picked = await pickPlayableAudioTrack(tracks)
+  assert.equal(picked.track, null)
+  assert.deepEqual(picked.unsupportedCodecIds, ['vorbis', 'pcm-s16'])
 })
 
 test('音频包存在但无 decoderConfig：mux 不抛错，产出纯视频 fMP4', async () => {

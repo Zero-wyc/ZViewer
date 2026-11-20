@@ -11,15 +11,15 @@ import { MpegTsOutputFormat } from '../output-format.js';
 import { EncodedPacket } from '../packet.js';
 export declare class MpegTsMuxer extends Muxer {
     private format;
+    private timestampOffset;
     private writer;
     private trackDatas;
+    private closedTracks;
     private tablesWritten;
     private continuityCounters;
     private packetBuffer;
     private packetView;
     private allTracksKnown;
-    private videoTrackIndex;
-    private audioTrackIndex;
     private adaptationFieldBuffer;
     private payloadBuffer;
     constructor(output: Output, format: MpegTsOutputFormat);
@@ -33,6 +33,7 @@ export declare class MpegTsMuxer extends Muxer {
     private prepareVideoPacket;
     private prepareAnnexBVideoPacket;
     private prepareLengthPrefixedVideoPacket;
+    private createAud;
     private prepareAudioPacket;
     private allTracksAreKnown;
     private flushTimestampQueue;

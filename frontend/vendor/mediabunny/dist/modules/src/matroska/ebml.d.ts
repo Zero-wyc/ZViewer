@@ -52,6 +52,8 @@ export declare enum EBMLId {
     Duration = 17545,
     Info = 357149030,
     TimestampScale = 2807729,
+    DateUTC = 17505,
+    Title = 31657,
     MuxingApp = 19840,
     WritingApp = 22337,
     Tracks = 374648427,
@@ -67,6 +69,7 @@ export declare enum EBMLId {
     FlagVisualImpaired = 21932,
     FlagCommentary = 21935,
     FlagLacing = 156,
+    MaxBlockAdditionID = 21998,
     Name = 21358,
     Language = 2274716,
     LanguageBCP47 = 2274717,
@@ -81,9 +84,11 @@ export declare enum EBMLId {
     DisplayWidth = 21680,
     DisplayHeight = 21690,
     DisplayUnit = 21682,
+    StereoMode = 21432,
     AlphaMode = 21440,
     Audio = 225,
     SamplingFrequency = 181,
+    OutputSamplingFrequency = 30901,
     Channels = 159,
     BitDepth = 25188,
     SimpleBlock = 163,
@@ -103,6 +108,7 @@ export declare enum EBMLId {
     CueTrackPositions = 183,
     CueTrack = 247,
     CueClusterPosition = 241,
+    CueRelativePosition = 240,
     Colour = 21936,
     MatrixCoefficients = 21937,
     TransferCharacteristics = 21946,
@@ -110,6 +116,8 @@ export declare enum EBMLId {
     Range = 21945,
     Projection = 30320,
     ProjectionType = 30321,
+    ProjectionPoseYaw = 30323,
+    ProjectionPosePitch = 30324,
     ProjectionPoseRoll = 30325,
     Attachments = 423732329,
     AttachedFile = 24999,
@@ -145,10 +153,10 @@ export declare enum EBMLId {
 export declare const LEVEL_0_EBML_IDS: EBMLId[];
 export declare const LEVEL_1_EBML_IDS: EBMLId[];
 export declare const LEVEL_0_AND_1_EBML_IDS: EBMLId[];
-export declare const measureUnsignedInt: (value: number) => 1 | 2 | 3 | 4 | 5 | 6;
-export declare const measureUnsignedBigInt: (value: bigint) => 8 | 7 | 1 | 2 | 3 | 4 | 5 | 6;
-export declare const measureSignedInt: (value: number) => 1 | 2 | 3 | 4 | 5 | 6;
-export declare const measureVarInt: (value: number) => 1 | 2 | 3 | 4 | 5 | 6;
+export declare const measureUnsignedInt: (value: number) => 1 | 2 | 3 | 5 | 6 | 4;
+export declare const measureUnsignedBigInt: (value: bigint) => 8 | 7 | 1 | 2 | 3 | 5 | 6 | 4;
+export declare const measureSignedInt: (value: number) => 1 | 2 | 3 | 5 | 6 | 4;
+export declare const measureVarInt: (value: number) => 1 | 2 | 3 | 5 | 6 | 4;
 export declare class EBMLWriter {
     private writer;
     helper: Uint8Array<ArrayBuffer>;
@@ -171,6 +179,7 @@ export declare class EBMLWriter {
     writeAsciiString(str: string): void;
     writeEBML(data: EBML | null): void;
 }
+export declare const EBML_DATE_EPOCH: number;
 export declare const MAX_VAR_INT_SIZE = 8;
 export declare const MIN_HEADER_SIZE = 2;
 export declare const MAX_HEADER_SIZE: number;
@@ -179,6 +188,7 @@ export declare const readVarInt: (slice: FileSlice) => number | null;
 export declare const readUnsignedInt: (slice: FileSlice, width: number) => number;
 export declare const readUnsignedBigInt: (slice: FileSlice, width: number) => bigint;
 export declare const readSignedInt: (slice: FileSlice, width: number) => number;
+export declare const readSignedBigInt: (slice: FileSlice, width: number) => bigint;
 export declare const readElementId: (slice: FileSlice) => number | null;
 /** Returns `undefined` to indicate the EBML undefined size. Returns `null` if the size couldn't be read. */
 export declare const readElementSize: (slice: FileSlice) => number | undefined | null;

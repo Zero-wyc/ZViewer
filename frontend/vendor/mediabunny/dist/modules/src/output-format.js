@@ -6,20 +6,38 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 import { AdtsMuxer } from './adts/adts-muxer.js';
-import { AUDIO_CODECS, NON_PCM_AUDIO_CODECS, PCM_AUDIO_CODECS, SUBTITLE_CODECS, VIDEO_CODECS, } from './codec.js';
+import { AUDIO_CODECS, AUDIO_CODECS_WITH_DELTA_PACKETS, NON_PCM_AUDIO_CODECS, PCM_AUDIO_CODECS, SUBTITLE_CODECS, VIDEO_CODECS, } from './codec.js';
 import { FlacMuxer } from './flac/flac-muxer.js';
 import { IsobmffMuxer } from './isobmff/isobmff-muxer.js';
 import { MatroskaMuxer } from './matroska/matroska-muxer.js';
 import { Mp3Muxer } from './mp3/mp3-muxer.js';
+import { NullMuxer } from './muxer.js';
 import { OggMuxer } from './ogg/ogg-muxer.js';
 import { MpegTsMuxer } from './mpeg-ts/mpeg-ts-muxer.js';
 import { WaveMuxer } from './wave/wave-muxer.js';
+import { HlsMuxer } from './hls/hls-muxer.js';
+import { HLS_MIME_TYPE } from './hls/hls-misc.js';
+import { isNumber, toArray } from './misc.js';
 /**
  * Base class representing an output media file format.
  * @group Output formats
  * @public
  */
 export class OutputFormat {
+    /**
+     * Whether this output format supports video rotation metadata.
+     * @deprecated Use {@link OutputFormat.supportsVideoTransformationMetadata} instead.
+     */
+    get supportsVideoRotationMetadata() {
+        return this.supportsVideoTransformationMetadata;
+    }
+    /**
+     * Whether this output format, as configured, requires {@link BaseTrackMetadata.maximumPacketCount} to be set in
+     * the metadata of every track added to it.
+     */
+    get requiresMaximumPacketCount() {
+        return false;
+    }
     /** Returns a list of video codecs that this output format can contain. */
     getSupportedVideoCodecs() {
         return this.getSupportedCodecs()
@@ -40,6 +58,14 @@ export class OutputFormat {
     _codecUnsupportedHint(codec) {
         return '';
     }
+    /** @internal */
+    _isFragmentedIsobmff() {
+        return false;
+    }
+    /** @internal */
+    _withoutXingHeader() {
+        return this;
+    }
 }
 /**
  * Format representing files compatible with the ISO base media file format (ISOBMFF), like MP4 or MOV files.
@@ -57,7 +83,7 @@ export class IsobmffOutputFormat extends OutputFormat {
             throw new TypeError('options.fastStart, when provided, must be false, \'in-memory\', \'reserve\', or \'fragmented\'.');
         }
         if (options.minimumFragmentDuration !== undefined
-            && (!Number.isFinite(options.minimumFragmentDuration) || options.minimumFragmentDuration < 0)) {
+            && (!isNumber(options.minimumFragmentDuration) || options.minimumFragmentDuration < 0)) {
             throw new TypeError('options.minimumFragmentDuration, when provided, must be a non-negative number.');
         }
         if (options.onFtyp !== undefined && typeof options.onFtyp !== 'function') {
@@ -85,18 +111,28 @@ export class IsobmffOutputFormat extends OutputFormat {
             video: { min: 0, max },
             audio: { min: 0, max },
             subtitle: { min: 0, max },
-            total: { min: 1, max },
+            total: { min: 0, max },
         };
     }
-    get supportsVideoRotationMetadata() {
+    get supportsVideoTransformationMetadata() {
         return true;
     }
     get supportsTimestampedMediaData() {
         return true;
     }
+    get negativeTimestampSupport() {
+        return 'full';
+    }
+    get requiresMaximumPacketCount() {
+        return this._options.fastStart === 'reserve';
+    }
     /** @internal */
     _createMuxer(output) {
         return new IsobmffMuxer(output, this);
+    }
+    /** @internal */
+    _isFragmentedIsobmff() {
+        return this._options.fastStart === 'fragmented';
     }
 }
 /**
@@ -134,8 +170,7 @@ export class Mp4OutputFormat extends IsobmffOutputFormat {
             'pcm-f32be',
             'pcm-f64',
             'pcm-f64be',
-            // Only WebVTT subtitles are supported in MP4
-            'webvtt',
+            ...SUBTITLE_CODECS,
         ];
     }
     /** @internal */
@@ -144,6 +179,46 @@ export class Mp4OutputFormat extends IsobmffOutputFormat {
             return ' Switching to MOV will grant support for this codec.';
         }
         return '';
+    }
+}
+/**
+ * Creates a single Common Media Application Format (CMAF) segment. An init segment will be written to the
+ * {@link Target} specified in {@link OutputOptions.initTarget}. Supports most codecs.
+ * @group Output formats
+ * @public
+ */
+export class CmafOutputFormat extends IsobmffOutputFormat {
+    /** Creates a new {@link CmafOutputFormat} configured with the specified `options`. */
+    constructor(options) {
+        super(options);
+    }
+    /** @internal */
+    get _name() {
+        return 'CMAF';
+    }
+    get fileExtension() {
+        return '.m4s';
+    }
+    get mimeType() {
+        return 'video/mp4';
+    }
+    getSupportedCodecs() {
+        return [
+            ...VIDEO_CODECS,
+            ...NON_PCM_AUDIO_CODECS,
+            // These are supported via ISO/IEC 23003-5:
+            'pcm-s16',
+            'pcm-s16be',
+            'pcm-s24',
+            'pcm-s24be',
+            'pcm-s32',
+            'pcm-s32be',
+            'pcm-f32',
+            'pcm-f32be',
+            'pcm-f64',
+            'pcm-f64be',
+            ...SUBTITLE_CODECS,
+        ];
     }
 }
 /**
@@ -170,8 +245,6 @@ export class MovOutputFormat extends IsobmffOutputFormat {
         return [
             ...VIDEO_CODECS,
             ...AUDIO_CODECS,
-            // Only WebVTT subtitles are supported in MOV
-            'webvtt',
         ];
     }
     /** @internal */
@@ -201,14 +274,14 @@ export class MkvOutputFormat extends OutputFormat {
             throw new TypeError('options.appendOnly, when provided, must be a boolean.');
         }
         if (options.minimumClusterDuration !== undefined
-            && (!Number.isFinite(options.minimumClusterDuration) || options.minimumClusterDuration < 0)) {
+            && (!isNumber(options.minimumClusterDuration) || options.minimumClusterDuration < 0)) {
             throw new TypeError('options.minimumClusterDuration, when provided, must be a non-negative number.');
         }
         if (options.onEbmlHeader !== undefined && typeof options.onEbmlHeader !== 'function') {
             throw new TypeError('options.onEbmlHeader, when provided, must be a function.');
         }
         if (options.onSegmentHeader !== undefined && typeof options.onSegmentHeader !== 'function') {
-            throw new TypeError('options.onHeader, when provided, must be a function.');
+            throw new TypeError('options.onSegmentHeader, when provided, must be a function.');
         }
         if (options.onCluster !== undefined && typeof options.onCluster !== 'function') {
             throw new TypeError('options.onCluster, when provided, must be a function.');
@@ -230,7 +303,7 @@ export class MkvOutputFormat extends OutputFormat {
             video: { min: 0, max },
             audio: { min: 0, max },
             subtitle: { min: 0, max },
-            total: { min: 1, max },
+            total: { min: 0, max },
         };
     }
     get fileExtension() {
@@ -247,12 +320,15 @@ export class MkvOutputFormat extends OutputFormat {
             ...SUBTITLE_CODECS,
         ];
     }
-    get supportsVideoRotationMetadata() {
-        // While it technically does support it with ProjectionPoseRoll, many players appear to ignore this value
+    get supportsVideoTransformationMetadata() {
+        // While it technically does support it with Projection, many players appear to ignore that stuff
         return false;
     }
     get supportsTimestampedMediaData() {
         return true;
+    }
+    get negativeTimestampSupport() {
+        return 'prefer-non-negative';
     }
 }
 /**
@@ -339,11 +415,21 @@ export class Mp3OutputFormat extends OutputFormat {
     getSupportedCodecs() {
         return ['mp3'];
     }
-    get supportsVideoRotationMetadata() {
+    get supportsVideoTransformationMetadata() {
         return false;
     }
     get supportsTimestampedMediaData() {
         return false;
+    }
+    get negativeTimestampSupport() {
+        return null;
+    }
+    /** @internal */
+    _withoutXingHeader() {
+        return new Mp3OutputFormat({
+            ...this._options,
+            xingHeader: false,
+        });
     }
 }
 /**
@@ -356,6 +442,9 @@ export class WavOutputFormat extends OutputFormat {
     constructor(options = {}) {
         if (!options || typeof options !== 'object') {
             throw new TypeError('options must be an object.');
+        }
+        if (options.appendOnly !== undefined && typeof options.appendOnly !== 'boolean') {
+            throw new TypeError('options.appendOnly, when provided, must be a boolean.');
         }
         if (options.large !== undefined && typeof options.large !== 'boolean') {
             throw new TypeError('options.large, when provided, must be a boolean.');
@@ -393,14 +482,17 @@ export class WavOutputFormat extends OutputFormat {
     }
     getSupportedCodecs() {
         return [
-            ...PCM_AUDIO_CODECS.filter(codec => ['pcm-s16', 'pcm-s24', 'pcm-s32', 'pcm-f32', 'pcm-u8', 'ulaw', 'alaw'].includes(codec)),
+            ...PCM_AUDIO_CODECS.filter(codec => ['pcm-s16', 'pcm-s24', 'pcm-s32', 'pcm-f32', 'pcm-f64', 'pcm-u8', 'ulaw', 'alaw'].includes(codec)),
         ];
     }
-    get supportsVideoRotationMetadata() {
+    get supportsVideoTransformationMetadata() {
         return false;
     }
     get supportsTimestampedMediaData() {
         return false;
+    }
+    get negativeTimestampSupport() {
+        return null;
     }
 }
 /**
@@ -415,7 +507,7 @@ export class OggOutputFormat extends OutputFormat {
             throw new TypeError('options must be an object.');
         }
         if (options.maximumPageDuration !== undefined
-            && (!Number.isFinite(options.maximumPageDuration) || options.maximumPageDuration <= 0)) {
+            && (!isNumber(options.maximumPageDuration) || options.maximumPageDuration <= 0)) {
             throw new TypeError('options.maximumPageDuration, when provided, must be a positive number.');
         }
         if (options.onPage !== undefined && typeof options.onPage !== 'function') {
@@ -438,7 +530,7 @@ export class OggOutputFormat extends OutputFormat {
             video: { min: 0, max: 0 },
             audio: { min: 0, max },
             subtitle: { min: 0, max: 0 },
-            total: { min: 1, max },
+            total: { min: 0, max },
         };
     }
     get fileExtension() {
@@ -452,11 +544,14 @@ export class OggOutputFormat extends OutputFormat {
             ...AUDIO_CODECS.filter(codec => ['vorbis', 'opus'].includes(codec)),
         ];
     }
-    get supportsVideoRotationMetadata() {
+    get supportsVideoTransformationMetadata() {
         return false;
     }
     get supportsTimestampedMediaData() {
-        return false;
+        return true;
+    }
+    get negativeTimestampSupport() {
+        return 'prefer-non-negative';
     }
 }
 /**
@@ -501,11 +596,14 @@ export class AdtsOutputFormat extends OutputFormat {
     getSupportedCodecs() {
         return ['aac'];
     }
-    get supportsVideoRotationMetadata() {
+    get supportsVideoTransformationMetadata() {
         return false;
     }
     get supportsTimestampedMediaData() {
         return false;
+    }
+    get negativeTimestampSupport() {
+        return null;
     }
 }
 /**
@@ -518,6 +616,12 @@ export class FlacOutputFormat extends OutputFormat {
     constructor(options = {}) {
         if (!options || typeof options !== 'object') {
             throw new TypeError('options must be an object.');
+        }
+        if (options.appendOnly !== undefined && typeof options.appendOnly !== 'boolean') {
+            throw new TypeError('options.appendOnly, when provided, must be a boolean.');
+        }
+        if (options.onFrame !== undefined && typeof options.onFrame !== 'function') {
+            throw new TypeError('options.onFrame, when provided, must be a function.');
         }
         super();
         this._options = options;
@@ -547,11 +651,14 @@ export class FlacOutputFormat extends OutputFormat {
     getSupportedCodecs() {
         return ['flac'];
     }
-    get supportsVideoRotationMetadata() {
+    get supportsVideoTransformationMetadata() {
         return false;
     }
     get supportsTimestampedMediaData() {
         return false;
+    }
+    get negativeTimestampSupport() {
+        return null;
     }
 }
 /**
@@ -564,6 +671,10 @@ export class MpegTsOutputFormat extends OutputFormat {
     constructor(options = {}) {
         if (!options || typeof options !== 'object') {
             throw new TypeError('options must be an object.');
+        }
+        if (options.timestampOffset !== undefined
+            && (!Number.isFinite(options.timestampOffset) || options.timestampOffset < 0)) {
+            throw new TypeError('options.timestampOffset, when provided, must be a non-negative number.');
         }
         if (options.onPacket !== undefined && typeof options.onPacket !== 'function') {
             throw new TypeError('options.onPacket, when provided, must be a function.');
@@ -587,7 +698,7 @@ export class MpegTsOutputFormat extends OutputFormat {
             video: { min: 0, max: maxVideo },
             audio: { min: 0, max: maxAudio },
             subtitle: { min: 0, max: 0 },
-            total: { min: 1, max: maxTotal },
+            total: { min: 0, max: maxTotal },
         };
     }
     get fileExtension() {
@@ -599,13 +710,201 @@ export class MpegTsOutputFormat extends OutputFormat {
     getSupportedCodecs() {
         return [
             ...VIDEO_CODECS.filter(codec => ['avc', 'hevc'].includes(codec)),
-            ...AUDIO_CODECS.filter(codec => ['aac', 'mp3', 'ac3', 'eac3'].includes(codec)),
+            ...AUDIO_CODECS.filter(codec => ['aac', 'mp3', 'ac3', 'eac3', 'dts'].includes(codec)),
         ];
     }
-    get supportsVideoRotationMetadata() {
+    get supportsVideoTransformationMetadata() {
         return false;
     }
     get supportsTimestampedMediaData() {
         return true;
+    }
+    get negativeTimestampSupport() {
+        return 'prefer-non-negative';
+    }
+}
+/**
+ * HTTP Live Streaming (HLS) output format. HLS media is represented by a set of .m3u8 playlist files and media segment
+ * files, meaning this format writes out multiple files, requiring the use of a _pathed Output_
+ * ({@link OutputOptions.target} must be a {@link PathedTarget}).
+ *
+ * This output format creates the following files:
+ * - A master playlist .m3u8 file, containing the list of available playlists. A master playlist is always emitted,
+ * written to the root path.
+ * - One .m3u8 file for each playlist, each containing a list of media segments.
+ * - Many media segments, containing the actual media data.
+ *
+ * To emit media playlists that use the `#EXT-X-PROGRAM-DATE-TIME` tag to map segment timestamps to real-world time,
+ * set {@link BaseTrackMetadata.isRelativeToUnixEpoch} to `true` for all tracks.
+ *
+ * @group Output formats
+ * @public
+ */
+export class HlsOutputFormat extends OutputFormat {
+    /** Creates a new {@link HlsOutputFormat} configured with the specified `options`. */
+    constructor(options) {
+        if (!options || typeof options !== 'object') {
+            throw new TypeError('options must be an object.');
+        }
+        if (!(options.segmentFormat instanceof OutputFormat)
+            && (!Array.isArray(options.segmentFormat)
+                || options.segmentFormat.length === 0
+                || !options.segmentFormat.every(format => format instanceof OutputFormat))) {
+            throw new TypeError('options.segmentFormat must be an OutputFormat or a non-empty array of OutputFormat instances.');
+        }
+        if (options.targetDuration !== undefined
+            && (!isNumber(options.targetDuration) || options.targetDuration <= 0)) {
+            throw new TypeError('options.targetDuration, when provided, must be a positive number.');
+        }
+        if (options.singleFilePerPlaylist !== undefined && typeof options.singleFilePerPlaylist !== 'boolean') {
+            throw new TypeError('options.singleFilePerPlaylist, when provided, must be a boolean.');
+        }
+        if (options.live !== undefined && typeof options.live !== 'boolean') {
+            throw new TypeError('options.live, when provided, must be a boolean.');
+        }
+        if (options.live && options.targetDuration === Infinity) {
+            // Live playlists state the target duration before any segment exists
+            throw new TypeError('options.targetDuration must be finite in live mode.');
+        }
+        if (options.maxLiveSegmentCount !== undefined
+            && (!isNumber(options.maxLiveSegmentCount) || options.maxLiveSegmentCount < 1
+                || (Number.isFinite(options.maxLiveSegmentCount) && !Number.isInteger(options.maxLiveSegmentCount)))) {
+            throw new TypeError('options.maxLiveSegmentCount, when provided, must be a positive integer or Infinity.');
+        }
+        if (options.mediaTimestampBase !== undefined && !Number.isFinite(options.mediaTimestampBase)) {
+            throw new TypeError('options.mediaTimestampBase, when provided, must be a finite number.');
+        }
+        if (options.getPlaylistPath !== undefined && typeof options.getPlaylistPath !== 'function') {
+            throw new TypeError('options.getPlaylistPath, when provided, must be a function.');
+        }
+        if (options.getSegmentPath !== undefined && typeof options.getSegmentPath !== 'function') {
+            throw new TypeError('options.getSegmentPath, when provided, must be a function.');
+        }
+        if (options.getInitPath !== undefined && typeof options.getInitPath !== 'function') {
+            throw new TypeError('options.getInitPath, when provided, must be a function.');
+        }
+        if (options.onMaster !== undefined && typeof options.onMaster !== 'function') {
+            throw new TypeError('options.onMaster, when provided, must be a function.');
+        }
+        if (options.onPlaylist !== undefined && typeof options.onPlaylist !== 'function') {
+            throw new TypeError('options.onPlaylist, when provided, must be a function.');
+        }
+        if (options.onSegment !== undefined && typeof options.onSegment !== 'function') {
+            throw new TypeError('options.onSegment, when provided, must be a function.');
+        }
+        if (options.onInit !== undefined && typeof options.onInit !== 'function') {
+            throw new TypeError('options.onInit, when provided, must be a function.');
+        }
+        if (options.onSegmentPopped !== undefined && typeof options.onSegmentPopped !== 'function') {
+            throw new TypeError('options.onSegmentPopped, when provided, must be a function.');
+        }
+        super();
+        this._options = options;
+    }
+    /** @internal */
+    _createMuxer(output) {
+        return new HlsMuxer(output, this);
+    }
+    /** @internal */
+    get _name() {
+        return 'HTTP Live Streaming (HLS)';
+    }
+    get fileExtension() {
+        return '.m3u8';
+    }
+    get mimeType() {
+        return HLS_MIME_TYPE;
+    }
+    getSupportedCodecs() {
+        const uniqueCodecs = new Set(toArray(this._options.segmentFormat).flatMap(x => x.getSupportedCodecs()));
+        for (const codec of AUDIO_CODECS_WITH_DELTA_PACKETS) {
+            uniqueCodecs.delete(codec); // Only key-packet-only audio codecs are allowed
+        }
+        for (const codec of SUBTITLE_CODECS) {
+            uniqueCodecs.delete(codec); // Subtitles are currently disabled
+        }
+        return [...uniqueCodecs];
+    }
+    getSupportedTrackCounts() {
+        let supportsVideo = false;
+        let supportsAudio = false;
+        let supportsSubtitle = false;
+        for (const format of toArray(this._options.segmentFormat)) {
+            const trackCounts = format.getSupportedTrackCounts();
+            supportsVideo ||= trackCounts.video.max > 0;
+            supportsAudio ||= trackCounts.audio.max > 0;
+            supportsSubtitle ||= trackCounts.subtitle.max > 0;
+        }
+        return {
+            video: { min: 0, max: supportsVideo ? Infinity : 0 },
+            audio: { min: 0, max: supportsAudio ? Infinity : 0 },
+            subtitle: { min: 0, max: 0 }, // Currently disabled
+            total: { min: 0, max: Infinity },
+        };
+    }
+    get supportsVideoTransformationMetadata() {
+        return toArray(this._options.segmentFormat).some(format => format.supportsVideoTransformationMetadata);
+    }
+    get supportsTimestampedMediaData() {
+        return true; // It's only half true, really, but "false" is not correct either
+    }
+    get negativeTimestampSupport() {
+        const formats = toArray(this._options.segmentFormat);
+        // Return the lowest baseline across all segment formats
+        if (formats.some(format => format.negativeTimestampSupport === 'none')) {
+            return 'none';
+        }
+        if (formats.some(format => format.negativeTimestampSupport === 'prefer-non-negative')) {
+            return 'prefer-non-negative';
+        }
+        if (formats.some(format => format.negativeTimestampSupport === 'full')) {
+            return 'full';
+        }
+        return null;
+    }
+    /** @internal */
+    _codecUnsupportedHint(codec) {
+        if (AUDIO_CODECS_WITH_DELTA_PACKETS.includes(codec)) {
+            return '';
+        }
+        return ` Using different segment formats may grant support for this codec.`;
+    }
+}
+export class NullOutputFormat extends OutputFormat {
+    _createMuxer(output) {
+        return new NullMuxer(output);
+    }
+    get _name() {
+        return 'Null';
+    }
+    getSupportedTrackCounts() {
+        return {
+            video: { min: 0, max: Infinity },
+            audio: { min: 0, max: Infinity },
+            subtitle: { min: 0, max: Infinity },
+            total: { min: 0, max: Infinity },
+        };
+    }
+    get fileExtension() {
+        return '';
+    }
+    get mimeType() {
+        return 'application/x-black-hole';
+    }
+    getSupportedCodecs() {
+        return [
+            ...VIDEO_CODECS,
+            ...AUDIO_CODECS,
+            ...SUBTITLE_CODECS,
+        ];
+    }
+    get supportsVideoTransformationMetadata() {
+        return true;
+    }
+    get supportsTimestampedMediaData() {
+        return true;
+    }
+    get negativeTimestampSupport() {
+        return 'full';
     }
 }

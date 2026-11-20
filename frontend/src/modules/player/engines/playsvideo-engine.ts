@@ -274,10 +274,12 @@ class PlaysVideoController implements PlayerController {
   /**
    * 本次 attach 中被引擎丢弃的音轨（见 playsvideo ReadyDetail.audioDropped）。
    *
-   * 容器里有音轨、但没有任何一条能取到 mediabunny 可用的 codec +
-   * decoderConfig 时（Dolby TrueHD/Atmos、MLP、ALAC 等未登记 CodecID），
-   * 引擎丢弃音轨、继续产出纯视频 fMP4。这里记下来，起播后给用户一条
-   * 明确提示——否则表现为「画面正常但没有声音」，用户无从判断。
+   * 判定标准是「codec 可识别 + 有 decoderConfig + 在管线可处理白名单内」，
+   * 三者缺一即丢弃：Dolby TrueHD/Atmos（mediabunny 1.66 起虽能识别为
+   * `truehd`/`mlpa`，但 wasm ffmpeg 只有 audio tier，无私解码器）、MLP、
+   * Vorbis、PCM 等。引擎丢弃音轨、继续产出纯视频 fMP4；这里记下来，
+   * 起播后给用户一条明确提示——否则表现为「画面正常但没有声音」，
+   * 用户无从判断。
    */
   private audioDropped: { codecIds: (string | null)[] } | null = null
 

@@ -7,19 +7,19 @@
  */
 import { FlacBlockType, readVorbisComments } from '../codec-data.js';
 import { Demuxer } from '../demuxer.js';
-import { InputAudioTrack } from '../input-track.js';
-import { assert, AsyncMutex, binarySearchLessOrEqual, textDecoder, UNDETERMINED_LANGUAGE, } from '../misc.js';
+import { assert, AsyncMutex, binarySearchLessOrEqual, isThenable, roundIfAlmostInteger, textDecoder, UNDETERMINED_LANGUAGE, } from '../misc.js';
 import { EncodedPacket, PLACEHOLDER_DATA } from '../packet.js';
 import { readBytes, readU24Be, readU32Be, readU8, } from '../reader.js';
 import { DEFAULT_TRACK_DISPOSITION } from '../metadata.js';
 import { calculateCrc8, readBlockSize, getBlockSizeOrUncommon, readCodedNumber, readSampleRate, getSampleRateOrUncommon, } from './flac-misc.js';
 import { Bitstream } from '../../shared/bitstream.js';
+import { ID3_V2_HEADER_SIZE, parseId3V2Tag, readId3V2Header } from '../id3.js';
 export class FlacDemuxer extends Demuxer {
     constructor(input) {
         super(input);
         this.loadedSamples = []; // All samples from the start of the file to lastLoadedPos
         this.metadataPromise = null;
-        this.track = null;
+        this.trackBacking = null;
         this.metadataTags = {};
         this.audioInfo = null;
         this.lastLoadedPos = null;
@@ -28,30 +28,45 @@ export class FlacDemuxer extends Demuxer {
         this.lastSampleLoaded = false;
         this.reader = input._reader;
     }
-    async computeDuration() {
-        await this.readMetadata();
-        assert(this.track);
-        return this.track.computeDuration();
-    }
     async getMetadataTags() {
         await this.readMetadata();
         return this.metadataTags;
     }
-    async getTracks() {
+    async getTrackBackings() {
         await this.readMetadata();
-        assert(this.track);
-        return [this.track];
+        assert(this.trackBacking);
+        return [this.trackBacking];
     }
     async getMimeType() {
         return 'audio/flac';
     }
     async readMetadata() {
-        let currentPos = 4; // Skip 'fLaC'
         return (this.metadataPromise ??= (async () => {
+            // Read all ID3v2 tags at the start of the file
+            let currentPos = 0;
+            while (true) {
+                let headerSlice = this.reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
+                if (isThenable(headerSlice))
+                    headerSlice = await headerSlice;
+                if (!headerSlice) {
+                    break;
+                }
+                const id3V2Header = readId3V2Header(headerSlice);
+                if (!id3V2Header) {
+                    break;
+                }
+                let contentSlice = this.reader.requestSlice(headerSlice.filePos, id3V2Header.size);
+                if (isThenable(contentSlice))
+                    contentSlice = await contentSlice;
+                assert(contentSlice);
+                parseId3V2Tag(contentSlice, id3V2Header, this.metadataTags);
+                currentPos = headerSlice.filePos + id3V2Header.size;
+            }
+            currentPos += 4; // Skip 'fLaC'
             while (this.reader.fileSize === null
                 || currentPos < this.reader.fileSize) {
                 let sizeSlice = this.reader.requestSlice(currentPos, 4);
-                if (sizeSlice instanceof Promise)
+                if (isThenable(sizeSlice))
                     sizeSlice = await sizeSlice;
                 currentPos += 4;
                 if (sizeSlice === null) {
@@ -66,10 +81,12 @@ export class FlacDemuxer extends Demuxer {
                     case FlacBlockType.STREAMINFO: {
                         // Parse streaminfo block
                         // https://www.rfc-editor.org/rfc/rfc9639.html#section-8.2
+                        if (size < 34) {
+                            throw new Error(`StreamInfo block at position ${currentPos} is too small! Corrupted file.`);
+                        }
                         let streamInfoBlock = this.reader.requestSlice(currentPos, size);
-                        if (streamInfoBlock instanceof Promise)
+                        if (isThenable(streamInfoBlock))
                             streamInfoBlock = await streamInfoBlock;
-                        assert(streamInfoBlock);
                         if (streamInfoBlock === null) {
                             throw new Error(`StreamInfo block at position ${currentPos} is too small! Corrupted file.`);
                         }
@@ -80,6 +97,9 @@ export class FlacDemuxer extends Demuxer {
                         const minimumFrameSize = bitstream.readBits(24);
                         const maximumFrameSize = bitstream.readBits(24);
                         const sampleRate = bitstream.readBits(20);
+                        if (sampleRate === 0) {
+                            throw new Error('Invalid StreamInfo block: sample rate is 0. Corrupted file.');
+                        }
                         const numberOfChannels = bitstream.readBits(3) + 1;
                         bitstream.readBits(5); // bitsPerSample - 1
                         const totalSamples = bitstream.readBits(36);
@@ -87,7 +107,7 @@ export class FlacDemuxer extends Demuxer {
                         // description is required, and has to be the following:
                         // 1. The bytes 0x66 0x4C 0x61 0x43 ("fLaC" in ASCII)
                         // 2. A metadata block (called the STREAMINFO block) as described in section 7 of [FLAC]
-                        // 3. Optionaly (sic) other metadata blocks, that are not used by the specification
+                        // 3. Optionally (sic) other metadata blocks, that are not used by the specification
                         bitstream.skipBits(16 * 8); // md5 hash
                         const description = new Uint8Array(42);
                         // 1. "fLaC"
@@ -106,16 +126,18 @@ export class FlacDemuxer extends Demuxer {
                             maximumFrameSize,
                             description,
                         };
-                        this.track = new InputAudioTrack(this.input, new FlacAudioTrackBacking(this));
+                        this.trackBacking = new FlacAudioTrackBacking(this);
                         break;
                     }
                     case FlacBlockType.VORBIS_COMMENT: {
                         // Parse vorbis comment block
                         // https://www.rfc-editor.org/rfc/rfc9639.html#name-vorbis-comment
                         let vorbisCommentBlock = this.reader.requestSlice(currentPos, size);
-                        if (vorbisCommentBlock instanceof Promise)
+                        if (isThenable(vorbisCommentBlock))
                             vorbisCommentBlock = await vorbisCommentBlock;
-                        assert(vorbisCommentBlock);
+                        if (!vorbisCommentBlock) {
+                            throw new Error(`Vorbis comment block at position ${currentPos} exceeds the file. Corrupted file.`);
+                        }
                         readVorbisComments(readBytes(vorbisCommentBlock, size), this.metadataTags);
                         break;
                     }
@@ -123,29 +145,37 @@ export class FlacDemuxer extends Demuxer {
                         // Parse picture block
                         // https://www.rfc-editor.org/rfc/rfc9639.html#name-picture
                         let pictureBlock = this.reader.requestSlice(currentPos, size);
-                        if (pictureBlock instanceof Promise)
+                        if (isThenable(pictureBlock))
                             pictureBlock = await pictureBlock;
-                        assert(pictureBlock);
-                        const pictureType = readU32Be(pictureBlock);
-                        const mediaTypeLength = readU32Be(pictureBlock);
-                        const mediaType = textDecoder.decode(readBytes(pictureBlock, mediaTypeLength));
-                        const descriptionLength = readU32Be(pictureBlock);
-                        const description = textDecoder.decode(readBytes(pictureBlock, descriptionLength));
-                        pictureBlock.skip(4 + 4 + 4 + 4); // Skip width, height, color depth, number of indexed colors
-                        const dataLength = readU32Be(pictureBlock);
-                        const data = readBytes(pictureBlock, dataLength);
-                        this.metadataTags.images ??= [];
-                        this.metadataTags.images.push({
-                            data,
-                            mimeType: mediaType,
-                            // https://www.rfc-editor.org/rfc/rfc9639.html#table13
-                            kind: pictureType === 3
-                                ? 'coverFront'
-                                : pictureType === 4
-                                    ? 'coverBack'
-                                    : 'unknown',
-                            description,
-                        });
+                        if (!pictureBlock) {
+                            throw new Error(`Picture block at position ${currentPos} exceeds the file. Corrupted file.`);
+                        }
+                        try {
+                            const pictureType = readU32Be(pictureBlock);
+                            const mediaTypeLength = readU32Be(pictureBlock);
+                            const mediaType = textDecoder.decode(readBytes(pictureBlock, mediaTypeLength));
+                            const descriptionLength = readU32Be(pictureBlock);
+                            const description = textDecoder.decode(readBytes(pictureBlock, descriptionLength));
+                            // Skip width, height, color depth, number of indexed colors
+                            pictureBlock.skip(4 + 4 + 4 + 4);
+                            const dataLength = readU32Be(pictureBlock);
+                            const data = readBytes(pictureBlock, dataLength);
+                            this.metadataTags.images ??= [];
+                            this.metadataTags.images.push({
+                                data,
+                                mimeType: mediaType,
+                                // https://www.rfc-editor.org/rfc/rfc9639.html#table13
+                                kind: pictureType === 3
+                                    ? 'coverFront'
+                                    : pictureType === 4
+                                        ? 'coverBack'
+                                        : 'unknown',
+                                description,
+                            });
+                        }
+                        catch {
+                            // The lengths inside the block are off, so it's a malformed picture; let's just skip it
+                        }
                         break;
                     }
                     default:
@@ -153,17 +183,21 @@ export class FlacDemuxer extends Demuxer {
                 }
                 currentPos += size;
                 if (isLastMetadata) {
-                    this.lastLoadedPos = currentPos;
                     break;
                 }
             }
+            // Even if no block was flagged as the last one, the audio frames come after the metadata
+            this.lastLoadedPos = currentPos;
+            if (!this.audioInfo) {
+                throw new Error('Missing STREAMINFO metadata block! Corrupted FLAC file.');
+            }
         })());
     }
-    async readNextFlacFrame({ startPos, isFirstPacket, }) {
+    async readNextFlacFrame(startPos) {
         assert(this.audioInfo);
         // we expect that there are at least `minimumFrameSize` bytes left in the file
         // Ideally we also want to validate the next header is valid
-        // to throw out an accidential sync word
+        // to throw out an accidental sync word
         // The shortest valid FLAC header I can think of, based off the code
         // of readFlacFrameHeader:
         // 4 bytes used for bitstream from syncword to bit depth
@@ -173,16 +207,34 @@ export class FlacDemuxer extends Demuxer {
         // --> 6 bytes
         const minimumHeaderLength = 6;
         // If we read everything in readFlacFrameHeader, we read 16 bytes
-        const maximumHeaderSize = 16;
-        const maximumSliceLength = this.audioInfo.maximumFrameSize + maximumHeaderSize;
-        const slice = await this.reader.requestSliceRange(startPos, this.audioInfo.minimumFrameSize, maximumSliceLength);
+        const maximumHeaderLength = 16;
+        // The shortest valid FLAC frame per RFC 9639:
+        // 6 bytes header (see minimumHeaderLength above)
+        // 2 bytes subframe (constant subframe with minimum bit depth,
+        //   padded to byte boundary)
+        // 2 bytes footer (CRC-16)
+        // --> 10 bytes
+        const minimumFrameLength = 10;
+        // The longest valid FLAC frame per RFC 9639:
+        // https://www.rfc-editor.org/rfc/rfc9639.html#name-prediction
+        // https://www.rfc-editor.org/rfc/rfc9639.html#name-frame-structure
+        // maximumBlockSize * numberOfChannels * 4 bytes (max 32 bps verbatim)
+        // + 16 bytes header (see maximumHeaderSize above)
+        // + 2 bytes footer (CRC-16)
+        const maximumFrameLength = this.audioInfo.maximumBlockSize
+            * this.audioInfo.numberOfChannels
+            * 4
+            + maximumHeaderLength
+            + 2;
+        // Per RFC 9639, a value of 0 means "unknown" for frame sizes.
+        const effectiveMinFrameSize = this.audioInfo.minimumFrameSize || minimumFrameLength;
+        const effectiveMaxFrameSize = this.audioInfo.maximumFrameSize || maximumFrameLength;
+        const maximumSliceLength = effectiveMaxFrameSize + maximumHeaderLength;
+        const slice = await this.reader.requestSliceRange(startPos, minimumHeaderLength, maximumSliceLength);
         if (!slice) {
             return null;
         }
-        const frameHeader = this.readFlacFrameHeader({
-            slice,
-            isFirstPacket: isFirstPacket,
-        });
+        const frameHeader = this.readFlacFrameHeader(slice);
         if (!frameHeader) {
             return null;
         }
@@ -191,7 +243,7 @@ export class FlacDemuxer extends Demuxer {
         // or the end of the file is reached
         // The next sync word is expected at earliest when `minimumFrameSize` is reached,
         // we can skip over anything before that
-        slice.filePos = startPos + this.audioInfo.minimumFrameSize;
+        slice.filePos = startPos + effectiveMinFrameSize;
         while (true) {
             // Reached end of the file, packet is over
             if (slice.filePos > slice.end - minimumHeaderLength) {
@@ -214,16 +266,14 @@ export class FlacDemuxer extends Demuxer {
                 }
                 slice.skip(-2);
                 const lengthIfNextFlacFrameHeaderIsLegit = slice.filePos - startPos;
-                const nextFrameHeader = this.readFlacFrameHeader({
-                    slice,
-                    isFirstPacket: false,
-                });
+                const nextFrameHeader = this.readFlacFrameHeader(slice);
                 if (!nextFrameHeader) {
                     slice.filePos = positionBeforeReading;
                     continue;
                 }
                 // Ensure the frameOrSampleNum is consecutive.
                 // https://github.com/Vanilagy/mediabunny/issues/194
+                // Concatenated files that restart their numbering therefore end at the join, which is intended.
                 if (this.blockingBit === 0) {
                     // Case A: If the stream is fixed block size, this is the frame number, which increments by 1
                     if (nextFrameHeader.num - frameHeader.num !== 1) {
@@ -249,7 +299,7 @@ export class FlacDemuxer extends Demuxer {
             }
         }
     }
-    readFlacFrameHeader({ slice, isFirstPacket, }) {
+    readFlacFrameHeader(slice) {
         // In this function, generally it is not safe to throw errors.
         // We might end up here because we stumbled upon a syncword,
         // but the data might not actually be a FLAC frame, it might be random bitstream
@@ -266,29 +316,10 @@ export class FlacDemuxer extends Demuxer {
             // This cannot be a valid FLAC frame, must start with the syncword
             return null;
         }
-        if (this.blockingBit === null) {
-            assert(isFirstPacket);
-            const newBlockingBit = bitstream.readBits(1);
-            this.blockingBit = newBlockingBit;
-        }
-        else if (this.blockingBit === 1) {
-            assert(!isFirstPacket);
-            const newBlockingBit = bitstream.readBits(1);
-            if (newBlockingBit !== 1) {
-                // This cannot be a valid FLAC frame, expected 1 but got 0
-                return null;
-            }
-        }
-        else if (this.blockingBit === 0) {
-            assert(!isFirstPacket);
-            const newBlockingBit = bitstream.readBits(1);
-            if (newBlockingBit !== 0) {
-                // This cannot be a valid FLAC frame, expected 0 but got 1
-                return null;
-            }
-        }
-        else {
-            throw new Error('Invalid blocking bit');
+        const blockingBit = bitstream.readBits(1);
+        if (this.blockingBit !== null && blockingBit !== this.blockingBit) {
+            // This cannot be a valid FLAC frame, the blocking strategy changed
+            return null;
         }
         const blockSizeOrUncommon = getBlockSizeOrUncommon(bitstream.readBits(4));
         if (!blockSizeOrUncommon) {
@@ -307,6 +338,19 @@ export class FlacDemuxer extends Demuxer {
         if (reservedZero !== 0) {
             // This cannot be a valid FLAC frame, the syncword was just coincidental
             return null;
+        }
+        // Callers guarantee the minimum header length, but the rest depends on the fields, so let's make sure it's
+        // actually there. The number of leading ones in the coded number's first byte gives its length.
+        const codedNumberFirstByte = readU8(slice);
+        slice.skip(-1);
+        const codedNumberLength = Math.max(Math.clz32(~codedNumberFirstByte << 24), 1);
+        const headerLength = 4
+            + codedNumberLength
+            + (blockSizeOrUncommon === 'uncommon-u16' ? 2 : blockSizeOrUncommon === 'uncommon-u8' ? 1 : 0)
+            + (sampleRateOrUncommon === 'uncommon-u8' ? 1 : typeof sampleRateOrUncommon === 'number' ? 0 : 2)
+            + 1; // CRC
+        if (startOffset + headerLength > slice.end) {
+            return null; // Cut off by the end of the file
         }
         const num = readCodedNumber(slice);
         const blockSize = readBlockSize(slice, blockSizeOrUncommon);
@@ -329,6 +373,8 @@ export class FlacDemuxer extends Demuxer {
             // in the bitstream
             return null;
         }
+        // Only a legit frame gets to determine the blocking strategy
+        this.blockingBit = blockingBit;
         return { num, blockSize, sampleRate };
     }
     async advanceReader() {
@@ -336,10 +382,7 @@ export class FlacDemuxer extends Demuxer {
         assert(this.lastLoadedPos !== null);
         assert(this.audioInfo);
         const startPos = this.lastLoadedPos;
-        const frame = await this.readNextFlacFrame({
-            startPos,
-            isFirstPacket: this.loadedSamples.length === 0,
-        });
+        const frame = await this.readNextFlacFrame(startPos);
         if (!frame) {
             // Unexpected case, failed to read next FLAC frame
             // handling gracefully
@@ -368,8 +411,8 @@ class FlacAudioTrackBacking {
     constructor(demuxer) {
         this.demuxer = demuxer;
     }
-    getId() {
-        return 1;
+    getType() {
+        return 'audio';
     }
     getNumber() {
         return 1;
@@ -383,10 +426,6 @@ class FlacAudioTrackBacking {
     getNumberOfChannels() {
         assert(this.demuxer.audioInfo);
         return this.demuxer.audioInfo.numberOfChannels;
-    }
-    async computeDuration() {
-        const lastPacket = await this.getPacket(Infinity, { metadataOnly: true });
-        return (lastPacket?.timestamp ?? 0) + (lastPacket?.duration ?? 0);
     }
     getSampleRate() {
         assert(this.demuxer.audioInfo);
@@ -402,13 +441,35 @@ class FlacAudioTrackBacking {
         assert(this.demuxer.audioInfo);
         return this.demuxer.audioInfo.sampleRate;
     }
+    isRelativeToUnixEpoch() {
+        return false;
+    }
+    getUnixTimeForTimestamp() {
+        return null;
+    }
+    getPairingMask() {
+        return 1n;
+    }
+    getBitrate() {
+        return null;
+    }
+    getAverageBitrate() {
+        return null;
+    }
+    async getDurationFromMetadata() {
+        assert(this.demuxer.audioInfo);
+        if (this.demuxer.audioInfo.totalSamples === 0) {
+            return null;
+        }
+        return this.demuxer.audioInfo.totalSamples / this.demuxer.audioInfo.sampleRate;
+    }
+    async getLiveRefreshInterval() {
+        return null;
+    }
     getDisposition() {
         return {
             ...DEFAULT_TRACK_DISPOSITION,
         };
-    }
-    async getFirstTimestamp() {
-        return 0;
     }
     async getDecoderConfig() {
         assert(this.demuxer.audioInfo);
@@ -422,20 +483,22 @@ class FlacAudioTrackBacking {
     async getPacket(timestamp, options) {
         assert(this.demuxer.audioInfo);
         if (timestamp < 0) {
-            throw new Error('Timestamp cannot be negative');
+            return null;
         }
         const release = await this.demuxer.readingMutex.acquire();
         try {
+            const timestampInSamples = roundIfAlmostInteger(timestamp * this.demuxer.audioInfo.sampleRate);
             while (true) {
-                const packetIndex = binarySearchLessOrEqual(this.demuxer.loadedSamples, timestamp, x => x.blockOffset / this.demuxer.audioInfo.sampleRate);
+                const packetIndex = binarySearchLessOrEqual(this.demuxer.loadedSamples, timestampInSamples, x => x.blockOffset);
                 if (packetIndex === -1) {
+                    if (this.demuxer.lastSampleLoaded) {
+                        return null; // There are no packets at all
+                    }
                     await this.demuxer.advanceReader();
                     continue;
                 }
                 const packet = this.demuxer.loadedSamples[packetIndex];
-                const sampleTimestamp = packet.blockOffset / this.demuxer.audioInfo.sampleRate;
-                const sampleDuration = packet.blockSize / this.demuxer.audioInfo.sampleRate;
-                if (sampleTimestamp + sampleDuration <= timestamp) {
+                if (packet.blockOffset + packet.blockSize <= timestampInSamples) {
                     if (this.demuxer.lastSampleLoaded) {
                         return this.getPacketAtIndex(this.demuxer.loadedSamples.length - 1, options);
                     }
@@ -485,7 +548,7 @@ class FlacAudioTrackBacking {
         }
         else {
             let slice = this.demuxer.reader.requestSlice(rawSample.byteOffset, rawSample.byteSize);
-            if (slice instanceof Promise)
+            if (isThenable(slice))
                 slice = await slice;
             if (!slice) {
                 return null; // Data didn't fit into the rest of the file
@@ -498,11 +561,17 @@ class FlacAudioTrackBacking {
         return new EncodedPacket(data, 'key', timestamp, duration, sampleIndex, rawSample.byteSize);
     }
     async getFirstPacket(options) {
-        // Ensure the next sample exists
-        while (this.demuxer.loadedSamples.length === 0
-            && !this.demuxer.lastSampleLoaded) {
-            await this.demuxer.advanceReader();
+        const release = await this.demuxer.readingMutex.acquire();
+        try {
+            // Ensure the next sample exists
+            while (this.demuxer.loadedSamples.length === 0
+                && !this.demuxer.lastSampleLoaded) {
+                await this.demuxer.advanceReader();
+            }
+            return this.getPacketAtIndex(0, options);
         }
-        return this.getPacketAtIndex(0, options);
+        finally {
+            release();
+        }
     }
 }

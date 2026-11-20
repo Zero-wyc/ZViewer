@@ -6,10 +6,21 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 import { InputDisposedError } from './input.js';
-import { assert, clamp, getUint24, toDataView } from './misc.js';
+import { assert, clamp, getUint24, isThenable, textDecoder, toDataView } from './misc.js';
+import { DEFAULT_MAX_READ_POSITION, DEFAULT_MIN_READ_POSITION } from './source.js';
 export class Reader {
     constructor(source) {
         this.source = source;
+    }
+    get fileSize() {
+        const size = this.source._getFileSize();
+        if (size === undefined) {
+            throw new Error('Reading file size too early; read required first.');
+        }
+        return size;
+    }
+    get fileSizeNonStrict() {
+        return this.source._getFileSize() ?? null;
     }
     requestSlice(start, length) {
         if (this.source._disposed) {
@@ -18,12 +29,16 @@ export class Reader {
         if (start < 0) {
             return null;
         }
-        if (this.fileSize !== null && start + length > this.fileSize) {
+        if (this.fileSizeNonStrict !== null && start + length > this.fileSizeNonStrict) {
             return null;
         }
+        if (length === 0) {
+            const buffer = new Uint8Array(0);
+            return new FileSlice(buffer, toDataView(buffer), 0, start, start);
+        }
         const end = start + length;
-        const result = this.source._read(start, end);
-        if (result instanceof Promise) {
+        const result = this.source._read(start, end, DEFAULT_MIN_READ_POSITION, DEFAULT_MAX_READ_POSITION);
+        if (isThenable(result)) {
             return result.then((x) => {
                 if (!x) {
                     return null;
@@ -45,8 +60,8 @@ export class Reader {
         if (start < 0) {
             return null;
         }
-        if (this.fileSize !== null) {
-            return this.requestSlice(start, clamp(this.fileSize - start, minLength, maxLength));
+        if (this.fileSizeNonStrict !== null) {
+            return this.requestSlice(start, clamp(this.fileSizeNonStrict - start, minLength, maxLength));
         }
         else {
             const promisedAttempt = this.requestSlice(start, maxLength);
@@ -54,25 +69,49 @@ export class Reader {
                 if (attempt) {
                     return attempt;
                 }
-                const handleFileSize = (fileSize) => {
-                    assert(fileSize !== null); // The slice couldn't fit, meaning we must know the file size now
-                    return this.requestSlice(start, clamp(fileSize - start, minLength, maxLength));
-                };
-                const promisedFileSize = this.source._retrieveSize();
-                if (promisedFileSize instanceof Promise) {
-                    return promisedFileSize.then(handleFileSize);
-                }
-                else {
-                    return handleFileSize(promisedFileSize);
-                }
+                // The slice couldn't fit, meaning we must know the file size now
+                assert(this.fileSizeNonStrict !== null);
+                return this.requestSlice(start, clamp(this.fileSizeNonStrict - start, minLength, maxLength));
             };
-            if (promisedAttempt instanceof Promise) {
+            if (isThenable(promisedAttempt)) {
                 return promisedAttempt.then(handleAttempt);
             }
             else {
                 return handleAttempt(promisedAttempt);
             }
         }
+    }
+    requestEntireFile() {
+        if (this.fileSizeNonStrict !== null) {
+            return this.requestSlice(0, this.fileSizeNonStrict);
+        }
+        const CHUNK_SIZE = 1024;
+        return (async () => {
+            const chunks = [];
+            let currentSize = 0;
+            while (true) {
+                if (chunks.length === 1 && this.fileSizeNonStrict !== null) {
+                    // It only took one read to get to know the whole file size
+                    return this.requestSlice(0, this.fileSizeNonStrict);
+                }
+                let slice = this.requestSliceRange(currentSize, 0, CHUNK_SIZE);
+                if (isThenable(slice))
+                    slice = await slice;
+                if (!slice || slice.length === 0) {
+                    break;
+                }
+                const chunk = readBytes(slice, slice.length);
+                chunks.push(chunk);
+                currentSize += slice.length;
+            }
+            const joined = new Uint8Array(currentSize);
+            let offset = 0;
+            for (const chunk of chunks) {
+                joined.set(chunk, offset);
+                offset += chunk.length;
+            }
+            return new FileSlice(joined, toDataView(joined), 0, 0, currentSize);
+        })();
     }
 }
 export class FileSlice {
@@ -122,7 +161,7 @@ export class FileSlice {
     }
 }
 const checkIsInRange = (slice, bytesToRead) => {
-    if (slice.filePos < slice.start || slice.filePos + bytesToRead > slice.end) {
+    if (bytesToRead < 0 || slice.filePos < slice.start || slice.filePos + bytesToRead > slice.end) {
         throw new RangeError(`Tried reading [${slice.filePos}, ${slice.filePos + bytesToRead}), but slice is`
             + ` [${slice.start}, ${slice.end}). This is likely an internal error, please report it alongside the file`
             + ` that caused it.`);
@@ -239,4 +278,11 @@ export const readAscii = (slice, length) => {
         str += String.fromCharCode(slice.bytes[slice.bufferPos++]);
     }
     return str;
+};
+export const readAllLines = (slice, length, options) => {
+    const text = textDecoder.decode(readBytes(slice, length));
+    const lines = text.split('\n')
+        .map(x => x.trim())
+        .filter(x => x.length > 0 && !options?.ignore?.(x));
+    return lines;
 };

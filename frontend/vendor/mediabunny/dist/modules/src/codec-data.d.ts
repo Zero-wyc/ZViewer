@@ -5,7 +5,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { VideoCodec } from './codec.js';
+import { AudioCodec, DtsFourCc, VideoCodec } from './codec.js';
 import { Rational } from './misc.js';
 import { PacketType } from './packet.js';
 import { MetadataTags } from './metadata.js';
@@ -41,6 +41,7 @@ export declare const iterateNalUnitsInAnnexB: (packetData: Uint8Array) => Genera
 export declare const iterateNalUnitsInLengthPrefixed: (packetData: Uint8Array, lengthSize: 1 | 2 | 3 | 4) => Generator<NalUnitLocation>;
 export declare const iterateAvcNalUnits: (packetData: Uint8Array, decoderConfig: VideoDecoderConfig) => Generator<NalUnitLocation, any, any>;
 export declare const extractNalUnitTypeForAvc: (byte: number) => number;
+export declare const addEmulationPreventionBytes: (data: Uint8Array) => Uint8Array<ArrayBuffer>;
 export declare const concatNalUnitsInAnnexB: (nalUnits: Uint8Array[]) => Uint8Array<ArrayBuffer>;
 export declare const concatNalUnitsInLengthPrefixed: (nalUnits: Uint8Array[], lengthSize: 1 | 2 | 3 | 4) => Uint8Array<ArrayBuffer>;
 export type AvcDecoderConfigurationRecord = {
@@ -64,6 +65,7 @@ export declare const serializeAvcDecoderConfigurationRecord: (record: AvcDecoder
 /** Deserializes an AvcDecoderConfigurationRecord from the format specified in Section 5.3.3.1 of ISO 14496-15. */
 export declare const deserializeAvcDecoderConfigurationRecord: (data: Uint8Array) => AvcDecoderConfigurationRecord | null;
 export type AvcSpsInfo = {
+    emulationUnpreventedBytes: Uint8Array;
     profileIdc: number;
     constraintFlags: number;
     levelIdc: number;
@@ -82,9 +84,19 @@ export type AvcSpsInfo = {
     fullRangeFlag: number;
     numReorderFrames: number;
     maxDecFrameBuffering: number;
+    vuiParametersFlagBitOffset: number;
+    bitstreamRestrictionFlagBitOffset: number | null;
+    bitstreamRestrictionFlag: number | null;
 };
 /** Parses an AVC SPS (Sequence Parameter Set) to extract basic information. */
 export declare const parseAvcSps: (sps: Uint8Array) => AvcSpsInfo | null;
+/**
+ * Adds the missing "bitstream restriction" section within the VUI parameter section. This is done to communicate
+ * frame reorder buffer size to the decoder, which may otherwise, in its absence, assume no B-frames and drop or skip
+ * them.
+ * See https://github.com/Vanilagy/mediabunny/issues/488
+ */
+export declare const addAvcBitstreamRestriction: (sps: AvcSpsInfo) => Uint8Array<ArrayBuffer>;
 export type HevcDecoderConfigurationRecord = {
     configurationVersion: number;
     generalProfileSpace: number;
@@ -131,6 +143,7 @@ export type HevcSpsInfo = {
     bitDepthChromaMinus8: number;
     minSpatialSegmentationIdc: number;
 };
+export declare const concatHevcNalUnits: (nalUnits: Uint8Array[], decoderConfig: VideoDecoderConfig) => Uint8Array<ArrayBuffer>;
 export declare const iterateHevcNalUnits: (packetData: Uint8Array, decoderConfig: VideoDecoderConfig) => Generator<NalUnitLocation, any, any>;
 export declare const extractNalUnitTypeForHevc: (byte: number) => number;
 /** Parses an HEVC SPS (Sequence Parameter Set) to extract video information. */
@@ -141,6 +154,7 @@ export declare const extractHevcDecoderConfigurationRecord: (packetData: Uint8Ar
 export declare const serializeHevcDecoderConfigurationRecord: (record: HevcDecoderConfigurationRecord) => Uint8Array<ArrayBuffer>;
 /** Deserializes an HevcDecoderConfigurationRecord from the format specified in Section 8.3.3.1 of ISO 14496-15. */
 export declare const deserializeHevcDecoderConfigurationRecord: (data: Uint8Array) => HevcDecoderConfigurationRecord | null;
+export declare const sanitizeHevcPacketForChromium: (packetData: Uint8Array, decoderConfig: VideoDecoderConfig) => Uint8Array | null;
 export type Vp9CodecInfo = {
     profile: number;
     level: number;
@@ -152,6 +166,7 @@ export type Vp9CodecInfo = {
     matrixCoefficients: number;
 };
 export declare const extractVp9CodecInfoFromPacket: (packet: Uint8Array) => Vp9CodecInfo | null;
+export declare const vp9CodecInfoHasColorInfo: (info: Vp9CodecInfo) => boolean;
 export type Av1CodecInfo = {
     profile: number;
     level: number;
@@ -161,8 +176,12 @@ export type Av1CodecInfo = {
     chromaSubsamplingX: number;
     chromaSubsamplingY: number;
     chromaSamplePosition: number;
+    videoFullRangeFlag: number;
+    colourPrimaries: number;
+    transferCharacteristics: number;
+    matrixCoefficients: number;
 };
-/** Iterates over all OBUs in an AV1 packet bistream. */
+/** Iterates over all OBUs in an AV1 packet bitstream. */
 export declare const iterateAv1PacketObus: (packet: Uint8Array) => Generator<{
     type: number;
     data: Uint8Array<ArrayBufferLike>;
@@ -172,6 +191,14 @@ export declare const iterateAv1PacketObus: (packet: Uint8Array) => Generator<{
  * into the AV1 bitstream.
  */
 export declare const extractAv1CodecInfoFromPacket: (packet: Uint8Array) => Av1CodecInfo | null;
+export declare const av1CodecInfoHasColorInfo: (info: Av1CodecInfo) => boolean;
+export type ProresCodecInfo = {
+    colourPrimaries: number;
+    transferCharacteristics: number;
+    matrixCoefficients: number;
+    fullRange: boolean;
+};
+export declare const extractProresCodecInfoFromPacket: (packet: Uint8Array) => ProresCodecInfo | null;
 export declare const parseOpusIdentificationHeader: (bytes: Uint8Array) => {
     outputChannelCount: number;
     preSkip: number;
@@ -188,6 +215,8 @@ export declare const parseModesFromVorbisSetupPacket: (setupHeader: Uint8Array) 
 };
 /** Determines a packet's type (key or delta) by digging into the packet bitstream. */
 export declare const determineVideoPacketType: (codec: VideoCodec, decoderConfig: VideoDecoderConfig, packetData: Uint8Array) => PacketType | null;
+export declare const countShownVideoFrames: (codec: VideoCodec, packetData: Uint8Array) => number;
+export declare const determineAudioPacketType: (codec: AudioCodec, packetData: Uint8Array) => PacketType;
 export declare enum FlacBlockType {
     STREAMINFO = 0,
     VORBIS_COMMENT = 4,
@@ -274,6 +303,15 @@ export interface Eac3FrameInfo {
  */
 export declare const parseEac3SyncFrame: (data: Uint8Array) => Eac3FrameInfo | null;
 /**
+ * Splits E-AC-3 data into its audio frames, each an independent syncframe followed by its dependent syncframes. Returns
+ * null if the data isn't cleanly made up of E-AC-3 syncframes.
+ */
+export declare const splitEac3AudioFrames: (data: Uint8Array) => {
+    offset: number;
+    size: number;
+    blockCount: number;
+}[] | null;
+/**
  * Parse a dec3 box to extract E-AC-3 parameters.
  * Section F.6
  */
@@ -287,4 +325,103 @@ export declare const getEac3SampleRate: (config: Eac3FrameInfo) => number | null
  * Get channel count from E-AC-3 config (first independent substream only).
  */
 export declare const getEac3ChannelCount: (config: Eac3FrameInfo) => number;
+/** Core substream sync word, in the 16-bit big-endian packing that the registry mandates. */
+export declare const DTS_CORE_SYNC_WORD = 2147385345;
+/** Extension substream sync word. Section 7.4.1 */
+export declare const DTS_EXSS_SYNC_WORD = 1683496997;
+/** The core frame header never reaches beyond this many bytes. */
+export declare const DTS_CORE_FRAME_HEADER_SIZE = 18;
+/** An extension substream always declares its own size within this many bytes. */
+export declare const DTS_EXSS_HEADER_PREFIX_SIZE = 10;
+/** The largest nuExtSSHeaderSize can get, and therefore how far the asset descriptors can reach. */
+export declare const DTS_EXSS_MAX_HEADER_SIZE = 4096;
+/** Number of PCM samples in one core PCM block; the core codes its length as a count of these. */
+export declare const DTS_PCM_BLOCK_SAMPLES = 32;
+/** Size of the DTSSpecificBox (ddts) payload in bytes. */
+export declare const DTS_SPECIFIC_BOX_SIZE = 20;
+export type DtsCoreFrameInfo = {
+    /** Size of the core substream frame in bytes */
+    frameSize: number;
+    sampleRate: number;
+    numberOfChannels: number;
+    /** Number of PCM samples the frame decodes to */
+    sampleCount: number;
+    /** Speaker layout mask */
+    channelLayout: number;
+    /** Audio channel arrangement (AMODE) */
+    amode: number;
+    /** Whether an LFE channel is present */
+    lfePresent: boolean;
+    /** Constant bit rate in bps, or 0 when the stream doesn't run at one */
+    bitRate: number;
+    /** Source PCM resolution in bits */
+    pcmResolution: number;
+    /** EXT_AUDIO_ID of the extension inside the core frame, or null if there is none */
+    extAudioId: number | null;
+};
+export type DtsExssAssetInfo = {
+    sampleRate: number;
+    numberOfChannels: number;
+    /** Number of PCM samples the frame decodes to */
+    sampleCount: number;
+    /** Speaker layout mask, or 0 when the asset doesn't declare one */
+    channelLayout: number;
+    /** Source PCM resolution in bits */
+    pcmResolution: number;
+};
+export type DtsExssInfo = {
+    /** Size of the extension substream in bytes */
+    frameSize: number;
+    /** Null when this substream omits the static fields that describe the stream */
+    asset: DtsExssAssetInfo | null;
+};
+export type DtsFrameInfo = {
+    /** Size of the entire frame in bytes, core substream plus any extension substreams */
+    frameSize: number;
+    sampleRate: number;
+    numberOfChannels: number;
+    /** Number of PCM samples the frame decodes to */
+    sampleCount: number;
+    /** Speaker layout mask */
+    channelLayout: number;
+    /** Source PCM resolution in bits */
+    pcmResolution: number;
+    /** Constant bit rate in bps, or 0 when the stream doesn't run at one */
+    bitRate: number;
+    /** The leading core substream, or null for extension-only streams such as DTS Express */
+    core: DtsCoreFrameInfo | null;
+    /** Whether the frame carries extension substreams on top of the core */
+    hasExtensions: boolean;
+};
+/**
+ * Parse one complete DTS frame, being a core substream frame followed by any number of extension substreams,
+ * or an extension substream on its own. Section 5 and Section 7.4.1
+ */
+export declare const parseDtsFrame: (data: Uint8Array) => DtsFrameInfo | null;
+/**
+ * Works out which four-character code describes a packet, or null when the packet doesn't say. Telling 'dtsl'
+ * from 'dtse' would mean working out whether the asset holds XLL or LBR data, which sits behind the speaker
+ * remapping and mixing metadata deep in the asset descriptor, so we don't do it.
+ */
+export declare const extractDtsFourCcFromPacket: (data: Uint8Array) => DtsFourCc | null;
+/** Parse the header of a core substream frame. Section 5.3 */
+export declare const parseDtsCoreFrameHeader: (data: Uint8Array) => DtsCoreFrameInfo | null;
+/** Parse the header of an extension substream, along with its first audio asset descriptor. Section 7.4.1 */
+export declare const parseDtsExssHeader: (data: Uint8Array) => DtsExssInfo | null;
+export type DtsSpecificBoxInfo = {
+    sampleRate: number;
+    maxBitrate: number;
+    avgBitrate: number;
+    pcmSampleDepth: number;
+    /** Number of PCM samples one frame decodes to */
+    sampleCount: number;
+    /** Speaker layout mask, or 0 when the box doesn't declare one */
+    channelLayout: number;
+    /** Null when the box carries nothing we can derive a channel count from */
+    numberOfChannels: number | null;
+};
+/** Parse a DTSSpecificBox (ddts). */
+export declare const parseDtsSpecificBox: (data: Uint8Array) => DtsSpecificBoxInfo | null;
+/** Build the payload of a DTSSpecificBox (ddts) from a frame of the stream it describes. */
+export declare const buildDtsSpecificBox: (frameInfo: DtsFrameInfo) => Uint8Array<ArrayBuffer>;
 //# sourceMappingURL=codec-data.d.ts.map

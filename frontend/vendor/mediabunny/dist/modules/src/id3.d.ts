@@ -6,7 +6,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 import { MetadataTags } from './metadata.js';
-import { FileSlice } from './reader.js';
+import { FileSlice, Reader } from './reader.js';
 import { Writer } from './writer.js';
 export type Id3V2Header = {
     majorVersion: number;
@@ -31,6 +31,7 @@ export declare const ID3_V2_HEADER_SIZE = 10;
 export declare const ID3_V1_GENRES: string[];
 export declare const parseId3V1Tag: (slice: FileSlice, tags: MetadataTags) => void;
 export declare const readId3V1String: (slice: FileSlice, length: number) => string;
+export declare const skipId3V2Tags: (reader: Reader, startPos: number) => Promise<number>;
 export declare const readId3V2Header: (slice: FileSlice) => Id3V2Header | null;
 export declare const parseId3V2Tag: (slice: FileSlice, header: Id3V2Header, tags: MetadataTags) => void;
 export declare class Id3V2Reader {
@@ -38,11 +39,11 @@ export declare class Id3V2Reader {
     bytes: Uint8Array;
     pos: number;
     view: DataView;
+    ownsBytes: boolean;
     constructor(header: Id3V2Header, bytes: Uint8Array);
     frameHeaderSize(): 6 | 10;
     ununsynchronizeAll(): void;
-    ununsynchronizeRegion(start: number, end: number): void;
-    removeFooter(): void;
+    ununsynchronizeRegion(start: number, end: number): number;
     readBytes(length: number): Uint8Array<ArrayBufferLike>;
     readU8(): number;
     readU16(): number;

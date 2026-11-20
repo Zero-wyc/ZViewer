@@ -5,7 +5,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-export const FRAME_HEADER_SIZE = 4;
+export const MP3_FRAME_HEADER_SIZE = 4;
+export const MP3_DECODER_DELAY = 529; // Inherent, and not included by LAME-style metadata
 export const SAMPLING_RATES = [44100, 48000, 32000];
 export const KILOBIT_RATES = [
     // lowSamplingFrequency === 0
@@ -23,6 +24,8 @@ export const KILOBIT_RATES = [
 export const XING = 0x58696e67;
 /** 'Info' */
 export const INFO = 0x496e666f;
+/** 'VBRI' */
+export const VBRI = 0x56425249;
 export const computeMp3FrameSize = (lowSamplingFrequency, layer, bitrate, sampleRate, padding) => {
     if (layer === 0) {
         return 0; // Not expected that this is hit
@@ -35,6 +38,20 @@ export const computeMp3FrameSize = (lowSamplingFrequency, layer, bitrate, sample
     }
     else { // layer === 3
         return (Math.floor(12 * bitrate / sampleRate) + padding) * 4;
+    }
+};
+export const computeAverageMp3FrameSize = (lowSamplingFrequency, layer, bitrate, sampleRate) => {
+    if (layer === 0) {
+        return 0; // Not expected that this is hit
+    }
+    else if (layer === 1) {
+        return 144 * bitrate / (sampleRate << lowSamplingFrequency);
+    }
+    else if (layer === 2) {
+        return 144 * bitrate / sampleRate;
+    }
+    else { // layer === 3
+        return (12 * bitrate / sampleRate) * 4;
     }
 };
 export const getXingOffset = (mpegVersionId, channel) => {
@@ -71,7 +88,11 @@ export const readMp3FrameHeader = (word, remainingBytes) => {
     const mpegVersionId = (secondByte >> 3) & 0x3;
     const layer = (secondByte >> 1) & 0x3;
     const bitrateIndex = (thirdByte >> 4) & 0xf;
-    const frequencyIndex = ((thirdByte >> 2) & 0x3) % 3;
+    const frequencyIndex = (thirdByte >> 2) & 0x3;
+    if (mpegVersionId === 1 || frequencyIndex === 3) {
+        // Reserved values
+        return { header: null, bytesAdvanced: 1 };
+    }
     const padding = (thirdByte >> 1) & 0x1;
     const channel = (fourthByte >> 6) & 0x3;
     const modeExtension = (fourthByte >> 4) & 0x3;
@@ -108,6 +129,7 @@ export const readMp3FrameHeader = (word, remainingBytes) => {
         header: {
             totalSize: frameLength,
             mpegVersionId,
+            lowSamplingFrequency,
             layer,
             bitrate,
             frequencyIndex,
@@ -144,4 +166,14 @@ export const decodeSynchsafe = (synchsafed) => {
         mask >>= 8;
     }
     return unsynchsafed;
+};
+export var XingFlags;
+(function (XingFlags) {
+    XingFlags[XingFlags["FrameCount"] = 1] = "FrameCount";
+    XingFlags[XingFlags["FileSize"] = 2] = "FileSize";
+    XingFlags[XingFlags["Toc"] = 4] = "Toc";
+    XingFlags[XingFlags["Quality"] = 8] = "Quality";
+})(XingFlags || (XingFlags = {}));
+export const getMp3ChannelCount = (channel) => {
+    return channel === 3 ? 1 : 2;
 };

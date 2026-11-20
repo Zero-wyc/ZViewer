@@ -5,7 +5,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { assert, assertNever, textDecoder, textEncoder } from '../misc.js';
+import { assert, assertNever, isThenable, textDecoder, textEncoder } from '../misc.js';
 import { readBytes, readF32Be, readF64Be, readU8 } from '../reader.js';
 /** Wrapper around a number to be able to differentiate it in the writer. */
 export class EBMLFloat32 {
@@ -50,6 +50,8 @@ export var EBMLId;
     EBMLId[EBMLId["Duration"] = 17545] = "Duration";
     EBMLId[EBMLId["Info"] = 357149030] = "Info";
     EBMLId[EBMLId["TimestampScale"] = 2807729] = "TimestampScale";
+    EBMLId[EBMLId["DateUTC"] = 17505] = "DateUTC";
+    EBMLId[EBMLId["Title"] = 31657] = "Title";
     EBMLId[EBMLId["MuxingApp"] = 19840] = "MuxingApp";
     EBMLId[EBMLId["WritingApp"] = 22337] = "WritingApp";
     EBMLId[EBMLId["Tracks"] = 374648427] = "Tracks";
@@ -65,6 +67,7 @@ export var EBMLId;
     EBMLId[EBMLId["FlagVisualImpaired"] = 21932] = "FlagVisualImpaired";
     EBMLId[EBMLId["FlagCommentary"] = 21935] = "FlagCommentary";
     EBMLId[EBMLId["FlagLacing"] = 156] = "FlagLacing";
+    EBMLId[EBMLId["MaxBlockAdditionID"] = 21998] = "MaxBlockAdditionID";
     EBMLId[EBMLId["Name"] = 21358] = "Name";
     EBMLId[EBMLId["Language"] = 2274716] = "Language";
     EBMLId[EBMLId["LanguageBCP47"] = 2274717] = "LanguageBCP47";
@@ -79,9 +82,11 @@ export var EBMLId;
     EBMLId[EBMLId["DisplayWidth"] = 21680] = "DisplayWidth";
     EBMLId[EBMLId["DisplayHeight"] = 21690] = "DisplayHeight";
     EBMLId[EBMLId["DisplayUnit"] = 21682] = "DisplayUnit";
+    EBMLId[EBMLId["StereoMode"] = 21432] = "StereoMode";
     EBMLId[EBMLId["AlphaMode"] = 21440] = "AlphaMode";
     EBMLId[EBMLId["Audio"] = 225] = "Audio";
     EBMLId[EBMLId["SamplingFrequency"] = 181] = "SamplingFrequency";
+    EBMLId[EBMLId["OutputSamplingFrequency"] = 30901] = "OutputSamplingFrequency";
     EBMLId[EBMLId["Channels"] = 159] = "Channels";
     EBMLId[EBMLId["BitDepth"] = 25188] = "BitDepth";
     EBMLId[EBMLId["SimpleBlock"] = 163] = "SimpleBlock";
@@ -101,6 +106,7 @@ export var EBMLId;
     EBMLId[EBMLId["CueTrackPositions"] = 183] = "CueTrackPositions";
     EBMLId[EBMLId["CueTrack"] = 247] = "CueTrack";
     EBMLId[EBMLId["CueClusterPosition"] = 241] = "CueClusterPosition";
+    EBMLId[EBMLId["CueRelativePosition"] = 240] = "CueRelativePosition";
     EBMLId[EBMLId["Colour"] = 21936] = "Colour";
     EBMLId[EBMLId["MatrixCoefficients"] = 21937] = "MatrixCoefficients";
     EBMLId[EBMLId["TransferCharacteristics"] = 21946] = "TransferCharacteristics";
@@ -108,6 +114,8 @@ export var EBMLId;
     EBMLId[EBMLId["Range"] = 21945] = "Range";
     EBMLId[EBMLId["Projection"] = 30320] = "Projection";
     EBMLId[EBMLId["ProjectionType"] = 30321] = "ProjectionType";
+    EBMLId[EBMLId["ProjectionPoseYaw"] = 30323] = "ProjectionPoseYaw";
+    EBMLId[EBMLId["ProjectionPosePitch"] = 30324] = "ProjectionPosePitch";
     EBMLId[EBMLId["ProjectionPoseRoll"] = 30325] = "ProjectionPoseRoll";
     EBMLId[EBMLId["Attachments"] = 423732329] = "Attachments";
     EBMLId[EBMLId["AttachedFile"] = 24999] = "AttachedFile";
@@ -320,6 +328,9 @@ export class EBMLWriter {
         this.writeUnsignedInt(value, width);
     }
     writeVarInt(value, width = measureVarInt(value)) {
+        if (value >= 2 ** (7 * width) - 1) {
+            throw new Error(`EBML variable-size integer ${value} doesn't fit into ${width} bytes.`);
+        }
         let pos = 0;
         switch (width) {
             case 1:
@@ -383,24 +394,33 @@ export class EBMLWriter {
             this.offsets.set(data, this.writer.getPos());
             this.writeUnsignedInt(data.id); // ID field
             if (Array.isArray(data.data)) {
-                const sizePos = this.writer.getPos();
-                const sizeSize = data.size === -1 ? 1 : (data.size ?? 4);
-                if (data.size === -1) {
-                    // Write the reserved all-one-bits marker for unknown/unbounded size.
-                    this.writeByte(0xff);
+                if (data.size === undefined) {
+                    // The contents are known, so the size field can be exactly as wide as it needs to be
+                    this.writeVarInt(measureEBML(data.data));
+                    this.dataOffsets.set(data, this.writer.getPos());
+                    this.writeEBML(data.data);
                 }
                 else {
-                    this.writer.seek(this.writer.getPos() + sizeSize);
-                }
-                const startPos = this.writer.getPos();
-                this.dataOffsets.set(data, startPos);
-                this.writeEBML(data.data);
-                if (data.size !== -1) {
-                    const size = this.writer.getPos() - startPos;
-                    const endPos = this.writer.getPos();
-                    this.writer.seek(sizePos);
-                    this.writeVarInt(size, sizeSize);
-                    this.writer.seek(endPos);
+                    // Elements with streamed contents reserve a size field of the given width and fill it in after
+                    const sizePos = this.writer.getPos();
+                    const sizeSize = data.size === -1 ? 1 : data.size;
+                    if (data.size === -1) {
+                        // Write the reserved all-one-bits marker for unknown/unbounded size.
+                        this.writeByte(0xff);
+                    }
+                    else {
+                        this.writer.seek(this.writer.getPos() + sizeSize);
+                    }
+                    const startPos = this.writer.getPos();
+                    this.dataOffsets.set(data, startPos);
+                    this.writeEBML(data.data);
+                    if (data.size !== -1) {
+                        const size = this.writer.getPos() - startPos;
+                        const endPos = this.writer.getPos();
+                        this.writer.seek(sizePos);
+                        this.writeVarInt(size, sizeSize);
+                        this.writer.seek(endPos);
+                    }
                 }
             }
             else if (typeof data.data === 'number') {
@@ -445,6 +465,61 @@ export class EBMLWriter {
         }
     }
 }
+/** Returns the number of bytes writeEBML would write for the given data. */
+const measureEBML = (data) => {
+    if (data === null) {
+        return 0;
+    }
+    else if (data instanceof Uint8Array) {
+        return data.byteLength;
+    }
+    else if (Array.isArray(data)) {
+        return data.reduce((sum, elem) => sum + measureEBML(elem), 0);
+    }
+    let contentSize;
+    let sizeSize;
+    if (Array.isArray(data.data)) {
+        contentSize = measureEBML(data.data);
+        sizeSize = data.size === undefined
+            ? measureVarInt(contentSize)
+            : data.size === -1 ? 1 : data.size;
+    }
+    else if (typeof data.data === 'number') {
+        contentSize = data.size ?? measureUnsignedInt(data.data);
+        sizeSize = measureVarInt(contentSize);
+    }
+    else if (typeof data.data === 'bigint') {
+        contentSize = data.size ?? measureUnsignedBigInt(data.data);
+        sizeSize = measureVarInt(contentSize);
+    }
+    else if (typeof data.data === 'string') {
+        contentSize = data.data.length;
+        sizeSize = measureVarInt(contentSize);
+    }
+    else if (data.data instanceof Uint8Array) {
+        contentSize = data.data.byteLength;
+        sizeSize = data.size ?? measureVarInt(contentSize);
+    }
+    else if (data.data instanceof EBMLFloat32) {
+        contentSize = 4;
+        sizeSize = 1;
+    }
+    else if (data.data instanceof EBMLFloat64) {
+        contentSize = 8;
+        sizeSize = 1;
+    }
+    else if (data.data instanceof EBMLSignedInt) {
+        contentSize = data.size ?? measureSignedInt(data.data.value);
+        sizeSize = measureVarInt(contentSize);
+    }
+    else {
+        assert(data.data instanceof EBMLUnicodeString);
+        contentSize = textEncoder.encode(data.data.value).length;
+        sizeSize = measureVarInt(contentSize);
+    }
+    return measureUnsignedInt(data.id) + sizeSize + contentSize;
+};
+export const EBML_DATE_EPOCH = Date.UTC(2001, 0, 1); // In milliseconds since the Unix epoch
 export const MAX_VAR_INT_SIZE = 8;
 export const MIN_HEADER_SIZE = 2; // 1-byte ID and 1-byte size
 export const MAX_HEADER_SIZE = 2 * MAX_VAR_INT_SIZE; // 8-byte ID and 8-byte size
@@ -499,7 +574,8 @@ export const readVarInt = (slice) => {
     return value;
 };
 export const readUnsignedInt = (slice, width) => {
-    if (width < 1 || width > 8) {
+    // Zero width is valid and means zero
+    if (width > 8) {
         throw new Error('Bad unsigned int size ' + width);
     }
     let value = 0;
@@ -511,7 +587,8 @@ export const readUnsignedInt = (slice, width) => {
     return value;
 };
 export const readUnsignedBigInt = (slice, width) => {
-    if (width < 1) {
+    // Zero width is valid and means zero
+    if (width > 8) {
         throw new Error('Bad unsigned int size ' + width);
     }
     let value = 0n;
@@ -529,6 +606,13 @@ export const readSignedInt = (slice, width) => {
     }
     return value;
 };
+export const readSignedBigInt = (slice, width) => {
+    // Zero width is valid and means zero
+    if (width === 0) {
+        return 0n;
+    }
+    return BigInt.asIntN(8 * width, readUnsignedBigInt(slice, width));
+};
 export const readElementId = (slice) => {
     const size = readVarIntSize(slice);
     if (size === null) {
@@ -542,25 +626,15 @@ export const readElementId = (slice) => {
 };
 /** Returns `undefined` to indicate the EBML undefined size. Returns `null` if the size couldn't be read. */
 export const readElementSize = (slice) => {
-    // Need at least 1 byte to read the size
-    if (slice.remainingLength < 1) {
-        return null;
-    }
-    const firstByte = readU8(slice);
-    if (firstByte === 0xff) {
-        return undefined;
-    }
-    slice.skip(-1);
+    const startPos = slice.filePos;
     const size = readVarInt(slice);
     if (size === null) {
         return null;
     }
-    // In some (livestreamed) files, this is the value of the size field. While this technically is just a very
-    // large number, it is intended to behave like the reserved size 0xFF, meaning the size is undefined. We
-    // catch the number here. Note that it cannot be perfectly represented as a double, but the comparison works
-    // nonetheless.
-    // eslint-disable-next-line no-loss-of-precision
-    if (size === 0x00ffffffffffffff) {
+    // The size is unknown when all of its data bits are set, at any width. For 8 bytes, the value can't be perfectly
+    // represented as a double, but the comparison works nonetheless.
+    const width = slice.filePos - startPos;
+    if (size === 2 ** (7 * width) - 1) {
         return undefined;
     }
     return size;
@@ -580,11 +654,11 @@ export const readElementHeader = (slice) => {
 export const readAsciiString = (slice, length) => {
     const bytes = readBytes(slice, length);
     // Actual string length might be shorter due to null terminators
-    let strLength = 0;
-    while (strLength < length && bytes[strLength] !== 0) {
-        strLength += 1;
+    let str = '';
+    for (let i = 0; i < length && bytes[i] !== 0; i++) {
+        str += String.fromCharCode(bytes[i]);
     }
-    return String.fromCharCode(...bytes.subarray(0, strLength));
+    return str;
 };
 export const readUnicodeString = (slice, length) => {
     const bytes = readBytes(slice, length);
@@ -610,7 +684,7 @@ export const searchForNextElementId = async (reader, startPos, ids, until) => {
     let currentPos = startPos;
     while (until === null || currentPos < until) {
         let slice = reader.requestSliceRange(currentPos, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
             break;
@@ -633,13 +707,14 @@ export const resync = async (reader, startPos, ids, until) => {
     let currentPos = startPos;
     while (currentPos < until) {
         let slice = reader.requestSliceRange(currentPos, 0, Math.min(CHUNK_SIZE, until - currentPos));
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
-        if (!slice)
+        if (!slice || slice.length === 0)
             break;
-        if (slice.length < MAX_VAR_INT_SIZE)
-            break;
-        for (let i = 0; i < slice.length - MAX_VAR_INT_SIZE; i++) {
+        // The last few positions are left for the next chunk so their IDs can be read in full. Close to the end, there
+        // is no next chunk to speak of, so we must still make progress.
+        const positionsToCheck = Math.max(slice.length - MAX_VAR_INT_SIZE, 1);
+        for (let i = 0; i < positionsToCheck; i++) {
             slice.filePos = currentPos;
             const elementId = readElementId(slice);
             if (elementId !== null && idsSet.has(elementId)) {
@@ -656,6 +731,7 @@ export const CODEC_STRING_MAP = {
     'vp8': 'V_VP8',
     'vp9': 'V_VP9',
     'av1': 'V_AV1',
+    'prores': 'V_PRORES',
     'aac': 'A_AAC',
     'mp3': 'A_MPEG/L3',
     'opus': 'A_OPUS',
@@ -663,9 +739,8 @@ export const CODEC_STRING_MAP = {
     'flac': 'A_FLAC',
     'ac3': 'A_AC3',
     'eac3': 'A_EAC3',
-    // [本地补丁] 增加 DTS 支持：mediabunny 上游（含 kzahel@integration）不识别 A_DTS，
-    // 导致含 DTS 音轨的 MKV 被解封装成"只有视频"，playsvideo 也就拿不到音频去转码。
     'dts': 'A_DTS',
+    'truehd': 'A_TRUEHD',
     'pcm-u8': 'A_PCM/INT/LIT',
     'pcm-s16': 'A_PCM/INT/LIT',
     'pcm-s16be': 'A_PCM/INT/BIG',
@@ -676,9 +751,6 @@ export const CODEC_STRING_MAP = {
     'pcm-f32': 'A_PCM/FLOAT/IEEE',
     'pcm-f64': 'A_PCM/FLOAT/IEEE',
     'webvtt': 'S_TEXT/WEBVTT',
-    'srt': 'S_TEXT/UTF8',
-    'ass': 'S_TEXT/ASS',
-    'ssa': 'S_TEXT/SSA',
 };
 export function assertDefinedSize(size) {
     if (size === undefined) {

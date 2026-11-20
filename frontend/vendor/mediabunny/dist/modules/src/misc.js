@@ -5,11 +5,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+import { Logging } from './logging.js';
 export function assert(x) {
     if (!x) {
         throw new Error('Assertion failed.');
     }
 }
+export const DEG_TO_RAD = Math.PI / 180;
+export const RAD_TO_DEG = 180 / Math.PI;
 export const normalizeRotation = (rotation) => {
     const mappedRotation = (rotation % 360 + 360) % 360;
     if (mappedRotation === 0 || mappedRotation === 90 || mappedRotation === 180 || mappedRotation === 270) {
@@ -19,11 +22,91 @@ export const normalizeRotation = (rotation) => {
         throw new Error(`Invalid rotation ${rotation}.`);
     }
 };
+export const IDENTITY_MATRIX = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+/**
+ * Applies a linear transformation (no translation) to a width-by-height frame about its center, with the result
+ * sitting in the positive quadrant.
+ */
+export const centeredTransformationMatrix = (linear, width, height) => {
+    const [a, b, , c, d] = linear;
+    // Bounding box of the transformed frame
+    const transformedWidth = Math.abs(a) * width + Math.abs(c) * height;
+    const transformedHeight = Math.abs(b) * width + Math.abs(d) * height;
+    // The transformation happens about the origin (the frame's top-left corner), so we move the center to the
+    // origin, transform, then move it back
+    return multiplyMatrices(multiplyMatrices(translationMatrix(-width / 2, -height / 2), linear), translationMatrix(transformedWidth / 2, transformedHeight / 2));
+};
+/**
+ * Extracts the rotation from a transformation matrix, assuming the matrix has the form "rotate, then maybe flip
+ * horizontally", and snapping to the nearest multiple of 90 degrees.
+ */
+export const extractRotationFromMatrix = (matrix) => {
+    const [a, b] = matrix;
+    // (1, 0) projects onto (a, b), so that's all we need. The rotation is applied before flipping though, so we
+    // first need to undo the flip to isolate the rotation.
+    const radians = Math.atan2(b, matrixIsFlipped(matrix) ? -a : a);
+    return normalizeRotation(roundToMultiple(radians * RAD_TO_DEG, 90));
+};
+/** Whether the transformation matrix flips the frame, i.e. has a negative determinant. */
+export const matrixIsFlipped = (matrix) => {
+    const [a, b, , c, d] = matrix;
+    const det = a * d - b * c;
+    return det < 0;
+};
+export const rotationMatrix = (rotationInDegrees) => {
+    const theta = rotationInDegrees * DEG_TO_RAD;
+    const cosTheta = Math.round(Math.cos(theta));
+    const sinTheta = Math.round(Math.sin(theta));
+    // Points are row vectors, meaning this is the transpose of your typical rotation matrix
+    return [
+        cosTheta, sinTheta, 0,
+        -sinTheta, cosTheta, 0,
+        0, 0, 1,
+    ];
+};
+export const translationMatrix = (x, y) => {
+    // Points are row vectors, meaning this is the transpose of your typical translation matrix
+    return [
+        1, 0, 0,
+        0, 1, 0,
+        x, y, 1,
+    ];
+};
+export const scaleMatrix = (x, y) => {
+    return [
+        x, 0, 0,
+        0, y, 0,
+        0, 0, 1,
+    ];
+};
+/** Computes a * b. Since points are row vectors, this applies a first, then b. */
+export const multiplyMatrices = (a, b) => {
+    const result = new Array(9);
+    for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+            result[3 * i + j] = a[3 * i] * b[j] + a[3 * i + 1] * b[3 + j] + a[3 * i + 2] * b[6 + j];
+        }
+    }
+    return result;
+};
+/**
+ * Composes two "rotate, then flip" transformations into one. A flip conjugates any rotation that follows it, meaning
+ * the second rotation flips direction if the first flip is set.
+ */
+export const composeRotationAndFlip = (rotation1, flip1, rotation2, flip2) => {
+    return {
+        rotation: normalizeRotation(rotation1 + (flip1 ? -rotation2 : rotation2)),
+        flip: flip1 !== flip2,
+    };
+};
 export const last = (arr) => {
     return arr && arr[arr.length - 1];
 };
 export const isU32 = (value) => {
     return value >= 0 && value < 2 ** 32;
+};
+export const isI32 = (value) => {
+    return value >= -(2 ** 31) && value < 2 ** 31;
 };
 /** Reads an exponential-Golomb universal code from a Bitstream.  */
 export const readExpGolomb = (bitstream) => {
@@ -34,25 +117,24 @@ export const readExpGolomb = (bitstream) => {
     if (leadingZeroBits >= 32) {
         throw new Error('Invalid exponential-Golomb code.');
     }
-    const result = (1 << leadingZeroBits) - 1 + bitstream.readBits(leadingZeroBits);
+    // Not using bit shifts here, since they'd overflow into negative numbers for 31 leading zeros
+    const result = 2 ** leadingZeroBits - 1 + bitstream.readBits(leadingZeroBits);
     return result;
+};
+export const writeExpGolomb = (bitstream, value) => {
+    const codeNum = value + 1;
+    const leadingZeroBits = Math.floor(Math.log2(codeNum));
+    bitstream.writeBits(leadingZeroBits, 0);
+    bitstream.writeBits(1, 1);
+    bitstream.writeBits(leadingZeroBits, codeNum - 2 ** leadingZeroBits);
 };
 /** Reads a signed exponential-Golomb universal code from a Bitstream. */
 export const readSignedExpGolomb = (bitstream) => {
     const codeNum = readExpGolomb(bitstream);
-    return ((codeNum & 1) === 0)
-        ? -(codeNum >> 1)
-        : ((codeNum + 1) >> 1);
-};
-export const writeBits = (bytes, start, end, value) => {
-    for (let i = start; i < end; i++) {
-        const byteIndex = Math.floor(i / 8);
-        let byte = bytes[byteIndex];
-        const bitIndex = 0b111 - (i & 0b111);
-        byte &= ~(1 << bitIndex);
-        byte |= ((value & (1 << (end - i - 1))) >> (end - i - 1)) << bitIndex;
-        bytes[byteIndex] = byte;
-    }
+    // Division instead of bit shifts, since codeNum may exceed the 32-bit signed range
+    return codeNum % 2 === 0
+        ? -(codeNum / 2)
+        : (codeNum + 1) / 2;
 };
 export const toUint8Array = (source) => {
     if (source.constructor === Uint8Array) { // We want a true Uint8Array, not something that extends it like Buffer
@@ -76,7 +158,171 @@ export const toDataView = (source) => {
         return new DataView(source);
     }
 };
+// Include a polyfill for environments that don't have TextEncoder (like AudioWorkletGlobalScope)
+export const TextEncoder = /* #__PURE__ */ (() => typeof globalThis.TextEncoder !== 'undefined'
+    ? globalThis.TextEncoder
+    : class TextEncoder {
+        constructor() {
+            this.encoding = 'utf-8';
+        }
+        encode(input = '') {
+            // UTF-8 needs at most 3 bytes per UTF-16 code unit
+            const bytes = new Uint8Array(3 * input.length);
+            let n = 0;
+            for (let i = 0; i < input.length; i++) {
+                let c = input.charCodeAt(i);
+                if (c < 0x80) {
+                    bytes[n++] = c;
+                }
+                else if (c < 0x800) {
+                    bytes[n++] = 0xc0 | (c >> 6);
+                    bytes[n++] = 0x80 | (c & 63);
+                }
+                else if (c < 0xd800 || c > 0xdfff) {
+                    bytes[n++] = 0xe0 | (c >> 12);
+                    bytes[n++] = 0x80 | ((c >> 6) & 63);
+                    bytes[n++] = 0x80 | (c & 63);
+                }
+                else {
+                    const next = i + 1 < input.length ? input.charCodeAt(i + 1) : 0;
+                    if (c < 0xdc00 && next >= 0xdc00 && next <= 0xdfff) {
+                        c = 0x10000 + ((c - 0xd800) << 10) + (next - 0xdc00);
+                        i++;
+                        bytes[n++] = 0xf0 | (c >> 18);
+                        bytes[n++] = 0x80 | ((c >> 12) & 63);
+                        bytes[n++] = 0x80 | ((c >> 6) & 63);
+                        bytes[n++] = 0x80 | (c & 63);
+                    }
+                    else {
+                        bytes[n++] = 0xef;
+                        bytes[n++] = 0xbf;
+                        bytes[n++] = 0xbd;
+                    }
+                }
+            }
+            return bytes.slice(0, n);
+        }
+    })();
+// Include a polyfill for environments that don't have TextEncoder (like AudioWorkletGlobalScope)
+export const TextDecoder = /* #__PURE__ */ (() => typeof globalThis.TextDecoder !== 'undefined'
+    ? globalThis.TextDecoder
+    : class TextDecoder {
+        constructor(label = 'utf-8') {
+            const normalized = label.trim().toLowerCase();
+            if (normalized === 'utf-8' || normalized === 'utf8' || normalized === 'unicode-1-1-utf-8') {
+                this.encoding = 'utf-8';
+            }
+            else if (normalized === 'utf-16le' || normalized === 'utf-16') {
+                this.encoding = 'utf-16le';
+            }
+            else if (normalized === 'utf-16be') {
+                this.encoding = 'utf-16be';
+            }
+            else {
+                throw new RangeError(`The encoding label provided ('${label}') is invalid.`);
+            }
+        }
+        decode(input) {
+            const bytes = input ? toUint8Array(input) : new Uint8Array(0);
+            const units = [];
+            if (this.encoding === 'utf-8') {
+                let i = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0;
+                while (i < bytes.length) {
+                    const lead = bytes[i];
+                    if (lead < 0x80) {
+                        units.push(lead);
+                        i++;
+                        continue;
+                    }
+                    let continuationCount;
+                    let codePoint;
+                    if (lead >= 0xc2 && lead < 0xe0) {
+                        continuationCount = 1;
+                        codePoint = lead & 0x1f;
+                    }
+                    else if (lead >= 0xe0 && lead < 0xf0) {
+                        continuationCount = 2;
+                        codePoint = lead & 0x0f;
+                    }
+                    else if (lead >= 0xf0 && lead < 0xf5) {
+                        continuationCount = 3;
+                        codePoint = lead & 0x07;
+                    }
+                    else {
+                        units.push(0xfffd);
+                        i++;
+                        continue;
+                    }
+                    let lowerBound = lead === 0xe0 ? 0xa0 : lead === 0xf0 ? 0x90 : 0x80;
+                    let upperBound = lead === 0xed ? 0x9f : lead === 0xf4 ? 0x8f : 0xbf;
+                    let j = 1;
+                    for (; j <= continuationCount; j++) {
+                        const byte = i + j < bytes.length ? bytes[i + j] : 0;
+                        if (byte < lowerBound || byte > upperBound) {
+                            break;
+                        }
+                        codePoint = (codePoint << 6) | (byte & 0x3f);
+                        lowerBound = 0x80;
+                        upperBound = 0xbf;
+                    }
+                    i += j;
+                    if (j <= continuationCount) {
+                        units.push(0xfffd);
+                    }
+                    else if (codePoint >= 0x10000) {
+                        codePoint -= 0x10000;
+                        units.push(0xd800 | (codePoint >> 10), 0xdc00 | (codePoint & 0x3ff));
+                    }
+                    else {
+                        units.push(codePoint);
+                    }
+                }
+            }
+            else {
+                const littleEndian = this.encoding === 'utf-16le';
+                const bomLow = littleEndian ? 0xff : 0xfe;
+                const bomHigh = littleEndian ? 0xfe : 0xff;
+                let i = bytes.length >= 2 && bytes[0] === bomLow && bytes[1] === bomHigh ? 2 : 0;
+                while (i + 1 < bytes.length) {
+                    const unit = littleEndian
+                        ? bytes[i] | (bytes[i + 1] << 8)
+                        : (bytes[i] << 8) | bytes[i + 1];
+                    i += 2;
+                    if (unit >= 0xd800 && unit <= 0xdbff) {
+                        const next = i + 1 < bytes.length
+                            ? (littleEndian ? bytes[i] | (bytes[i + 1] << 8) : (bytes[i] << 8) | bytes[i + 1])
+                            : -1;
+                        if (next >= 0xdc00 && next <= 0xdfff) {
+                            units.push(unit, next);
+                            i += 2;
+                        }
+                        else {
+                            units.push(0xfffd);
+                            if (i + 1 === bytes.length) {
+                                i++; // Native decoders count a dangling odd byte after this as part of the same error
+                            }
+                        }
+                    }
+                    else if (unit >= 0xdc00 && unit <= 0xdfff) {
+                        units.push(0xfffd);
+                    }
+                    else {
+                        units.push(unit);
+                    }
+                }
+                if (i < bytes.length) {
+                    units.push(0xfffd); // Dangling odd byte
+                }
+            }
+            let result = '';
+            for (let i = 0; i < units.length; i += 8192) {
+                result += String.fromCharCode(...units.slice(i, i + 8192));
+            }
+            return result;
+        }
+    })();
 export const textDecoder = /* #__PURE__ */ new TextDecoder();
+export const strictTextDecoder = /* #__PURE__ */ new TextDecoder('utf-8', { fatal: true });
 export const textEncoder = /* #__PURE__ */ new TextEncoder();
 export const isIso88591Compatible = (text) => {
     for (let i = 0; i < text.length; i++) {
@@ -121,7 +367,20 @@ export const colorSpaceIsComplete = (colorSpace) => {
         && !!colorSpace.primaries
         && !!colorSpace.transfer
         && !!colorSpace.matrix
-        && colorSpace.fullRange !== undefined);
+        && colorSpace.fullRange != null);
+};
+export const colorSpaceIsEmpty = (colorSpace) => {
+    return (!colorSpace
+        || (colorSpace.primaries == null
+            && colorSpace.transfer == null
+            && colorSpace.matrix == null
+            && colorSpace.fullRange == null));
+};
+export const EMPTY_COLOR_SPACE = {
+    primaries: undefined,
+    transfer: undefined,
+    matrix: undefined,
+    fullRange: undefined,
 };
 export const isAllowSharedBufferSource = (x) => {
     return (x instanceof ArrayBuffer
@@ -153,8 +412,17 @@ export class AsyncMutex {
         return resolver;
     }
 }
+export const HEX_STRING_REGEX = /^[0-9a-fA-F]+$/;
 export const bytesToHexString = (bytes) => {
     return [...bytes].map(x => x.toString(16).padStart(2, '0')).join('');
+};
+export const hexStringToBytes = (hexString) => {
+    assert(hexString.length % 2 === 0);
+    const bytes = new Uint8Array(hexString.length / 2);
+    for (let i = 0; i < hexString.length; i += 2) {
+        bytes[i / 2] = parseInt(hexString.slice(i, i + 2), 16);
+    }
+    return bytes;
 };
 export const reverseBitsU32 = (x) => {
     x = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1);
@@ -299,13 +567,14 @@ export const setInt24 = (view, byteOffset, value, littleEndian) => {
     setUint24(view, byteOffset, value, littleEndian);
 };
 export const setInt64 = (view, byteOffset, value, littleEndian) => {
+    value = Math.trunc(value);
     if (littleEndian) {
         view.setUint32(byteOffset + 0, value, true);
         view.setInt32(byteOffset + 4, Math.floor(value / 2 ** 32), true);
     }
     else {
-        view.setInt32(byteOffset + 0, Math.floor(value / 2 ** 32), true);
-        view.setUint32(byteOffset + 4, value, true);
+        view.setInt32(byteOffset + 0, Math.floor(value / 2 ** 32), false);
+        view.setUint32(byteOffset + 4, value, false);
     }
 };
 /**
@@ -319,8 +588,13 @@ export const mapAsyncGenerator = (generator, map) => {
             if (result.done) {
                 return { value: undefined, done: true };
             }
-            else {
+            try {
                 return { value: map(result.value), done: false };
+            }
+            catch (error) {
+                // The consumer won't call return() after next() rejected, so we end the source ourselves
+                await generator.return();
+                throw error;
             }
         },
         return() {
@@ -337,6 +611,12 @@ export const mapAsyncGenerator = (generator, map) => {
 export const clamp = (value, min, max) => {
     return Math.max(min, Math.min(max, value));
 };
+export const lerp = (from, to, t) => {
+    return from + (to - from) * t;
+};
+export const modEuclid = (value, modulus) => {
+    return value - Math.floor(value / modulus) * modulus;
+};
 export const UNDETERMINED_LANGUAGE = 'und';
 export const roundIfAlmostInteger = (value) => {
     const rounded = Math.round(value);
@@ -350,8 +630,14 @@ export const roundIfAlmostInteger = (value) => {
 export const roundToMultiple = (value, multiple) => {
     return Math.round(value / multiple) * multiple;
 };
+export const roundToDivisor = (value, multiple) => {
+    return Math.round(value * multiple) / multiple;
+};
 export const floorToMultiple = (value, multiple) => {
     return Math.floor(value / multiple) * multiple;
+};
+export const floorToDivisor = (value, multiple) => {
+    return Math.floor(value * multiple) / multiple;
 };
 export const ilog = (x) => {
     let ret = 0;
@@ -360,6 +646,14 @@ export const ilog = (x) => {
         x >>= 1;
     }
     return ret;
+};
+export const popcount = (value) => {
+    let count = 0;
+    while (value !== 0) {
+        value &= value - 1;
+        count++;
+    }
+    return count;
 };
 const ISO_639_2_REGEX = /^[a-z]{3}$/;
 export const isIso639Dash2LanguageCode = (x) => {
@@ -392,7 +686,7 @@ export const mergeRequestInit = (init1, init2) => {
     return merged;
 };
 /** Normalizes HeadersInit to a Record<string, string> format. */
-const normalizeHeaders = (headers) => {
+export const normalizeHeaders = (headers) => {
     if (headers instanceof Headers) {
         const result = {};
         headers.forEach((value, key) => {
@@ -424,12 +718,12 @@ export const retriedFetch = async (fetchFn, url, requestInit, getRetryDelay, sho
             if (retryDelayInSeconds === null) {
                 throw error;
             }
-            console.error('Retrying failed fetch. Error:', error);
+            Logging._error('Retrying failed fetch. Error:', error);
             if (!Number.isFinite(retryDelayInSeconds) || retryDelayInSeconds < 0) {
                 throw new TypeError('Retry delay must be a non-negative finite number.');
             }
             if (retryDelayInSeconds > 0) {
-                await new Promise(resolve => setTimeout(resolve, 1000 * retryDelayInSeconds));
+                await wait(1000 * retryDelayInSeconds);
             }
             if (shouldStop()) {
                 throw error;
@@ -452,8 +746,8 @@ export const computeRationalApproximation = (x, maxDenominator) => {
         const nextDenominator = integer * currDenominator + prevDenominator;
         if (nextDenominator > maxDenominator) {
             return {
-                numerator: sign * currNumerator,
-                denominator: currDenominator,
+                num: sign * currNumerator,
+                den: currDenominator,
             };
         }
         prevNumerator = currNumerator;
@@ -467,8 +761,8 @@ export const computeRationalApproximation = (x, maxDenominator) => {
         }
     }
     return {
-        numerator: sign * currNumerator,
-        denominator: currDenominator,
+        num: sign * currNumerator,
+        den: currDenominator,
     };
 };
 export class CallSerializer {
@@ -476,7 +770,9 @@ export class CallSerializer {
         this.currentPromise = Promise.resolve();
     }
     call(fn) {
-        return this.currentPromise = this.currentPromise.then(fn);
+        const result = this.currentPromise.then(fn);
+        this.currentPromise = result.catch(() => { });
+        return result;
     }
 }
 let isWebKitCache = null;
@@ -486,7 +782,9 @@ export const isWebKit = () => {
     }
     // This even returns true for WebKit-wrapping browsers such as Chrome on iOS
     return isWebKitCache = !!(typeof navigator !== 'undefined'
-        && (navigator.vendor?.match(/apple/i)
+        && (
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        navigator.vendor?.match(/apple/i)
             // Or, in workers:
             || (/AppleWebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent))
             || /\b(iPad|iPhone|iPod)\b/.test(navigator.userAgent)));
@@ -504,6 +802,7 @@ export const isChromium = () => {
         return isChromiumCache;
     }
     return isChromiumCache = !!(typeof navigator !== 'undefined'
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         && (navigator.vendor?.includes('Google Inc') || /Chrome/.test(navigator.userAgent)));
 };
 let chromiumVersionCache = null;
@@ -519,6 +818,38 @@ export const getChromiumVersion = () => {
         return null;
     }
     return chromiumVersionCache = Number(match[1]);
+};
+let isAndroidCache = null;
+export const isAndroid = () => {
+    if (isAndroidCache !== null) {
+        return isAndroidCache;
+    }
+    return isAndroidCache = typeof navigator !== 'undefined' && /Android/.test(navigator.userAgent);
+};
+export const missingWebCodecsClassMessage = (className) => {
+    if (typeof globalThis.isSecureContext !== 'undefined' && !globalThis.isSecureContext) {
+        // WebCodecs is not exposed in insecure contexts
+        return `${className} is not available in this environment; this may be because this page is running in an`
+            + ` insecure context. Try serving your page over HTTPS or use localhost.`;
+    }
+    return `${className} is not available in this environment.`;
+};
+// Browsers (at least Chromium) close codecs that have been idle for a long time and report this error
+export const isCodecReclaimedError = (error) => {
+    return error instanceof DOMException
+        && error.name === 'QuotaExceededError'
+        && /reclaimed/i.test(error.message);
+};
+const NativePromiseConstructor = /* #__PURE__ */ (() => (async () => { })().constructor)();
+/**
+ * Needed to properly deal with custom Promise implementations and because this is closer to how the JS spec does it.
+ */
+export const isThenable = (value) => {
+    if (value instanceof NativePromiseConstructor || value instanceof Promise) {
+        return true;
+    }
+    // Fall back to a crude duck typing check
+    return typeof value?.then === 'function';
 };
 /** Acts like `??` except the condition is -1 and not null/undefined. */
 export const coalesceIndex = (a, b) => {
@@ -563,7 +894,13 @@ export const imageMimeTypeToExtension = (mimeType) => {
     }
 };
 export const base64ToBytes = (base64) => {
-    const decoded = atob(base64);
+    let decoded;
+    try {
+        decoded = atob(base64);
+    }
+    catch {
+        throw new Error('Invalid base64 string.');
+    }
     const bytes = new Uint8Array(decoded.length);
     for (let i = 0; i < decoded.length; i++) {
         bytes[i] = decoded.charCodeAt(i);
@@ -596,7 +933,137 @@ export const polyfillSymbolDispose = () => {
 export const isNumber = (x) => {
     return typeof x === 'number' && !Number.isNaN(x);
 };
+export const joinPaths = (basePath, relativePath) => {
+    // A path that starts with a scheme followed by "//" is absolute already, as are data: and blob: URIs
+    if (/^(?:[a-z][a-z0-9+.-]*:\/\/|(?:data|blob):)/i.test(relativePath)) {
+        return relativePath;
+    }
+    // Strip the query and fragment from URL base paths so their contents don't mess up the join
+    if (basePath.includes('://')) {
+        const queryIndex = basePath.search(/[?#]/);
+        if (queryIndex !== -1) {
+            basePath = basePath.slice(0, queryIndex);
+        }
+    }
+    // Dot segments only mean something in the path, so the query and fragment stay out of the join and normalization
+    const suffixIndex = relativePath.search(/[?#]/);
+    const suffix = suffixIndex === -1 ? '' : relativePath.slice(suffixIndex);
+    if (suffixIndex !== -1) {
+        relativePath = relativePath.slice(0, suffixIndex);
+    }
+    let result;
+    if (relativePath === '') {
+        // Just a query or fragment, which goes onto the base path itself
+        result = basePath;
+    }
+    else if (relativePath.startsWith('/')) {
+        const protocolIndex = basePath.indexOf('://');
+        if (protocolIndex === -1) {
+            result = relativePath;
+        }
+        else if (relativePath.startsWith('//')) {
+            // Protocol-relative URL
+            result = basePath.slice(0, protocolIndex + 1) + relativePath;
+        }
+        else {
+            const pathStart = basePath.indexOf('/', protocolIndex + 3);
+            if (pathStart === -1) {
+                result = basePath + relativePath;
+            }
+            else {
+                result = basePath.slice(0, pathStart) + relativePath;
+            }
+        }
+    }
+    else {
+        const protocolIndex = basePath.indexOf('://');
+        const lastSlash = basePath.lastIndexOf('/');
+        if (protocolIndex !== -1 && lastSlash === protocolIndex + 2) {
+            // The base URL has no path
+            result = basePath + '/' + relativePath;
+        }
+        else if (lastSlash === -1) {
+            result = relativePath;
+        }
+        else {
+            result = basePath.slice(0, lastSlash + 1) + relativePath;
+        }
+    }
+    // Normalize ./ and ../
+    let prefix = '';
+    const protocolIndex = result.indexOf('://');
+    if (protocolIndex !== -1) {
+        const pathStart = result.indexOf('/', protocolIndex + 3);
+        if (pathStart !== -1) {
+            prefix = result.slice(0, pathStart);
+            result = result.slice(pathStart);
+        }
+    }
+    const segments = result.split('/');
+    const normalized = [];
+    for (const segment of segments) {
+        if (segment === '..') {
+            if (normalized.length === 0 || normalized[normalized.length - 1] === '..') {
+                normalized.push('..');
+            }
+            else if (normalized.length !== 1 || normalized[0] !== '') {
+                // Like browsers, never go above the root
+                normalized.pop();
+            }
+        }
+        else if (segment !== '.') {
+            normalized.push(segment);
+        }
+    }
+    return prefix + normalized.join('/') + suffix;
+};
+// eg. path `/media.m3u8?token=abc%20123` and name `token` resolve to `abc 123`
+export const getQueryParameter = (path, name) => {
+    // Everything after a # is the fragment, even a ?
+    const fragmentIndex = path.indexOf('#');
+    const pathWithoutFragment = fragmentIndex === -1 ? path : path.slice(0, fragmentIndex);
+    const queryIndex = pathWithoutFragment.indexOf('?');
+    if (queryIndex === -1) {
+        return null;
+    }
+    return new URLSearchParams(pathWithoutFragment.slice(queryIndex + 1)).get(name);
+};
+export const arrayCount = (array, predicate) => {
+    let count = 0;
+    for (let i = 0; i < array.length; i++) {
+        if (predicate(array[i])) {
+            count++;
+        }
+    }
+    return count;
+};
+export const arrayArgmin = (array, getValue) => {
+    let minIndex = -1;
+    let minValue = Infinity;
+    for (let i = 0; i < array.length; i++) {
+        const value = getValue(array[i]);
+        if (minIndex === -1 || value < minValue) {
+            minValue = value;
+            minIndex = i;
+        }
+    }
+    return minIndex;
+};
+export const arrayArgmax = (array, getValue) => {
+    let maxIndex = -1;
+    let maxValue = -Infinity;
+    for (let i = 0; i < array.length; i++) {
+        const value = getValue(array[i]);
+        if (maxIndex === -1 || value > maxValue) {
+            maxValue = value;
+            maxIndex = i;
+        }
+    }
+    return maxIndex;
+};
 export const simplifyRational = (rational) => {
+    assert(Number.isInteger(rational.num));
+    assert(Number.isInteger(rational.den));
     assert(rational.den !== 0);
     let a = Math.abs(rational.num);
     let b = Math.abs(rational.den);
@@ -764,4 +1231,151 @@ export const clearIntervalUnthrottled = (timer) => {
         type: 'clear-interval',
         timerId: timer.id,
     });
+};
+export const wait = (ms) => {
+    return new Promise(resolve => setTimeout(resolve, ms));
+};
+export const rejectAfter = (ms, message = 'Promise rejected') => {
+    return new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(message)), ms);
+    });
+};
+export const toArray = (x) => {
+    if (Array.isArray(x)) {
+        return x;
+    }
+    else {
+        return [x];
+    }
+};
+/**
+ * A class that manages event listeners and dispatches events to them.
+ *
+ * @group Miscellaneous
+ * @public
+ */
+export class EventEmitter {
+    constructor() {
+        /** @internal */
+        this._listeners = new Map();
+    }
+    /** Registers a listener for the given event. Returns a function that, when called, removes the listener again. */
+    on(event, listener, options) {
+        if (!this._listeners.has(event)) {
+            this._listeners.set(event, new Set());
+        }
+        const entry = { fn: listener, once: options?.once ?? false };
+        this._listeners.get(event).add(entry);
+        return () => {
+            this._listeners.get(event)?.delete(entry);
+        };
+    }
+    /** @internal */
+    _emit(...args) {
+        const [event, data] = args;
+        const listeners = this._listeners.get(event);
+        if (!listeners) {
+            return;
+        }
+        // Iterate over a snapshot so that listeners added during this emit only receive the next one
+        for (const entry of [...listeners]) {
+            if (!listeners.has(entry)) {
+                continue;
+            }
+            // Remove before calling
+            if (entry.once) {
+                listeners.delete(entry);
+            }
+            try {
+                entry.fn(data);
+            }
+            catch (error) {
+                // Deliberately not routed through Logging here: Logging emits via an EventEmitter, so a throwing
+                // log listener would recurse straight back into this handler.
+                console.error(error);
+            }
+        }
+    }
+}
+export const ceilToMultipleOfTwo = (value) => Math.ceil(value / 2) * 2;
+/**
+ * Utility class for running async functions in parallel up to a certain level of parallelism. Can be used to apply
+ * backpressure only if the concurrency level would be exceeded.
+ *
+ * @group Miscellaneous
+ * @public
+*/
+export class ConcurrentRunner {
+    constructor(parallelism) {
+        /** @internal */
+        this._queue = [];
+        /** @internal */
+        this._errored = false;
+        this.parallelism = parallelism;
+    }
+    /** Whether any function has errored. The runner is effectively bricked if this is `true`, by design. */
+    get errored() {
+        return this._errored;
+    }
+    /** The number of tasks currently running. */
+    get inFlightCount() {
+        return this._queue.length;
+    }
+    /**
+     * Schedules an async function to be run. If the maximum allowed level of parallelism has not yet been reached,
+     * the function will be executed immediately and `run()` will resolve immediately. Otherwise, the function will be
+     * called as soon as any currently-running function finishes, and `run()` will only resolve then.
+     *
+     * Throws if the runner is errored.
+     */
+    async run(fn) {
+        if (this._errored) {
+            await Promise.race(this._queue); // Will surface the error
+        }
+        while (this._queue.length >= this.parallelism) {
+            await Promise.race(this._queue);
+        }
+        const promise = fn();
+        this._queue.push(promise);
+        void promise
+            .then(() => removeItem(this._queue, promise))
+            .catch(() => this._errored = true);
+    }
+    /** Waits for all currently running functions to finish. Throws if the runner is errored. */
+    async flush() {
+        await Promise.all(this._queue);
+    }
+}
+export const isRecordStringString = (value) => {
+    return value !== null
+        && typeof value === 'object'
+        && Object.getPrototypeOf(value) === Object.prototype
+        && Object.values(value).every(x => typeof x === 'string');
+};
+export const createUtcDate = (year, monthIndex = 0, day = 1) => {
+    const date = new Date(0);
+    date.setUTCFullYear(year, monthIndex, day);
+    return date;
+};
+// Anything from yyyy up to yyyy-MM-ddTHH:mm:ss.sss with a time zone
+// eslint-disable-next-line @stylistic/max-len
+const ISO_SUFFIX_REGEX = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[T ](\d{2})(?::(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?)?)?)?(?:Z|([+-])(\d{2})(?::?(\d{2}))?)?$/;
+export const parseIsoSuffix = (text) => {
+    const match = ISO_SUFFIX_REGEX.exec(text);
+    if (!match) {
+        return null;
+    }
+    const [, year, month = '01', day = '01', hours = '00', minutes = '00', seconds = '00', fraction = '', offsetSign = '+', offsetHours = '00', offsetMinutes = '00',] = match;
+    const isoString = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+    const date = new Date(`${isoString}.${fraction.padEnd(3, '0').slice(0, 3)}Z`);
+    // Out-of-range fields like a February 31 would otherwise roll over
+    if (Number.isNaN(date.getTime())
+        || !date.toISOString().startsWith(isoString)
+        || Number(offsetHours) > 23
+        || Number(offsetMinutes) > 59) {
+        return null;
+    }
+    const offsetInMinutes = (offsetSign === '-' ? -1 : 1) * (60 * Number(offsetHours) + Number(offsetMinutes));
+    date.setTime(date.getTime() - 60_000 * offsetInMinutes);
+    return date;
 };

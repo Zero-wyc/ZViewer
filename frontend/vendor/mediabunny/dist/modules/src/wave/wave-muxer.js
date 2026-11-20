@@ -12,6 +12,7 @@ import { RiffWriter } from './riff-writer.js';
 import { assert, assertNever, isIso88591Compatible, keyValueIterator } from '../misc.js';
 import { metadataTagsAreEmpty } from '../metadata.js';
 import { Id3V2Writer } from '../id3.js';
+import { Logging } from '../logging.js';
 export class WaveMuxer extends Muxer {
     constructor(output, format) {
         super(output);
@@ -21,16 +22,33 @@ export class WaveMuxer extends Muxer {
         this.sampleCount = 0;
         this.riffSizePos = null;
         this.dataSizePos = null;
+        this.factSampleCountPos = null;
         this.ds64RiffSizePos = null;
         this.ds64DataSizePos = null;
         this.ds64SampleCountPos = null;
         this.format = format;
-        this.writer = output._writer;
-        this.riffWriter = new RiffWriter(output._writer);
         this.isRf64 = !!format._options.large;
+        this.appendOnly = !!format._options.appendOnly;
     }
     async start() {
-        // Nothing needed here - we'll write the header with the first sample
+        const release = await this.mutex.acquire();
+        try {
+            this.writer = await this.output._getRootWriter(this.appendOnly);
+            this.riffWriter = new RiffWriter(this.writer);
+            // If the track already tells us everything we need, we can write the header right now. Otherwise, we'll
+            // write it with the first sample.
+            const track = this.output.tracks[0];
+            assert(track?.isAudioTrack());
+            if (track.metadata.decoderConfig) {
+                validateAudioChunkMetadata({ decoderConfig: track.metadata.decoderConfig }, track.source._codec);
+                this.writeHeader(track, track.metadata.decoderConfig);
+                this.sampleRate = track.metadata.decoderConfig.sampleRate;
+                this.headerWritten = true;
+            }
+        }
+        finally {
+            release();
+        }
     }
     async getMimeType() {
         return 'audio/wav';
@@ -42,14 +60,14 @@ export class WaveMuxer extends Muxer {
         const release = await this.mutex.acquire();
         try {
             if (!this.headerWritten) {
-                validateAudioChunkMetadata(meta);
+                validateAudioChunkMetadata(meta, track.source._codec);
                 assert(meta);
                 assert(meta.decoderConfig);
                 this.writeHeader(track, meta.decoderConfig);
                 this.sampleRate = meta.decoderConfig.sampleRate;
                 this.headerWritten = true;
             }
-            this.validateAndNormalizeTimestamp(track, packet.timestamp, packet.type === 'key');
+            this.validateTimestamp(track, packet.timestamp, packet.type === 'key');
             if (!this.isRf64 && this.writer.getPos() + packet.data.byteLength >= 2 ** 32) {
                 throw new Error('Adding more audio data would exceed the maximum RIFF size of 4 GiB. To write larger files, use'
                     + ' RF64 by setting `large: true` in the WavOutputFormatOptions.');
@@ -87,7 +105,23 @@ export class WaveMuxer extends Muxer {
         }
         const channels = config.numberOfChannels;
         const sampleRate = config.sampleRate;
+        const bitsPerSample = 8 * pcmInfo.sampleSize;
         const blockSize = pcmInfo.sampleSize * channels;
+        // The extensible format is what's expected beyond 16-bit stereo. Float's format tag already tells its bit
+        // depth, so it only needs it for its channels.
+        const isExtensible = channels > 2 || (format === WaveFormat.PCM && bitsPerSample > 16);
+        // With append-only, the sizes never get filled in, so they're set to the largest values they can be. In ds64,
+        // that's the largest signed value, since FFmpeg reads the sizes as signed (lost btw)
+        const sizePlaceholder = this.appendOnly ? 0xffffffff : 0;
+        const writeDs64SizePlaceholder = () => {
+            if (this.appendOnly) {
+                this.riffWriter.writeU32(0xffffffff);
+                this.riffWriter.writeU32(0x7fffffff);
+            }
+            else {
+                this.riffWriter.writeU64(0);
+            }
+        };
         // RIFF header
         this.riffWriter.writeAscii(this.isRf64 ? 'RF64' : 'RIFF');
         if (this.isRf64) {
@@ -95,16 +129,16 @@ export class WaveMuxer extends Muxer {
         }
         else {
             this.riffSizePos = this.writer.getPos();
-            this.riffWriter.writeU32(0); // File size placeholder
+            this.riffWriter.writeU32(sizePlaceholder); // File size placeholder
         }
         this.riffWriter.writeAscii('WAVE');
         if (this.isRf64) {
             this.riffWriter.writeAscii('ds64');
             this.riffWriter.writeU32(28); // Chunk size
             this.ds64RiffSizePos = this.writer.getPos();
-            this.riffWriter.writeU64(0); // RIFF size placeholder
+            writeDs64SizePlaceholder(); // RIFF size placeholder
             this.ds64DataSizePos = this.writer.getPos();
-            this.riffWriter.writeU64(0); // Data size placeholder
+            writeDs64SizePlaceholder(); // Data size placeholder
             this.ds64SampleCountPos = this.writer.getPos();
             this.riffWriter.writeU64(0); // Sample count placeholder
             this.riffWriter.writeU32(0); // Table length
@@ -112,13 +146,42 @@ export class WaveMuxer extends Muxer {
         }
         // fmt chunk
         this.riffWriter.writeAscii('fmt ');
-        this.riffWriter.writeU32(16); // Chunk size
-        this.riffWriter.writeU16(format);
+        this.riffWriter.writeU32(isExtensible ? 40 : 16); // Chunk size
+        this.riffWriter.writeU16(isExtensible ? WaveFormat.EXTENSIBLE : format);
         this.riffWriter.writeU16(channels);
         this.riffWriter.writeU32(sampleRate);
         this.riffWriter.writeU32(sampleRate * blockSize); // Bytes per second
         this.riffWriter.writeU16(blockSize);
-        this.riffWriter.writeU16(8 * pcmInfo.sampleSize);
+        this.riffWriter.writeU16(bitsPerSample);
+        if (isExtensible) {
+            // The usual speaker layouts for each channel count
+            const DEFAULT_CHANNEL_MASKS = {
+                1: 0x4, // Mono
+                2: 0x3, // Stereo
+                3: 0x7, // 3.0
+                4: 0x33, // Quad
+                5: 0x37, // 5.0(back)
+                6: 0x3f, // 5.1(back)
+                7: 0x70f, // 6.1
+                8: 0x63f, // 7.1
+            };
+            const SUBFORMAT_GUID_SUFFIX = new Uint8Array([
+                0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71,
+            ]);
+            this.riffWriter.writeU16(22); // Extension size
+            this.riffWriter.writeU16(bitsPerSample); // Valid bits per sample
+            this.riffWriter.writeU32(DEFAULT_CHANNEL_MASKS[channels] ?? 0);
+            // The subformat GUID is the format tag followed by a fixed suffix
+            this.riffWriter.writeU32(format);
+            this.writer.write(SUBFORMAT_GUID_SUFFIX);
+        }
+        // Formats other than integer PCM want their sample count stated
+        if (format !== WaveFormat.PCM && !this.appendOnly) {
+            this.riffWriter.writeAscii('fact');
+            this.riffWriter.writeU32(4); // Chunk size
+            this.factSampleCountPos = this.writer.getPos();
+            this.riffWriter.writeU32(0); // Sample count placeholder
+        }
         // Metadata tags
         if (!metadataTagsAreEmpty(this.output._metadataTags)) {
             const metadataFormat = this.format._options.metadataFormat ?? 'info';
@@ -139,7 +202,7 @@ export class WaveMuxer extends Muxer {
         }
         else {
             this.dataSizePos = this.writer.getPos();
-            this.riffWriter.writeU32(0); // Data size placeholder
+            this.riffWriter.writeU32(sizePlaceholder); // Data size placeholder
         }
         if (this.format._options.onHeader) {
             const { data, start } = this.writer.stopTrackingWrites();
@@ -155,7 +218,7 @@ export class WaveMuxer extends Muxer {
         const writeInfoTag = (tag, value) => {
             if (!isIso88591Compatible(value)) {
                 // No Unicode supported here
-                console.warn(`Didn't write tag '${tag}' because '${value}' is not ISO 8859-1-compatible.`);
+                Logging._warn(`Didn't write tag '${tag}' because '${value}' is not ISO 8859-1-compatible.`);
                 return;
             }
             const size = value.length + 1; // +1 for null terminator
@@ -230,9 +293,11 @@ export class WaveMuxer extends Muxer {
                 case 'discNumber':
                 case 'tracksTotal':
                 case 'discsTotal':
+                case 'beatsPerMinute':
                 case 'description':
                 case 'lyrics':
                 case 'images':
+                case 'creationTime':
                     {
                         // Not supported in RIFF INFO
                     }
@@ -287,8 +352,24 @@ export class WaveMuxer extends Muxer {
     }
     async finalize() {
         const release = await this.mutex.acquire();
+        if (!this.headerWritten) {
+            throw new Error('Cannot finalize an empty WAVE file: no packets were added and the track specified no decoderConfig in'
+                + ' its metadata, so there\'s no telling what the file should look like.');
+        }
+        // Add padding byte if data chunk size is odd
+        if (this.dataSize & 1 && !this.appendOnly) {
+            this.writer.write(new Uint8Array(1));
+        }
         const endPos = this.writer.getPos();
-        if (this.isRf64) {
+        if (this.factSampleCountPos !== null) {
+            // RF64 keeps counts that don't fit here in ds64
+            this.writer.seek(this.factSampleCountPos);
+            this.riffWriter.writeU32(Math.min(this.sampleCount, 0xffffffff));
+        }
+        if (this.appendOnly) {
+            // We can't go back to fill in the sizes
+        }
+        else if (this.isRf64) {
             // Write riff size
             assert(this.ds64RiffSizePos !== null);
             this.writer.seek(this.ds64RiffSizePos);
@@ -312,7 +393,6 @@ export class WaveMuxer extends Muxer {
             this.writer.seek(this.dataSizePos);
             this.riffWriter.writeU32(this.dataSize);
         }
-        this.writer.seek(endPos);
         release();
     }
 }

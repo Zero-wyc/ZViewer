@@ -5,14 +5,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { AudioCodec, SubtitleCodec, VideoCodec } from './codec.js';
+import { AudioCodec, VideoCodec } from './codec.js';
 import { Quality } from './encode.js';
 import { Input } from './input.js';
-import { InputAudioTrack, InputSubtitleTrack, InputTrack, InputVideoTrack } from './input-track.js';
-import { SubtitleSource } from './media-source.js';
+import { InputAudioTrack, InputTrack, InputVideoTrack } from './input-track.js';
 import { MaybePromise, Rotation } from './misc.js';
-import { Output, SubtitleTrackMetadata } from './output.js';
-import { AudioSample, VideoSample } from './sample.js';
+import { Output, OutputTrackGroup } from './output.js';
+import { AudioSample, CropRectangle, VideoSample, VideoSampleResource } from './sample.js';
 import { MetadataTags } from './metadata.js';
 /**
  * The options for media file conversion.
@@ -25,33 +24,43 @@ export type ConversionOptions = {
     /** The output file. */
     output: Output;
     /**
+     * Defines which input tracks are used for conversion. Defaults to `'all'` unless the input is an HLS input, in
+     * which case it defaults to `'primary'`.
+     *
+     * - `'all'`: All input tracks are eligible for conversion.
+     * - `'primary'`: Only the primary video and audio track from the input are eligible for conversion.
+     */
+    tracks?: 'all' | 'primary';
+    /**
      * Video-specific options. When passing an object, the same options are applied to all video tracks. When passing a
      * function, it will be invoked for each video track and is expected to return or resolve to the options
      * for that specific track. The function is passed an instance of {@link InputVideoTrack} as well as a number `n`,
      * which is the 1-based index of the track in the list of all video tracks. Using `n` is deprecated, prefer the
      * identical `track.number` instead.
+     *
+     * When passing an array of a function that returns an array, one output track per array element will be created,
+     * allowing for "fan-out". Useful for creating multiple variants from a single track, for example with different
+     * resolutions.
      */
-    video?: ConversionVideoOptions | ((track: InputVideoTrack, n: number) => MaybePromise<ConversionVideoOptions | undefined>);
+    video?: ConversionVideoOptions | ConversionVideoOptions[] | ((track: InputVideoTrack, n: number) => MaybePromise<ConversionVideoOptions | ConversionVideoOptions[] | undefined>);
     /**
      * Audio-specific options. When passing an object, the same options are applied to all audio tracks. When passing a
      * function, it will be invoked for each audio track and is expected to return or resolve to the options
      * for that specific track. The function is passed an instance of {@link InputAudioTrack} as well as a number `n`,
      * which is the 1-based index of the track in the list of all audio tracks. Using `n` is deprecated, prefer the
      * identical `track.number` instead.
+     *
+     * When passing an array of a function that returns an array, one output track per array element will be created,
+     * allowing for "fan-out". Useful for creating multiple variants from a single track, for example with different
+     * bitrates.
      */
-    audio?: ConversionAudioOptions | ((track: InputAudioTrack, n: number) => MaybePromise<ConversionAudioOptions | undefined>);
-    /**
-     * Subtitle-specific options. When passing an object, the same options are applied to all subtitle tracks. When passing a
-     * function, it will be invoked for each subtitle track and is expected to return or resolve to the options
-     * for that specific track. The function is passed an instance of {@link InputSubtitleTrack} as well as a number `n`,
-     * which is the 1-based index of the track in the list of all subtitle tracks.
-     */
-    subtitle?: ConversionSubtitleOptions | ((track: InputSubtitleTrack, n: number) => MaybePromise<ConversionSubtitleOptions | undefined>);
+    audio?: ConversionAudioOptions | ConversionAudioOptions[] | ((track: InputAudioTrack, n: number) => MaybePromise<ConversionAudioOptions | ConversionAudioOptions[] | undefined>);
     /** Options to trim the input file. */
     trim?: {
         /**
          * The time in the input file in seconds at which the output file should start. Must be less than `end`.
-         * When omitted, defaults to the start timestamp of the input or to 0, whichever is higher.
+         * When omitted, defaults to the earliest start timestamp of the non-discarded tracks, or to 0, whichever
+         * is higher.
          */
         start?: number;
         /**
@@ -61,11 +70,17 @@ export type ConversionOptions = {
         end?: number;
     };
     /**
+     * Options for controlling when media is copied directly without transcoding it. Set to `false` to always transcode.
+     * Defaults to `{}`, which will copy media whenever possible and otherwise transcode it while retaining precise
+     * timestamps.
+     */
+    copy?: ConversionCopyOptions | false;
+    /**
      * An object or a callback that returns or resolves to an object containing the descriptive metadata tags that
      * should be written to the output file. If a function is passed, it will be passed the tags of the input file as
      * its first argument, allowing you to modify, augment or extend them.
      *
-     * If no function is set, the input's metadata tags will be copied to the output.
+     * If no function is set, the input's metadata tags will be copied to the output (excluding `creationTime`).
      */
     tags?: MetadataTags | ((inputTags: MetadataTags) => MaybePromise<MetadataTags>);
     /**
@@ -74,6 +89,17 @@ export type ConversionOptions = {
      * want to keep the console output clean.
      */
     showWarnings?: boolean;
+    /**
+     * Whether this conversion is composable, defaults to `false`. A non-composable conversion takes full ownership of
+     * the output: it requires a fresh output and controls its entire lifecycle, meaning it starts it, writes its
+     * metadata tags, and finalizes it.
+     *
+     * A composable conversion only adds tracks to the output and drives their media data; starting and finalizing
+     * the output is an outside responsibility. This is useful when only some output tracks should be driven by a
+     * conversion, and other are to be driven manually. Additionally, it can be used to have multiple conversions target
+     * the same output.
+     */
+    composable?: boolean;
 };
 /**
  * Video-specific options.
@@ -103,30 +129,34 @@ export type ConversionVideoOptions = {
      */
     fit?: 'fill' | 'contain' | 'cover';
     /**
-     * The angle in degrees to rotate the input video by, clockwise. Rotation is applied before cropping and resizing.
-     * This rotation is _in addition to_ the natural rotation of the input video as specified in input file's metadata.
+     * The angle in degrees to rotate the input video by, clockwise. Rotation is applied before flipping, cropping and
+     * resizing. This rotation is _in addition to_ the natural rotation of the input video as specified in input file's
+     * metadata.
      */
     rotate?: Rotation;
     /**
-     * Defaults to `true`. When enabaled, Mediabunny will use the rotation metadata in the output file to perform video
-     * rotation whenever possible. Set this field to `false` if you want to ensure the output file does not make use of
-     * rotation metadata and that any rotation is baked into the video frames directly.
+     * Whether to flip the input video horizontally (about the vertical axis). The flip is applied after rotation but
+     * before cropping and resizing. This flip is _in addition to_ the natural flip of the input video as specified in
+     * the input file's metadata.
+     */
+    flip?: boolean;
+    /**
+     * Defaults to `true`. When enabled, Mediabunny will use the rotation and flip metadata in the output file to
+     * perform video rotation and flipping whenever possible. Set this field to `false` if you want to ensure the output
+     * file does not make use of such metadata and that any rotation and flip is baked into the video frames directly.
+     */
+    allowTransformationMetadata?: boolean;
+    /**
+     * Defaults to `true`. When enabled, Mediabunny will use the rotation metadata in the output file to perform video
+     * rotation whenever possible.
+     * @deprecated Use {@link ConversionVideoOptions.allowTransformationMetadata} instead.
      */
     allowRotationMetadata?: boolean;
     /**
      * Specifies the rectangular region of the input video to crop to. The crop region will automatically be clamped to
-     * the dimensions of the input video track. Cropping is performed after rotation but before resizing.
+     * the dimensions of the input video track. Cropping is performed after rotation and flip but before resizing.
      */
-    crop?: {
-        /** The distance in pixels from the left edge of the source frame to the left edge of the crop rectangle. */
-        left: number;
-        /** The distance in pixels from the top edge of the source frame to the top edge of the crop rectangle. */
-        top: number;
-        /** The width in pixels of the crop rectangle. */
-        width: number;
-        /** The height in pixels of the crop rectangle. */
-        height: number;
-    };
+    crop?: CropRectangle;
     /**
      * The desired frame rate of the output video, in hertz. If not specified, the original input frame rate will
      * be used (which may be variable).
@@ -134,7 +164,12 @@ export type ConversionVideoOptions = {
     frameRate?: number;
     /** The desired output video codec. */
     codec?: VideoCodec;
-    /** The desired bitrate of the output video. */
+    /** The desired quality of the output video. */
+    quality?: Quality;
+    /**
+     * The desired bitrate of the output video.
+     * @deprecated Use `quality` instead.
+     */
     bitrate?: number | Quality;
     /**
      * Whether to discard or keep the transparency information of the input video. The default is `'discard'`. Note that
@@ -151,26 +186,26 @@ export type ConversionVideoOptions = {
      */
     keyFrameInterval?: number;
     /**
-     * A hint that configures the hardware acceleration method used when transcoding. This is best left on
-     * `'no-preference'`, the default.
+     * A hint that configures the hardware acceleration method used when transcoding, which applies to both decoding and
+     * encoding. This is best left on `'no-preference'`, the default.
      */
     hardwareAcceleration?: 'no-preference' | 'prefer-hardware' | 'prefer-software';
-    /** When `true`, video will always be re-encoded instead of directly copying over the encoded samples. */
+    /** When `true`, video will always be re-encoded instead of directly copying over the encoded packets. */
     forceTranscode?: boolean;
     /**
      * Allows for custom user-defined processing of video frames, e.g. for applying overlays, color transformations, or
      * timestamp modifications. Will be called for each input video sample after transformations and frame rate
      * corrections.
      *
-     * Must return a {@link VideoSample} or a `CanvasImageSource`, an array of them, or `null` for dropping the frame.
-     * When non-timestamped data is returned, the timestamp and duration from the source sample will be used. Rotation
-     * metadata of the returned sample will be ignored.
+     * Must return a {@link VideoSample}, a {@link VideoSampleResource} or a `CanvasImageSource`, an array of them, or
+     * `null` for dropping the frame. When non-timestamped data is returned, the timestamp and duration from the source
+     * sample will be used. Rotation and flip metadata of the returned sample will be ignored.
      *
      * This function can also be used to manually resize frames. When doing so, you should signal the post-process
      * dimensions using the `processedWidth` and `processedHeight` fields, which enables the encoder to better know what
      * to expect. If these fields aren't set, Mediabunny will assume you won't perform any resizing.
      */
-    process?: (sample: VideoSample) => MaybePromise<CanvasImageSource | VideoSample | (CanvasImageSource | VideoSample)[] | null>;
+    process?: (sample: VideoSample) => MaybePromise<CanvasImageSource | VideoSample | VideoSampleResource | (CanvasImageSource | VideoSample | VideoSampleResource)[] | null>;
     /**
      * An optional hint specifying the width of video samples returned by the `process` function, for better
      * encoder configuration.
@@ -181,6 +216,20 @@ export type ConversionVideoOptions = {
      * encoder configuration.
      */
     processedHeight?: number;
+    /**
+     * Defines the group(s) the output track is a part of. For more, see {@link BaseTrackMetadata.group}.
+     *
+     * If left blank, tracks will internally be assigned to groups such that the output track pairability graph exactly
+     * matches the input track pairability graph.
+     */
+    group?: OutputTrackGroup | OutputTrackGroup[];
+    /**
+     * Sets {@link BaseTrackMetadata.maximumPacketCount} for the output track. Only relevant when the output format
+     * requires it (see {@link OutputFormat.requiresMaximumPacketCount}), in which case it is otherwise estimated
+     * automatically. Set this field when the estimate doesn't work for you, for example when `process` returns more
+     * than one frame per input frame. Required for live input tracks when no trim end is set.
+     */
+    maximumPacketCount?: number;
 };
 /**
  * Audio-specific options.
@@ -194,11 +243,23 @@ export type ConversionAudioOptions = {
     numberOfChannels?: number;
     /** The desired sample rate of the output audio, in hertz. */
     sampleRate?: number;
+    /**
+     * The desired sample format (and therefore bit depth) of the audio samples before they are passed to the encoder.
+     * Can be used to control bit depth with certain output codecs such as FLAC.
+     *
+     * Setting this field forces audio transcoding.
+     */
+    sampleFormat?: 'u8' | 's16' | 's32' | 'f32';
     /** The desired output audio codec. */
     codec?: AudioCodec;
-    /** The desired bitrate of the output audio. */
+    /** The desired quality of the output audio. */
+    quality?: Quality;
+    /**
+     * The desired bitrate of the output audio.
+     * @deprecated Use `quality` instead.
+     */
     bitrate?: number | Quality;
-    /** When `true`, audio will always be re-encoded instead of directly copying over the encoded samples. */
+    /** When `true`, audio will always be re-encoded instead of directly copying over the encoded packets. */
     forceTranscode?: boolean;
     /**
      * Allows for custom user-defined processing of audio samples, e.g. for applying audio effects, transformations, or
@@ -222,17 +283,66 @@ export type ConversionAudioOptions = {
      * encoder configuration.
      */
     processedSampleRate?: number;
+    /**
+     * Defines the group(s) the output track is a part of. For more, see {@link BaseTrackMetadata.group}.
+     *
+     * If left blank, tracks will internally be assigned to groups such that the output track pairability graph exactly
+     * matches the input track pairability graph.
+     */
+    group?: OutputTrackGroup | OutputTrackGroup[];
+    /**
+     * Sets {@link BaseTrackMetadata.maximumPacketCount} for the output track. Only relevant when the output format
+     * requires it (see {@link OutputFormat.requiresMaximumPacketCount}), in which case it is otherwise estimated
+     * automatically. Set this field when the estimate doesn't work for you, for example when using a custom encoder
+     * that produces unusually short packets. Required for live input tracks when no trim end is set.
+     */
+    maximumPacketCount?: number;
 };
 /**
- * Subtitle-specific options.
+ * Options for copying encoded media during conversion.
  * @group Conversion
  * @public
  */
-export type ConversionSubtitleOptions = {
-    /** If `true`, all subtitle tracks will be discarded and will not be present in the output. */
-    discard?: boolean;
-    /** The desired output subtitle codec. */
-    codec?: SubtitleCodec;
+export type ConversionCopyOptions = {
+    /**
+     * Controls whether media copying is preferred or required. Defaults to `'preferred'`.
+     *
+     * - `'forced'`: Copy encoded media where possible and discard tracks that cannot possibly be copied.
+     * - `'preferred'`: Copy encoded media when possible, and transcode tracks that cannot be copied.
+     */
+    mode?: 'forced' | 'preferred';
+    /**
+     * The maximum absolute shift, in seconds, that may be applied to the media to be able to copy it into the output
+     * format. Defaults to `0`, which permits no additional shift. Set to `Infinity` to permit any shift.
+     *
+     * A shift of `0` gives you perfect _timeline sync_: output timestamps will match input timestamps exactly (only
+     * offset by the trim region). Any non-zero shift will break this property but will still, under all circumstances,
+     * maintain perfect cross-track and audio-video sync.
+     */
+    shiftTolerance?: number;
+    /**
+     * Controls which media region will be copied to satisfy the requested trim range. Defaults to `'expand'`.
+     *
+     * - `'expand'`: Include at least all media in the requested range. This may require expanding the media region due
+     * to key frames and packet boundaries, and thus may include media outside of your trim range. The region is always
+     * minimally expanded to satisfy the copy criteria.
+     * - `'shrink'`: Only include media that lies entirely within the requested trim range. This may require shrinking
+     * the media region due to key frames and packet boundaries, and thus may exclude media inside of your trim range.
+     * The region is always minimally shrunk to satisfy the copy criteria.
+     *
+     * Use `expand` if you don't want to lose any media; use `shrink` to never expose any media outside of the
+     * trim region.
+     */
+    boundaryPolicy?: 'expand' | 'shrink';
+    /**
+     * The maximum amount, in seconds, by which the copied media region may deviate from the requested trim range at
+     * its start, as caused by {@link ConversionCopyOptions.boundaryPolicy}. Defaults to `Infinity`, which permits any
+     * deviation.
+     *
+     * In other words, this field sets how many seconds of media the conversion is allowed to add/remove to make a copy
+     * path possible.
+     */
+    boundaryTolerance?: number;
 };
 /**
  * An input track that was discarded (excluded) from a {@link Conversion} alongside the discard reason.
@@ -255,8 +365,33 @@ export type DiscardedTrack = {
      * - `'no_encodable_target_codec'`: We can't find a codec that we are able to encode and that can be contained
      * within the output format. This reason can be hit if the environment doesn't support the necessary encoders, or if
      * you requested a codec that cannot be contained within the output format.
+     * - `'cannot_copy'`: {@link ConversionCopyOptions.mode} was set to `'forced'` but the track could not be copied
+     * with the given copy configuration because it would require a transcode instead.
+     * - `'unknown_maximum_packet_count'`: The output format requires a maximum packet count, but it can't be estimated
+     * because the track is live and no trim end is set. Set it manually using the `maximumPacketCount` track option.
      */
-    reason: 'discarded_by_user' | 'max_track_count_reached' | 'max_track_count_of_type_reached' | 'unknown_source_codec' | 'undecodable_source_codec' | 'no_encodable_target_codec';
+    reason: 'discarded_by_user' | 'max_track_count_reached' | 'max_track_count_of_type_reached' | 'unknown_source_codec' | 'undecodable_source_codec' | 'no_encodable_target_codec' | 'cannot_copy' | 'unknown_maximum_packet_count';
+    /** The options that were provided for this track, or `{}` if none were provided. */
+    trackOptions: ConversionVideoOptions | ConversionAudioOptions;
+};
+/**
+ * Options for controlling a single call to {@link Conversion.execute}.
+ * @group Conversion
+ * @public
+ */
+export type ConversionExecuteOptions = {
+    /**
+     * The timestamp in seconds, in the output's timescale, until which the conversion should advance. Defaults to
+     * `Infinity`, meaning the conversion runs until the end.
+     *
+     * This field is especially useful for composable conversions, as it allows you to advance the conversion in
+     * lockstep with other media data sources.
+     */
+    until?: number;
+    /**
+     * A signal that, when triggered, pauses the conversion as soon as possible.
+     */
+    pauseSignal?: AbortSignal;
 };
 /**
  * Represents a media file conversion process, used to convert one media file into another. In addition to conversion,
@@ -270,48 +405,58 @@ export declare class Conversion {
     /** The output file. */
     readonly output: Output;
     /**
-     * A callback that is fired whenever the conversion progresses. Returns a number between 0 and 1, indicating the
-     * completion of the conversion. Note that a progress of 1 doesn't necessarily mean the conversion is complete;
-     * the conversion is complete once `execute()` resolves.
+     * A callback that is fired whenever the conversion progresses. Gets passed as first argument a number between
+     * 0 and 1, indicating the completion of the conversion. Note that a progress of 1 doesn't necessarily mean the
+     * conversion is complete; the conversion is complete once `execute()` resolves.
+     *
+     * As second argument, this callback receives the input time in seconds that has been processed.
      *
      * In order for progress to be computed, this property must be set before `execute` is called.
      */
-    onProgress?: (progress: number) => unknown;
+    onProgress?: (progress: number, processedTime: number) => unknown;
     /**
      * Whether this conversion, as it has been configured, is valid and can be executed. If this field is `false`, check
-     * the `discardedTracks` field for reasons.
+     * the `discardedTracks` field for reasons. Composable conversions are always valid, even if they utilize
+     * zero tracks.
+     *
+     * Note: a conversion having discarded tracks does not automatically mean it is invalid; if the remaining, utilized
+     * tracks make for a valid output file, the conversion is still allowed.
      */
     isValid: boolean;
-    /** The list of tracks that are included in the output file. */
+    /**
+     * The list of tracks that are included in the output file. When fan-out is used, the same track appears in this
+     * array multiple times.
+     */
     readonly utilizedTracks: InputTrack[];
     /** The list of tracks from the input file that have been discarded, alongside the discard reason. */
     readonly discardedTracks: DiscardedTrack[];
+    /**
+     * The current state of the conversion.
+     *
+     * - `'idle'`: The conversion is not currently executing and isn't done; `execute` can be called.
+     * - `'executing'`: A call to `execute` is currently running.
+     * - `'canceled'`: The conversion has been canceled and can no longer be executed.
+     * - `'done'`: The conversion has run to completion. Subsequent calls to `execute` do nothing.
+     */
+    get state(): "done" | "canceled" | "idle" | "executing";
     /** Initializes a new conversion process without starting the conversion. */
     static init(options: ConversionOptions): Promise<Conversion>;
     /** Creates a new Conversion instance (duh). */
     private constructor();
     /**
-     * Adds an external subtitle track to the output. This can be called after `init()` but before `execute()`.
-     * This is useful for adding subtitle tracks from separate files that are not part of the input video.
+     * Executes the conversion process and resolves when the conversion is complete. When
+     * {@link ConversionExecuteOptions.until} is provided, the conversion will be suspended once that output timestamp
+     * is reached and can be resumed with another call to `execute`. An ongoing execution may also be suspended via
+     * {@link ConversionExecuteOptions.pauseSignal}.
      *
-     * @param source - The subtitle source to add
-     * @param metadata - Optional metadata for the subtitle track
-     * @param contentProvider - Optional async function that will be called after the output starts to add content to the subtitle source
+     * Execution will throw if `isValid` is `false`.
      */
-    addExternalSubtitleTrack(source: SubtitleSource, metadata?: SubtitleTrackMetadata, contentProvider?: () => Promise<void>): void;
-    /**
-     * Executes the conversion process. Resolves once conversion is complete.
-     *
-     * Will throw if `isValid` is `false`.
-     */
-    execute(): Promise<void>;
+    execute(options?: ConversionExecuteOptions): Promise<void>;
     /**
      * Cancels the conversion process, causing any ongoing `execute` call to throw a `ConversionCanceledError`.
      * Does nothing if the conversion is already complete.
      */
     cancel(): Promise<void>;
-    /** Converts or passes through a subtitle track into the output format. */
-    _processSubtitleTrack(track: InputSubtitleTrack, trackOptions: ConversionSubtitleOptions): Promise<void>;
 }
 /**
  * Thrown when a conversion couldn't complete due to being canceled.
@@ -321,44 +466,5 @@ export declare class Conversion {
 export declare class ConversionCanceledError extends Error {
     /** Creates a new {@link ConversionCanceledError}. */
     constructor(message?: string);
-}
-/**
- * Utility class to handle audio resampling, handling both sample rate resampling as well as channel up/downmixing.
- * The advantage over doing this manually rather than using OfflineAudioContext to do it for us is the artifact-free
- * handling of putting multiple resampled audio samples back to back, which produces flaky results using
- * OfflineAudioContext.
- */
-export declare class AudioResampler {
-    sourceSampleRate: number | null;
-    targetSampleRate: number;
-    sourceNumberOfChannels: number | null;
-    targetNumberOfChannels: number;
-    startTime: number;
-    endTime: number;
-    onSample: (sample: AudioSample) => Promise<void>;
-    bufferSizeInFrames: number;
-    bufferSizeInSamples: number;
-    outputBuffer: Float32Array;
-    /** Start frame of current buffer */
-    bufferStartFrame: number;
-    /** The highest index written to in the current buffer */
-    maxWrittenFrame: number;
-    channelMixer: (sourceData: Float32Array, sourceFrameIndex: number, targetChannelIndex: number) => number;
-    tempSourceBuffer: Float32Array;
-    constructor(options: {
-        targetSampleRate: number;
-        targetNumberOfChannels: number;
-        startTime: number;
-        endTime: number;
-        onSample: (sample: AudioSample) => Promise<void>;
-    });
-    /**
-     * Sets up the channel mixer to handle up/downmixing in the case where input and output channel counts don't match.
-     */
-    doChannelMixerSetup(): void;
-    ensureTempBufferSize(requiredSamples: number): void;
-    add(audioSample: AudioSample): Promise<void>;
-    finalizeCurrentBuffer(): Promise<void>;
-    finalize(): Promise<void>;
 }
 //# sourceMappingURL=conversion.d.ts.map

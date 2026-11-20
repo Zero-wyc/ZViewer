@@ -7,17 +7,11 @@
  */
 import { AsyncMutex } from './misc.js';
 import { Output, OutputAudioTrack, OutputSubtitleTrack, OutputTrack, OutputVideoTrack } from './output.js';
-import { EncodedPacket } from './packet.js';
+import { EncodedPacket, PacketType } from './packet.js';
 import { SubtitleCue, SubtitleMetadata } from './subtitles.js';
 export declare abstract class Muxer {
     output: Output;
     mutex: AsyncMutex;
-    /**
-     * This field is used to synchronize multiple MediaStreamTracks. They use the same time coordinate system across
-     * tracks, and to ensure correct audio-video sync, we must use the same offset for all of them. The reason an offset
-     * is needed at all is because the timestamps typically don't start at zero.
-     */
-    firstMediaStreamTimestamp: number | null;
     constructor(output: Output);
     abstract start(): Promise<void>;
     abstract getMimeType(): Promise<string>;
@@ -25,8 +19,22 @@ export declare abstract class Muxer {
     abstract addEncodedAudioPacket(track: OutputAudioTrack, packet: EncodedPacket, meta?: EncodedAudioChunkMetadata): Promise<void>;
     abstract addSubtitleCue(track: OutputSubtitleTrack, cue: SubtitleCue, meta?: SubtitleMetadata): Promise<void>;
     abstract finalize(): Promise<void>;
-    onTrackClose(track: OutputTrack): void;
-    private trackTimestampInfo;
-    protected validateAndNormalizeTimestamp(track: OutputTrack, timestampInSeconds: number, isKeyPacket: boolean): number;
+    onTrackClose(track: OutputTrack): Promise<void>;
+    private trackPacketOrderValidators;
+    protected validateTimestamp(track: OutputTrack, timestampInSeconds: number, isKeyPacket: boolean): void;
+}
+export declare class PacketOrderValidator {
+    maxTimestamp: number | null;
+    maxTimestampBeforeLastKeyPacket: number | null;
+    check(timestamp: number, type: PacketType): boolean;
+    digest(timestamp: number, type: PacketType): boolean;
+}
+export declare class NullMuxer extends Muxer {
+    start(): Promise<void>;
+    getMimeType(): Promise<string>;
+    addEncodedVideoPacket(): Promise<void>;
+    addEncodedAudioPacket(): Promise<void>;
+    addSubtitleCue(): Promise<void>;
+    finalize(): Promise<void>;
 }
 //# sourceMappingURL=muxer.d.ts.map

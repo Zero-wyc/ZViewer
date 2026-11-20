@@ -22,6 +22,8 @@ export declare abstract class CustomVideoDecoder {
     readonly config: VideoDecoderConfig;
     /** The callback to call when a decoded VideoSample is available. */
     readonly onSample: (sample: VideoSample) => unknown;
+    /** The callback to call to surface out-of-band errors that can't be surfaced through the main methods. */
+    readonly onError: (error: unknown) => undefined;
     /** Returns true if and only if the decoder can decode the given codec configuration. */
     static supports(codec: VideoCodec, config: VideoDecoderConfig): boolean;
     /** Called after decoder creation; can be used for custom initialization logic. */
@@ -46,6 +48,8 @@ export declare abstract class CustomAudioDecoder {
     readonly config: AudioDecoderConfig;
     /** The callback to call when a decoded AudioSample is available. */
     readonly onSample: (sample: AudioSample) => unknown;
+    /** The callback to call to surface out-of-band errors that can't be surfaced through the main methods. */
+    readonly onError: (error: unknown) => undefined;
     /** Returns true if and only if the decoder can decode the given codec configuration. */
     static supports(codec: AudioCodec, config: AudioDecoderConfig): boolean;
     /** Called after decoder creation; can be used for custom initialization logic. */
@@ -70,6 +74,8 @@ export declare abstract class CustomVideoEncoder {
     readonly config: VideoEncoderConfig;
     /** The callback to call when an EncodedPacket is available. */
     readonly onPacket: (packet: EncodedPacket, meta?: EncodedVideoChunkMetadata) => unknown;
+    /** The callback to call to surface out-of-band errors that can't be surfaced through the main methods. */
+    readonly onError: (error: unknown) => undefined;
     /** Returns true if and only if the encoder can encode the given codec configuration. */
     static supports(codec: VideoCodec, config: VideoEncoderConfig): boolean;
     /** Called after encoder creation; can be used for custom initialization logic. */
@@ -94,6 +100,8 @@ export declare abstract class CustomAudioEncoder {
     readonly config: AudioEncoderConfig;
     /** The callback to call when an EncodedPacket is available. */
     readonly onPacket: (packet: EncodedPacket, meta?: EncodedAudioChunkMetadata) => unknown;
+    /** The callback to call to surface out-of-band errors that can't be surfaced through the main methods. */
+    readonly onError: (error: unknown) => undefined;
     /** Returns true if and only if the encoder can encode the given codec configuration. */
     static supports(codec: AudioCodec, config: AudioEncoderConfig): boolean;
     /** Called after encoder creation; can be used for custom initialization logic. */

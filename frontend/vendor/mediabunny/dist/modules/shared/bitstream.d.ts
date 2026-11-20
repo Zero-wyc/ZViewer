@@ -14,6 +14,7 @@ export declare class Bitstream {
     private readBit;
     readBits(n: number): number;
     writeBits(n: number, value: number): void;
+    copyBits(n: number, other: Bitstream): void;
     readAlignedByte(): number;
     skipBits(n: number): void;
     getBitsLeft(): number;

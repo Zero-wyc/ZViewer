@@ -5,14 +5,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { Av1CodecInfo, AvcDecoderConfigurationRecord, HevcDecoderConfigurationRecord, Vp9CodecInfo } from './codec-data.js';
+import { Av1CodecInfo, AvcDecoderConfigurationRecord, HevcDecoderConfigurationRecord, ProresCodecInfo, Vp9CodecInfo } from './codec-data.js';
 import { SubtitleMetadata } from './subtitles.js';
 /**
  * List of known video codecs, ordered by encoding preference.
  * @group Codecs
  * @public
  */
-export declare const VIDEO_CODECS: readonly ["avc", "hevc", "vp9", "av1", "vp8"];
+export declare const VIDEO_CODECS: readonly ["avc", "hevc", "vp9", "av1", "vp8", "prores"];
 /**
  * List of known PCM (uncompressed) audio codecs, ordered by encoding preference.
  * @group Codecs
@@ -24,19 +24,19 @@ export declare const PCM_AUDIO_CODECS: readonly ["pcm-s16", "pcm-s16be", "pcm-s2
  * @group Codecs
  * @public
  */
-export declare const NON_PCM_AUDIO_CODECS: readonly ["aac", "opus", "mp3", "vorbis", "flac", "ac3", "eac3"];
+export declare const NON_PCM_AUDIO_CODECS: readonly ["aac", "opus", "mp3", "vorbis", "flac", "ac3", "eac3", "dts", "truehd"];
 /**
  * List of known audio codecs, ordered by encoding preference.
  * @group Codecs
  * @public
  */
-export declare const AUDIO_CODECS: readonly ["aac", "opus", "mp3", "vorbis", "flac", "ac3", "eac3", "pcm-s16", "pcm-s16be", "pcm-s24", "pcm-s24be", "pcm-s32", "pcm-s32be", "pcm-f32", "pcm-f32be", "pcm-f64", "pcm-f64be", "pcm-u8", "pcm-s8", "ulaw", "alaw"];
+export declare const AUDIO_CODECS: readonly ["aac", "opus", "mp3", "vorbis", "flac", "ac3", "eac3", "dts", "truehd", "pcm-s16", "pcm-s16be", "pcm-s24", "pcm-s24be", "pcm-s32", "pcm-s32be", "pcm-f32", "pcm-f32be", "pcm-f64", "pcm-f64be", "pcm-u8", "pcm-s8", "ulaw", "alaw"];
 /**
  * List of known subtitle codecs, ordered by encoding preference.
  * @group Codecs
  * @public
  */
-export declare const SUBTITLE_CODECS: readonly ["webvtt", "tx3g", "ttml", "srt", "ass", "ssa"];
+export declare const SUBTITLE_CODECS: readonly ["webvtt"];
 /**
  * Union type of known video codecs.
  * @group Codecs
@@ -56,6 +56,7 @@ export type PcmAudioCodec = typeof PCM_AUDIO_CODECS[number];
  * @public
  */
 export type SubtitleCodec = typeof SUBTITLE_CODECS[number];
+export declare const AUDIO_CODECS_WITH_DELTA_PACKETS: readonly AudioCodec[];
 /**
  * Union type of known media codecs.
  * @group Codecs
@@ -73,7 +74,11 @@ export declare const VP9_LEVEL_TABLE: {
     maxBitrate: number;
     level: number;
 }[];
-export declare const buildVideoCodecString: (codec: VideoCodec, width: number, height: number, bitrate: number) => string;
+export declare const PRORES_FOURCCS: readonly ["ap4x", "ap4h", "apch", "apcn", "apcs", "apco"];
+export type ProresFourCc = typeof PRORES_FOURCCS[number];
+export declare const DTS_FOURCCS: readonly ["dtsc", "dtsh", "dtsl", "dtse"];
+export type DtsFourCc = typeof DTS_FOURCCS[number];
+export declare const buildVideoCodecString: (codec: VideoCodec, width: number, height: number, bitrate: number, alpha: boolean) => string;
 export declare const generateVp9CodecConfigurationFromCodecString: (codecString: string) => number[];
 export declare const generateAv1CodecConfigurationFromCodecString: (codecString: string) => number[];
 export declare const extractVideoCodecString: (trackInfo: {
@@ -84,11 +89,22 @@ export declare const extractVideoCodecString: (trackInfo: {
     colorSpace: VideoColorSpaceInit | null;
     avcType: 1 | 3 | null;
     avcCodecInfo: AvcDecoderConfigurationRecord | null;
+    hevcType: "hev1" | "hvc1" | null;
     hevcCodecInfo: HevcDecoderConfigurationRecord | null;
     vp9CodecInfo: Vp9CodecInfo | null;
     av1CodecInfo: Av1CodecInfo | null;
+    proresFormat: ProresFourCc | null;
 }) => string;
-export declare const buildAudioCodecString: (codec: AudioCodec, numberOfChannels: number, sampleRate: number) => "pcm-s16" | "pcm-s16be" | "pcm-s24" | "pcm-s24be" | "pcm-s32" | "pcm-s32be" | "pcm-f32" | "pcm-f32be" | "pcm-f64" | "pcm-f64be" | "pcm-u8" | "pcm-s8" | "ulaw" | "alaw" | "opus" | "mp3" | "vorbis" | "flac" | "ac-3" | "ec-3" | "mp4a.40.29" | "mp4a.40.5" | "mp4a.40.2";
+export declare const extractColorSpace: (info: {
+    codec: VideoCodec | null;
+    codecDescription: Uint8Array | null;
+    avcCodecInfo: AvcDecoderConfigurationRecord | null;
+    hevcCodecInfo: HevcDecoderConfigurationRecord | null;
+    vp9CodecInfo: Vp9CodecInfo | null;
+    av1CodecInfo: Av1CodecInfo | null;
+    proresCodecInfo: ProresCodecInfo | null;
+}) => VideoColorSpaceInit;
+export declare const buildAudioCodecString: (codec: AudioCodec) => "opus" | "mp3" | "vorbis" | "flac" | "pcm-s16" | "pcm-s16be" | "pcm-s24" | "pcm-s24be" | "pcm-s32" | "pcm-s32be" | "pcm-f32" | "pcm-f32be" | "pcm-f64" | "pcm-f64be" | "pcm-u8" | "pcm-s8" | "ulaw" | "alaw" | "dtsc" | "ac-3" | "ec-3" | "mlpa" | "mp4a.40.2";
 export type AacCodecInfo = {
     isMpeg2: boolean;
     objectType: number | null;
@@ -97,8 +113,15 @@ export declare const extractAudioCodecString: (trackInfo: {
     codec: AudioCodec | null;
     codecDescription: Uint8Array | null;
     aacCodecInfo: AacCodecInfo | null;
+    dtsFormat: DtsFourCc | null;
 }) => string;
+export declare const guessDescriptionForVideo: (decoderConfig: VideoDecoderConfig) => Uint8Array | undefined;
+export declare const guessDescriptionForAudio: (decoderConfig: AudioDecoderConfig) => Uint8Array | undefined | false;
+export declare const getAudioPreRollDuration: (codec: AudioCodec, decoderConfig: AudioDecoderConfig) => number;
+/** Returns the shortest packet length, in samples, that encoders commonly produce for the given codec */
+export declare const getMinimumAudioPacketSize: (codec: AudioCodec, sampleRate: number) => number;
 export declare const OPUS_SAMPLE_RATE = 48000;
+export declare const OPUS_PRE_ROLL_DURATION = 0.4;
 export declare const parsePcmCodec: (codec: PcmAudioCodec) => {
     dataType: "ulaw";
     sampleSize: 1;
@@ -144,7 +167,7 @@ export declare const getAudioEncoderConfigExtension: (codec: AudioCodec) => {
     aac?: undefined;
     opus?: undefined;
 };
-export declare const validateVideoChunkMetadata: (metadata: EncodedVideoChunkMetadata | undefined) => void;
-export declare const validateAudioChunkMetadata: (metadata: EncodedAudioChunkMetadata | undefined) => void;
+export declare const validateVideoChunkMetadata: (metadata: EncodedVideoChunkMetadata | undefined, trackCodec: VideoCodec | null) => void;
+export declare const validateAudioChunkMetadata: (metadata: EncodedAudioChunkMetadata | undefined, trackCodec: AudioCodec | null) => void;
 export declare const validateSubtitleMetadata: (metadata: SubtitleMetadata | undefined) => void;
 //# sourceMappingURL=codec.d.ts.map

@@ -51,6 +51,17 @@ export declare class EncodedVideoPacketSource extends VideoSource {
      */
     add(packet: EncodedPacket, meta?: EncodedVideoChunkMetadata): Promise<void>;
 }
+/** Utility class for splitting a composite frame into separate color and alpha parts on the CPU in a worker. */
+export declare class ColorAlphaSplitter {
+    private worker;
+    private pendingRequests;
+    private nextRequestId;
+    split(sourceFrame: VideoFrame): Promise<{
+        colorFrame: VideoFrame;
+        alphaFrame: VideoFrame;
+    }>;
+    close(): void;
+}
 /**
  * This source can be used to add raw, unencoded video samples (frames) to an output video track. These frames will
  * automatically be encoded and then piped into the output.
@@ -95,7 +106,7 @@ export declare class CanvasSource extends VideoSource {
     add(timestamp: number, duration?: number, encodeOptions?: VideoEncoderEncodeOptions): Promise<void>;
 }
 /**
- * Options for MediaStreamVideoTrackSource.
+ * Options for {@link MediaStreamVideoTrackSource}.
  * @group Media sources
  * @public
  */
@@ -107,6 +118,21 @@ export type MediaStreamVideoTrackSourceOptions = {
      * lead to wildly irregular FPS.
      */
     frameRate?: number | null;
+    /**
+     * Controls the basis (zero point) for video frame timestamps.
+     *
+     * When set to `'synced-zero'`, timestamps will be relative to the first chunk of media from a `MediaStreamTrack`
+     * added to the {@link Output}.
+     *
+     * When set to `'zero'`, timestamps will be relative to the first video frame emitted by this source.
+     *
+     * When set to `'unix'`, timestamps will be relative to the Unix epoch, so clearly associated with a distinct point
+     * in time. Here, pausing via {@link MediaStreamVideoTrackSource.pause} will also create gaps in timestamps. Be sure
+     * to pair this mode with {@link BaseTrackMetadata.isRelativeToUnixEpoch}.
+     *
+     * Defaults to `'synced-zero'`.
+     */
+    timestampBase?: 'synced-zero' | 'zero' | 'unix';
 };
 /**
  * Video source that encodes the frames of a
@@ -164,6 +190,7 @@ export declare class EncodedAudioPacketSource extends AudioSource {
      */
     add(packet: EncodedPacket, meta?: EncodedAudioChunkMetadata): Promise<void>;
 }
+export declare const PCM_ENCODER_PACKET_SIZE = 2048;
 /**
  * This source can be used to add raw, unencoded audio samples to an output audio track. These samples will
  * automatically be encoded and then piped into the output.
@@ -185,6 +212,18 @@ export declare class AudioSampleSource extends AudioSource {
     add(audioSample: AudioSample): Promise<void>;
 }
 /**
+ * Options for {@link AudioBufferSource}.
+ * @group Media sources
+ * @public
+ */
+export type AudioBufferSourceOptions = {
+    /**
+     * The timestamp of the first `AudioBuffer`, in seconds. Subsequent buffers are placed directly after the previous
+     * one. Defaults to 0.
+     */
+    startTimestamp?: number;
+};
+/**
  * This source can be used to add audio data from an AudioBuffer to the output track. This is useful when working with
  * the Web Audio API.
  * @group Media sources
@@ -193,19 +232,41 @@ export declare class AudioSampleSource extends AudioSource {
 export declare class AudioBufferSource extends AudioSource {
     /**
      * Creates a new {@link AudioBufferSource} whose `AudioBuffer` instances are encoded according to the specified
-     * {@link AudioEncodingConfig}.
+     * {@link AudioEncodingConfig} and {@link AudioBufferSourceOptions}.
      */
-    constructor(encodingConfig: AudioEncodingConfig);
+    constructor(encodingConfig: AudioEncodingConfig, options?: AudioBufferSourceOptions);
     /**
-     * Converts an AudioBuffer to audio samples, encodes them and adds them to the output. The first AudioBuffer will
-     * be played at timestamp 0, and any subsequent AudioBuffer will have a timestamp equal to the total duration of
-     * all previous AudioBuffers.
+     * Converts an AudioBuffer to audio samples, encodes them and adds them to the output. The first `AudioBuffer` will
+     * be played at the configured start timestamp (the default is 0), and each subsequent `AudioBuffer` will be placed
+     * directly after the previous one.
      *
      * @returns A Promise that resolves once the output is ready to receive more samples. You should await this Promise
      * to respect writer and encoder backpressure.
      */
     add(audioBuffer: AudioBuffer): Promise<void>;
 }
+/**
+ * Options for {@link MediaStreamAudioTrackSource}.
+ * @group Media sources
+ * @public
+ */
+export type MediaStreamAudioTrackSourceOptions = {
+    /**
+     * Controls the basis (zero point) for audio sample timestamps.
+     *
+     * When set to `'synced-zero'`, timestamps will be relative to the first chunk of media from a `MediaStreamTrack`
+     * added to the {@link Output}.
+     *
+     * When set to `'zero'`, timestamps will be relative to the first audio sample emitted by this source.
+     *
+     * When set to `'unix'`, timestamps will be relative to the Unix epoch, so clearly associated with a distinct point
+     * in time. Here, pausing via {@link MediaStreamAudioTrackSource.pause} will also create gaps in timestamps. Be sure
+     * to pair this mode with {@link BaseTrackMetadata.isRelativeToUnixEpoch}.
+     *
+     * Defaults to `'synced-zero'`.
+     */
+    timestampBase?: 'synced-zero' | 'zero' | 'unix';
+};
 /**
  * Audio source that encodes the data of a
  * [`MediaStreamAudioTrack`](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack) and pipes it into the
@@ -224,7 +285,7 @@ export declare class MediaStreamAudioTrackSource extends AudioSource {
      * Creates a new {@link MediaStreamAudioTrackSource} from a `MediaStreamAudioTrack`, which will pull audio samples
      * from the stream in real time and encode them according to {@link AudioEncodingConfig}.
      */
-    constructor(track: MediaStreamAudioTrack, encodingConfig: AudioEncodingConfig);
+    constructor(track: MediaStreamAudioTrack, encodingConfig: AudioEncodingConfig, options?: MediaStreamAudioTrackSourceOptions);
     /**
      * Pauses the capture of audio data - any audio data emitted by the underlying media stream will be ignored
      * while paused. This does *not* close the underlying `MediaStreamAudioTrack`, it just ignores its output.

@@ -13,14 +13,20 @@ import { AttachedImage } from '../metadata.js';
 export declare class FlacMuxer extends Muxer {
     private writer;
     private metadataWritten;
-    private blockSizes;
-    private frameSizes;
+    private frameCount;
+    private minimumBlockSize;
+    private maximumBlockSize;
+    private lastBlockSize;
+    private minimumFrameSize;
+    private maximumFrameSize;
+    private totalSamples;
     private sampleRate;
     private channels;
     private bitsPerSample;
     private format;
     constructor(output: Output, format: FlacOutputFormat);
     start(): Promise<void>;
+    applyDecoderConfig(decoderConfig: AudioDecoderConfig): void;
     writeHeader({ bitsPerSample, minimumBlockSize, maximumBlockSize, minimumFrameSize, maximumFrameSize, sampleRate, channels, totalSamples, }: {
         minimumBlockSize: number;
         maximumBlockSize: number;

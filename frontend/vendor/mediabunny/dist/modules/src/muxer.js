@@ -9,48 +9,63 @@ import { AsyncMutex } from './misc.js';
 export class Muxer {
     constructor(output) {
         this.mutex = new AsyncMutex();
-        /**
-         * This field is used to synchronize multiple MediaStreamTracks. They use the same time coordinate system across
-         * tracks, and to ensure correct audio-video sync, we must use the same offset for all of them. The reason an offset
-         * is needed at all is because the timestamps typically don't start at zero.
-         */
-        this.firstMediaStreamTimestamp = null;
-        this.trackTimestampInfo = new WeakMap();
+        this.trackPacketOrderValidators = new WeakMap();
         this.output = output;
     }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    onTrackClose(track) { }
-    validateAndNormalizeTimestamp(track, timestampInSeconds, isKeyPacket) {
-        timestampInSeconds += track.source._timestampOffset;
-        let timestampInfo = this.trackTimestampInfo.get(track);
-        const isFirstPacket = !timestampInfo;
-        if (!timestampInfo) {
-            if (!isKeyPacket) {
-                throw new Error('First packet must be a key packet.');
-            }
-            timestampInfo = {
-                maxTimestamp: timestampInSeconds,
-                // The first GOP in a new mux can legitimately contain packets whose
-                // presentation timestamps are earlier than the opening key packet
-                // (for example, HEVC/H.264 B-frames). There is no "previous GOP"
-                // yet, so defer the monotonic GOP boundary check until we actually
-                // see a subsequent key packet.
-                maxTimestampBeforeLastKeyPacket: -Infinity,
-            };
-            this.trackTimestampInfo.set(track, timestampInfo);
+    async onTrackClose(track) { }
+    validateTimestamp(track, timestampInSeconds, isKeyPacket) {
+        let validator = this.trackPacketOrderValidators.get(track);
+        if (!validator) {
+            validator = new PacketOrderValidator();
+            this.trackPacketOrderValidators.set(track, validator);
         }
-        if (timestampInSeconds < 0) {
-            throw new Error(`Timestamps must be non-negative (got ${timestampInSeconds}s).`);
+        const type = isKeyPacket ? 'key' : 'delta';
+        if (validator.digest(timestampInSeconds, type)) {
+            return;
         }
-        if (isKeyPacket && !isFirstPacket) {
-            timestampInfo.maxTimestampBeforeLastKeyPacket = timestampInfo.maxTimestamp;
+        if (validator.maxTimestamp === null) {
+            throw new Error('First packet must be a key packet.');
         }
-        if (timestampInSeconds < timestampInfo.maxTimestampBeforeLastKeyPacket) {
-            throw new Error(`Timestamps cannot be smaller than the largest timestamp of the previous GOP (a GOP begins with a key`
-                + ` packet and ends right before the next key packet). Got ${timestampInSeconds}s, but largest`
-                + ` timestamp is ${timestampInfo.maxTimestampBeforeLastKeyPacket}s.`);
-        }
-        timestampInfo.maxTimestamp = Math.max(timestampInfo.maxTimestamp, timestampInSeconds);
-        return timestampInSeconds;
+        const largestTimestamp = type === 'key'
+            ? validator.maxTimestamp
+            : validator.maxTimestampBeforeLastKeyPacket;
+        throw new Error(`Timestamps cannot be smaller than the largest timestamp of the previous GOP (a GOP begins with a`
+            + ` key packet and ends right before the next key packet). Got ${timestampInSeconds}s, but largest`
+            + ` timestamp is ${largestTimestamp}s.`);
     }
+}
+export class PacketOrderValidator {
+    constructor() {
+        this.maxTimestamp = null;
+        this.maxTimestampBeforeLastKeyPacket = null;
+    }
+    check(timestamp, type) {
+        if (this.maxTimestamp === null) {
+            return type === 'key';
+        }
+        // A key packet starts a new GOP, making the current one the previous one
+        const maxTimestampOfPreviousGop = type === 'key' ? this.maxTimestamp : this.maxTimestampBeforeLastKeyPacket;
+        return maxTimestampOfPreviousGop === null || timestamp >= maxTimestampOfPreviousGop;
+    }
+    digest(timestamp, type) {
+        if (!this.check(timestamp, type)) {
+            return false;
+        }
+        if (type === 'key') {
+            this.maxTimestampBeforeLastKeyPacket = this.maxTimestamp;
+        }
+        this.maxTimestamp = Math.max(this.maxTimestamp ?? -Infinity, timestamp);
+        return true;
+    }
+}
+export class NullMuxer extends Muxer {
+    async start() { }
+    async getMimeType() {
+        return 'application/x-black-hole';
+    }
+    async addEncodedVideoPacket() { }
+    async addEncodedAudioPacket() { }
+    async addSubtitleCue() { }
+    async finalize() { }
 }

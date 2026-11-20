@@ -5,6 +5,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+import { isRecordStringString } from './misc.js';
 /**
  * Image data with additional metadata.
  *
@@ -103,6 +104,15 @@ export const validateMetadataTags = (tags) => {
     if (tags.date !== undefined && (!(tags.date instanceof Date) || Number.isNaN(tags.date.getTime()))) {
         throw new TypeError('tags.date, when provided, must be a valid Date.');
     }
+    if (tags.creationTime !== undefined
+        && tags.creationTime !== null
+        && (!(tags.creationTime instanceof Date) || Number.isNaN(tags.creationTime.getTime()))) {
+        throw new TypeError('tags.creationTime, when provided, must be a valid Date or null.');
+    }
+    if (tags.beatsPerMinute !== undefined
+        && (!Number.isInteger(tags.beatsPerMinute) || tags.beatsPerMinute <= 0)) {
+        throw new TypeError('tags.beatsPerMinute, when provided, must be a positive integer.');
+    }
     if (tags.lyrics !== undefined && typeof tags.lyrics !== 'string') {
         throw new TypeError('tags.lyrics, when provided, must be a string.');
     }
@@ -123,6 +133,12 @@ export const validateMetadataTags = (tags) => {
             if (!['coverFront', 'coverBack', 'unknown'].includes(image.kind)) {
                 throw new TypeError('Each image.kind must be \'coverFront\', \'coverBack\', or \'unknown\'.');
             }
+            if (image.name !== undefined && typeof image.name !== 'string') {
+                throw new TypeError('Each image.name, when provided, must be a string.');
+            }
+            if (image.description !== undefined && typeof image.description !== 'string') {
+                throw new TypeError('Each image.description, when provided, must be a string.');
+            }
         }
     }
     if (tags.comment !== undefined && typeof tags.comment !== 'string') {
@@ -135,10 +151,14 @@ export const validateMetadataTags = (tags) => {
         for (const value of Object.values(tags.raw)) {
             if (value !== null
                 && typeof value !== 'string'
+                && !(Array.isArray(value) && value.every(x => typeof x === 'string'))
                 && !(value instanceof Uint8Array)
+                && !(Array.isArray(value) && value.every(x => x instanceof Uint8Array))
                 && !(value instanceof RichImageData)
-                && !(value instanceof AttachedFile)) {
-                throw new TypeError('Each value in tags.raw must be a string, Uint8Array, RichImageData, AttachedFile, or null.');
+                && !(value instanceof AttachedFile)
+                && !isRecordStringString(value)) {
+                throw new TypeError('Each value in tags.raw must be a string, string array, Uint8Array, Uint8Array array,'
+                    + ' RichImageData, AttachedFile, Record<string, string>, or null.');
             }
         }
     }
@@ -154,6 +174,7 @@ export const metadataTagsAreEmpty = (tags) => {
         && tags.discNumber === undefined
         && tags.discsTotal === undefined
         && tags.genre === undefined
+        && tags.beatsPerMinute === undefined
         && tags.date === undefined
         && tags.lyrics === undefined
         && (!tags.images || tags.images.length === 0)
@@ -162,6 +183,7 @@ export const metadataTagsAreEmpty = (tags) => {
 };
 export const DEFAULT_TRACK_DISPOSITION = {
     default: true,
+    primary: true,
     forced: false,
     original: false,
     commentary: false,
@@ -174,6 +196,9 @@ export const validateTrackDisposition = (disposition) => {
     }
     if (disposition.default !== undefined && typeof disposition.default !== 'boolean') {
         throw new TypeError('disposition.default must be a boolean.');
+    }
+    if (disposition.primary !== undefined && typeof disposition.primary !== 'boolean') {
+        throw new TypeError('disposition.primary must be a boolean.');
     }
     if (disposition.forced !== undefined && typeof disposition.forced !== 'boolean') {
         throw new TypeError('disposition.forced must be a boolean.');

@@ -18,6 +18,10 @@ export declare const readBoxHeader: (slice: FileSlice) => {
 export declare const readFixed_16_16: (slice: FileSlice) => number;
 export declare const readFixed_2_30: (slice: FileSlice) => number;
 export declare const readIsomVariableInteger: (slice: FileSlice) => number;
+export declare const readEsDescriptor: (slice: FileSlice) => {
+    objectTypeIndication: number;
+    decoderSpecificInfo: Uint8Array<ArrayBufferLike> | null;
+};
 export declare const readMetadataStringShort: (slice: FileSlice) => string;
 export declare const readDataBox: (slice: FileSlice) => string | Uint8Array<ArrayBufferLike> | RichImageData | null;
 //# sourceMappingURL=isobmff-reader.d.ts.map

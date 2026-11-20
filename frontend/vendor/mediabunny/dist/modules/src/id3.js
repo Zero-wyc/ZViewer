@@ -6,7 +6,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 import { decodeSynchsafe, encodeSynchsafe } from '../shared/mp3-misc.js';
-import { coalesceIndex, textDecoder, textEncoder, isIso88591Compatible, assertNever, keyValueIterator, toDataView, } from './misc.js';
+import { Logging } from './logging.js';
+import { coalesceIndex, createUtcDate, TextDecoder, textDecoder, textEncoder, isIso88591Compatible, assertNever, keyValueIterator, toDataView, isRecordStringString, parseIsoSuffix, isThenable, } from './misc.js';
 import { readAscii, readBytes, readU32Be, readU8 } from './reader.js';
 export var Id3V2HeaderFlags;
 (function (Id3V2HeaderFlags) {
@@ -70,7 +71,7 @@ export const parseId3V1Tag = (slice, tags) => {
     const yearText = readId3V1String(slice, 4);
     const year = Number.parseInt(yearText, 10);
     if (Number.isInteger(year) && year > 0) {
-        tags.date ??= new Date(year, 0, 1);
+        tags.date ??= createUtcDate(year);
     }
     const commentBytes = readBytes(slice, 30);
     let comment;
@@ -107,6 +108,22 @@ export const readId3V1String = (slice, length) => {
     }
     return str.trimEnd(); // String also may be padded with spaces
 };
+export const skipId3V2Tags = async (reader, startPos) => {
+    let currentPos = startPos;
+    while (true) {
+        let slice = reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
+        if (isThenable(slice))
+            slice = await slice;
+        if (!slice) {
+            return currentPos;
+        }
+        const id3V2Header = readId3V2Header(slice);
+        if (!id3V2Header) {
+            return currentPos;
+        }
+        currentPos = slice.filePos + id3V2Header.size;
+    }
+};
 export const readId3V2Header = (slice) => {
     const startPos = slice.filePos;
     const tag = readAscii(slice, 3);
@@ -118,73 +135,124 @@ export const readId3V2Header = (slice) => {
         slice.filePos = startPos;
         return null;
     }
-    const size = decodeSynchsafe(sizeRaw);
+    let size = decodeSynchsafe(sizeRaw);
+    // The footer only exists since ID3v2.4
+    if (majorVersion === 4 && (flags & Id3V2HeaderFlags.Footer)) {
+        size += ID3_V2_HEADER_SIZE;
+    }
     return { majorVersion, revision, flags, size };
 };
 export const parseId3V2Tag = (slice, header, tags) => {
     // https://id3.org/id3v2.3.0
     if (![2, 3, 4].includes(header.majorVersion)) {
-        console.warn(`Unsupported ID3v2 major version: ${header.majorVersion}`);
+        Logging._warn(`Unsupported ID3v2 major version: ${header.majorVersion}`);
         return;
     }
-    const bytes = readBytes(slice, header.size);
-    const reader = new Id3V2Reader(header, bytes);
-    if (header.flags & Id3V2HeaderFlags.Footer) {
-        reader.removeFooter();
+    if (header.majorVersion === 2 && (header.flags & Id3V2HeaderFlags.ExtendedHeader)) {
+        // In ID3v2.2, this bit is the compression flag instead, and no compression scheme was ever defined for it
+        Logging._warn('Skipping compressed ID3v2.2 tag');
+        return;
     }
-    if ((header.flags & Id3V2HeaderFlags.Unsynchronisation) && header.majorVersion === 3) {
+    const dataSize = (header.majorVersion === 4 && (header.flags & Id3V2HeaderFlags.Footer))
+        ? header.size - ID3_V2_HEADER_SIZE
+        : header.size;
+    const bytes = readBytes(slice, dataSize);
+    const reader = new Id3V2Reader(header, bytes);
+    if ((header.flags & Id3V2HeaderFlags.Unsynchronisation) && header.majorVersion <= 3) {
         reader.ununsynchronizeAll();
     }
     if (header.flags & Id3V2HeaderFlags.ExtendedHeader) {
+        if (reader.bytes.length < 4) {
+            return;
+        }
         const extendedHeaderSize = reader.readU32();
         if (header.majorVersion === 3) {
             reader.pos += extendedHeaderSize; // The extended header size excludes itself
         }
         else {
-            reader.pos += extendedHeaderSize - 4; // The extended header size includes itself
+            reader.pos += decodeSynchsafe(extendedHeaderSize) - 4; // The extended header size includes itself
         }
     }
+    // ID3v2.3 splits the date into the year (TYER) and the day and month (TDAT), which may come in any order
+    let year = null;
+    let dayAndMonth = null;
     while (reader.pos <= reader.bytes.length - reader.frameHeaderSize()) {
         const frame = reader.readId3V2Frame();
         if (!frame) {
             break;
         }
-        const frameStartPos = reader.pos;
-        const frameEndPos = reader.pos + frame.size;
+        const nextFramePos = Math.min(reader.pos + frame.size, reader.bytes.length);
+        let frameEndPos = nextFramePos;
         let frameEncrypted = false;
         let frameCompressed = false;
         let frameUnsynchronized = false;
+        let frameHasGroupingIdentity = false;
+        let frameHasDataLengthIndicator = false;
         if (header.majorVersion === 3) {
             frameEncrypted = !!(frame.flags & (1 << 6));
             frameCompressed = !!(frame.flags & (1 << 7));
+            frameHasGroupingIdentity = !!(frame.flags & (1 << 5));
         }
         else if (header.majorVersion === 4) {
+            frameHasGroupingIdentity = !!(frame.flags & (1 << 6));
             frameEncrypted = !!(frame.flags & (1 << 2));
             frameCompressed = !!(frame.flags & (1 << 3));
             frameUnsynchronized = !!(frame.flags & (1 << 1))
                 || !!(header.flags & Id3V2HeaderFlags.Unsynchronisation);
+            frameHasDataLengthIndicator = !!(frame.flags & (1 << 0));
         }
         if (frameEncrypted) {
-            console.warn(`Skipping encrypted ID3v2 frame ${frame.id}`);
-            reader.pos = frameEndPos;
+            Logging._warn(`Skipping encrypted ID3v2 frame ${frame.id}`);
+            reader.pos = nextFramePos;
             continue;
         }
         if (frameCompressed) {
-            console.warn(`Skipping compressed ID3v2 frame ${frame.id}`); // Maybe someday? Idk
-            reader.pos = frameEndPos;
+            Logging._warn(`Skipping compressed ID3v2 frame ${frame.id}`); // Maybe someday? Idk
+            reader.pos = nextFramePos;
             continue;
         }
-        if (frameUnsynchronized) {
-            reader.ununsynchronizeRegion(reader.pos, frameEndPos);
+        if (frameHasGroupingIdentity) {
+            reader.pos += 1;
         }
+        if (frameHasDataLengthIndicator) {
+            reader.pos += 4;
+        }
+        if (frameUnsynchronized) {
+            frameEndPos = reader.ununsynchronizeRegion(reader.pos, frameEndPos);
+        }
+        const frameStartPos = reader.pos;
+        // Frames don't necessarily hold the fixed-size fields they're supposed to
+        const ensureFrameHasBytes = (byteCount) => {
+            if (frameEndPos - reader.pos < byteCount) {
+                throw new Error(`Invalid ID3v2 ${frame.id} frame: too short.`);
+            }
+        };
         tags.raw ??= {};
-        if (frame.id[0] === 'T') {
+        if (frame.id === 'TXXX' || frame.id === 'TXX') {
+            const txxx = tags.raw[frame.id] ??= {};
+            ensureFrameHasBytes(1);
+            const encoding = reader.readId3V2TextEncoding();
+            const description = reader.readId3V2Text(encoding, frameEndPos);
+            const value = reader.readId3V2Text(encoding, frameEndPos);
+            txxx[description] ??= value;
+        }
+        else if (frame.id[0] === 'T') {
             // It's a text frame, let's decode as text
             tags.raw[frame.id] ??= reader.readId3V2EncodingAndText(frameEndPos);
         }
         else {
-            // For the others, let's just get the bytes
-            tags.raw[frame.id] ??= reader.readBytes(frame.size);
+            // For the others, let's just get the bytes. Frames that appear more than once are collected into an array.
+            const bytes = reader.readBytes(frameEndPos - reader.pos);
+            const existing = tags.raw[frame.id];
+            if (existing instanceof Uint8Array) {
+                tags.raw[frame.id] = [existing, bytes];
+            }
+            else if (Array.isArray(existing)) {
+                existing.push(bytes);
+            }
+            else {
+                tags.raw[frame.id] ??= bytes;
+            }
         }
         reader.pos = frameStartPos;
         switch (frame.id) {
@@ -280,11 +348,9 @@ export const parseId3V2Tag = (slice, header, tags) => {
                 ;
                 break;
             case 'TDRC':
-            case 'TDAT':
                 {
-                    const dateText = reader.readId3V2EncodingAndText(frameEndPos);
-                    const date = new Date(dateText);
-                    if (!Number.isNaN(date.getTime())) {
+                    const date = parseIsoSuffix(reader.readId3V2EncodingAndText(frameEndPos));
+                    if (date) {
                         tags.date ??= date;
                     }
                 }
@@ -294,9 +360,27 @@ export const parseId3V2Tag = (slice, header, tags) => {
             case 'TYE':
                 {
                     const yearText = reader.readId3V2EncodingAndText(frameEndPos);
-                    const year = Number.parseInt(yearText, 10);
-                    if (Number.isInteger(year)) {
-                        tags.date ??= new Date(year, 0, 1);
+                    const parsedYear = Number.parseInt(yearText, 10);
+                    if (Number.isInteger(parsedYear)) {
+                        year ??= parsedYear;
+                    }
+                }
+                ;
+                break;
+            case 'TDAT':
+            case 'TDA':
+                {
+                    dayAndMonth ??= reader.readId3V2EncodingAndText(frameEndPos);
+                }
+                ;
+                break;
+            case 'TBPM':
+            case 'TBP':
+                {
+                    const bpmText = reader.readId3V2EncodingAndText(frameEndPos);
+                    const bpm = Number.parseInt(bpmText, 10);
+                    if (Number.isInteger(bpm) && bpm > 0) {
+                        tags.beatsPerMinute ??= bpm;
                     }
                 }
                 ;
@@ -304,7 +388,8 @@ export const parseId3V2Tag = (slice, header, tags) => {
             case 'USLT':
             case 'ULT':
                 {
-                    const encoding = reader.readU8();
+                    ensureFrameHasBytes(4);
+                    const encoding = reader.readId3V2TextEncoding();
                     reader.pos += 3; // Skip language
                     reader.readId3V2Text(encoding, frameEndPos); // Short content description
                     tags.lyrics ??= reader.readId3V2Text(encoding, frameEndPos);
@@ -314,19 +399,27 @@ export const parseId3V2Tag = (slice, header, tags) => {
             case 'COMM':
             case 'COM':
                 {
-                    const encoding = reader.readU8();
+                    ensureFrameHasBytes(4);
+                    const encoding = reader.readId3V2TextEncoding();
                     reader.pos += 3; // Skip language
-                    reader.readId3V2Text(encoding, frameEndPos); // Short content description
-                    tags.comment ??= reader.readId3V2Text(encoding, frameEndPos);
+                    const description = reader.readId3V2Text(encoding, frameEndPos);
+                    if (description === '') {
+                        tags.comment ??= reader.readId3V2Text(encoding, frameEndPos);
+                    }
+                    else {
+                        // Described comments are named entries (like iTunes' iTunNORM) rather than the actual comment
+                    }
                 }
                 ;
                 break;
             case 'APIC':
             case 'PIC':
                 {
+                    ensureFrameHasBytes(1);
                     const encoding = reader.readId3V2TextEncoding();
                     let mimeType;
                     if (header.majorVersion === 2) {
+                        ensureFrameHasBytes(3);
                         const imageFormat = reader.readAscii(3);
                         mimeType = imageFormat === 'PNG'
                             ? 'image/png'
@@ -335,8 +428,10 @@ export const parseId3V2Tag = (slice, header, tags) => {
                                 : 'image/*';
                     }
                     else {
-                        mimeType = reader.readId3V2Text(encoding, frameEndPos);
+                        // The text encoding only applies to the description
+                        mimeType = reader.readId3V2Text(Id3V2TextEncoding.ISO_8859_1, frameEndPos);
                     }
+                    ensureFrameHasBytes(1);
                     const pictureType = reader.readU8();
                     const description = reader.readId3V2Text(encoding, frameEndPos).trimEnd(); // Trim ending spaces
                     const imageDataSize = frameEndPos - reader.pos;
@@ -365,7 +460,22 @@ export const parseId3V2Tag = (slice, header, tags) => {
                 ;
                 break;
         }
-        reader.pos = frameEndPos;
+        reader.pos = nextFramePos;
+    }
+    if (year !== null) {
+        let date = createUtcDate(year);
+        const dayAndMonthMatch = /^(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])$/.exec(dayAndMonth ?? '');
+        if (dayAndMonthMatch) {
+            const day = Number(dayAndMonthMatch[1]);
+            const fullDate = createUtcDate(year, Number(dayAndMonthMatch[2]) - 1, day);
+            // Out-of-range fields like a February 31 would otherwise roll over
+            if (fullDate.getUTCDate() === day) {
+                date = fullDate;
+            }
+        }
+        if (!Number.isNaN(date.getTime())) {
+            tags.date ??= date;
+        }
     }
 };
 // https://id3.org/id3v2.3.0
@@ -374,31 +484,41 @@ export class Id3V2Reader {
         this.header = header;
         this.bytes = bytes;
         this.pos = 0;
+        this.ownsBytes = false;
         this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     }
     frameHeaderSize() {
         return this.header.majorVersion === 2 ? 6 : 10;
     }
     ununsynchronizeAll() {
-        const newBytes = [];
+        // Removing bytes can only make it shorter
+        const newBytes = new Uint8Array(this.bytes.length);
+        let newLength = 0;
         for (let i = 0; i < this.bytes.length; i++) {
             const value1 = this.bytes[i];
-            newBytes.push(value1);
+            newBytes[newLength++] = value1;
             if (value1 === 0xff && i !== this.bytes.length - 1) {
-                const value2 = this.bytes[i];
+                const value2 = this.bytes[i + 1];
                 if (value2 === 0x00) {
                     i++;
                 }
             }
         }
-        this.bytes = new Uint8Array(newBytes);
-        this.view = new DataView(this.bytes.buffer);
+        this.bytes = newBytes.subarray(0, newLength);
+        this.view = toDataView(this.bytes);
     }
     ununsynchronizeRegion(start, end) {
-        const newBytes = [];
+        if (!this.ownsBytes) {
+            // The bytes might belong to the file, which we must not modify
+            this.bytes = this.bytes.slice();
+            this.view = toDataView(this.bytes);
+            this.ownsBytes = true;
+        }
+        // Done in place rather than rebuilding the entire tag, which keeps it cheap for tags with tons of frames
+        let writePos = start;
         for (let i = start; i < end; i++) {
             const value1 = this.bytes[i];
-            newBytes.push(value1);
+            this.bytes[writePos++] = value1;
             if (value1 === 0xff && i !== end - 1) {
                 const value2 = this.bytes[i + 1];
                 if (value2 === 0x00) {
@@ -406,17 +526,7 @@ export class Id3V2Reader {
                 }
             }
         }
-        const before = this.bytes.subarray(0, start);
-        const after = this.bytes.subarray(end);
-        this.bytes = new Uint8Array(before.length + newBytes.length + after.length);
-        this.bytes.set(before, 0);
-        this.bytes.set(newBytes, before.length);
-        this.bytes.set(after, before.length + newBytes.length);
-        this.view = new DataView(this.bytes.buffer);
-    }
-    removeFooter() {
-        this.bytes = this.bytes.subarray(0, this.bytes.length - ID3_V2_HEADER_SIZE);
-        this.view = new DataView(this.bytes.buffer);
+        return writePos;
     }
     readBytes(length) {
         const slice = this.bytes.subarray(this.pos, this.pos + length);
@@ -435,7 +545,7 @@ export class Id3V2Reader {
     }
     readU24() {
         const high = this.view.getUint16(this.pos, false);
-        const low = this.view.getUint8(this.pos + 1);
+        const low = this.view.getUint8(this.pos + 2);
         this.pos += 3;
         return high * 0x100 + low;
     }
@@ -468,7 +578,9 @@ export class Id3V2Reader {
                 return null;
             }
             const sizeRaw = this.readU32();
-            let size = this.header.majorVersion === 4
+            // A size with any high bit set isn't synchsafe, leaving only the plain interpretation
+            const canBeSynchsafe = (sizeRaw & 0x80808080) === 0;
+            let size = this.header.majorVersion === 4 && canBeSynchsafe
                 ? decodeSynchsafe(sizeRaw)
                 : sizeRaw;
             const flags = this.readU16();
@@ -477,12 +589,12 @@ export class Id3V2Reader {
             // we validate a size by skipping ahead and seeing if we land at a valid frame header (or at the end of the
             // tag.
             const isSizeValid = (size) => {
-                const nextPos = this.pos + size;
+                const nextPos = headerEndPos + size;
                 if (nextPos > this.bytes.length) {
                     return false;
                 }
                 if (nextPos <= this.bytes.length - this.frameHeaderSize()) {
-                    this.pos += size;
+                    this.pos = nextPos;
                     const nextId = this.readAscii(4);
                     if (nextId !== '\x00\x00\x00\x00' && !/[0-9A-Z]{4}/.test(nextId)) {
                         return false;
@@ -490,7 +602,7 @@ export class Id3V2Reader {
                 }
                 return true;
             };
-            if (!isSizeValid(size)) {
+            if (canBeSynchsafe && !isSizeValid(size)) {
                 // Flip the synchsafing, and try if this one makes more sense
                 const otherSize = this.header.majorVersion === 4
                     ? sizeRaw
@@ -538,6 +650,11 @@ export class Id3V2Reader {
                     const endIndex = coalesceIndex(data.findIndex((x, i) => x === 0 && data[i + 1] === 0 && i % 2 === 0), data.length);
                     this.pos = startPos + Math.min(endIndex + 2, data.length);
                     return decoder.decode(data.subarray(2, endIndex));
+                }
+                else if (data[0] === 0 && data[1] === 0) {
+                    // Some writers leave out the BOM for empty strings
+                    this.pos = startPos + 2;
+                    return '';
                 }
                 else {
                     // Treat it like UTF-8, some files do this
@@ -655,6 +772,13 @@ export class Id3V2Writer {
                     }
                     ;
                     break;
+                case 'beatsPerMinute':
+                    {
+                        this.writeId3V2TextFrame('TBPM', `${value}`);
+                        writtenTags.add('TBPM');
+                    }
+                    ;
+                    break;
                 case 'lyrics':
                     {
                         this.writeId3V2LyricsFrame(value);
@@ -677,6 +801,7 @@ export class Id3V2Writer {
                             const description = image.description ?? '';
                             this.writeId3V2ApicFrame(image.mimeType, pictureType, description, image.data);
                         }
+                        writtenTags.add('APIC');
                     }
                     ;
                     break;
@@ -693,6 +818,12 @@ export class Id3V2Writer {
                     }
                     ;
                     break;
+                case 'creationTime':
+                    {
+                        // Not supported in ID3
+                    }
+                    ;
+                    break;
                 default: {
                     assertNever(key);
                 }
@@ -704,24 +835,69 @@ export class Id3V2Writer {
                 if (value == null || key.length !== 4 || writtenTags.has(key)) {
                     continue;
                 }
-                let bytes;
+                let frames;
                 if (typeof value === 'string') {
-                    const encoded = textEncoder.encode(value);
-                    bytes = new Uint8Array(encoded.byteLength + 2);
-                    bytes[0] = Id3V2TextEncoding.UTF_8;
-                    bytes.set(encoded, 1);
-                    // Last byte is the null terminator
+                    let bytes;
+                    const useIso88591 = isIso88591Compatible(value);
+                    if (useIso88591) {
+                        bytes = new Uint8Array(value.length + 2);
+                        bytes[0] = Id3V2TextEncoding.ISO_8859_1;
+                        for (let i = 0; i < value.length; i++) {
+                            bytes[i + 1] = value.charCodeAt(i);
+                        }
+                        // Last byte is the null terminator
+                    }
+                    else {
+                        const encoded = textEncoder.encode(value);
+                        bytes = new Uint8Array(encoded.byteLength + 2);
+                        bytes[0] = Id3V2TextEncoding.UTF_8;
+                        bytes.set(encoded, 1);
+                        // Last byte is the null terminator
+                    }
+                    frames = [bytes];
                 }
                 else if (value instanceof Uint8Array) {
-                    bytes = value;
+                    frames = [value];
+                }
+                else if (Array.isArray(value) && value.every(x => x instanceof Uint8Array)) {
+                    // Write one frame per element
+                    frames = value;
+                }
+                else if (key === 'TXXX' && isRecordStringString(value)) {
+                    for (const description in value) {
+                        const frameValue = value[description];
+                        const useIso88591 = isIso88591Compatible(description) && isIso88591Compatible(frameValue);
+                        const encodedDescription = useIso88591 ? null : textEncoder.encode(description);
+                        const encodedValue = useIso88591 ? null : textEncoder.encode(frameValue);
+                        const descriptionDataLength = useIso88591 ? description.length : encodedDescription.byteLength;
+                        const valueDataLength = useIso88591 ? frameValue.length : encodedValue.byteLength;
+                        const frameSize = 1 + descriptionDataLength + 1 + valueDataLength + 1;
+                        this.writeAscii('TXXX');
+                        this.writeSynchsafeU32(frameSize);
+                        this.writeU16(0x0000);
+                        this.writeU8(useIso88591 ? Id3V2TextEncoding.ISO_8859_1 : Id3V2TextEncoding.UTF_8);
+                        if (useIso88591) {
+                            this.writeIsoString(description);
+                            this.writeIsoString(frameValue);
+                        }
+                        else {
+                            this.writer.write(encodedDescription);
+                            this.writeU8(0x00);
+                            this.writer.write(encodedValue);
+                            this.writeU8(0x00);
+                        }
+                    }
+                    continue;
                 }
                 else {
                     continue;
                 }
-                this.writeAscii(key);
-                this.writeSynchsafeU32(bytes.byteLength);
-                this.writeU16(0x0000);
-                this.writer.write(bytes);
+                for (const bytes of frames) {
+                    this.writeAscii(key);
+                    this.writeSynchsafeU32(bytes.byteLength);
+                    this.writeU16(0x0000);
+                    this.writer.write(bytes);
+                }
             }
         }
         const framesEndPos = this.writer.getPos();
@@ -758,7 +934,7 @@ export class Id3V2Writer {
         for (let i = 0; i < text.length; i++) {
             bytes[i] = text.charCodeAt(i);
         }
-        bytes[text.length] = 0x00;
+        // Last byte is the null terminator
         this.writer.write(bytes);
     }
     writeUtf8String(text) {
@@ -783,8 +959,11 @@ export class Id3V2Writer {
     }
     writeId3V2LyricsFrame(lyrics) {
         const useIso88591 = isIso88591Compatible(lyrics);
+        const textDataLength = useIso88591
+            ? lyrics.length
+            : textEncoder.encode(lyrics).byteLength;
         const shortDescription = '';
-        const frameSize = 1 + 3 + shortDescription.length + 1 + lyrics.length + 1;
+        const frameSize = 1 + 3 + shortDescription.length + 1 + textDataLength + 1;
         this.writeAscii('USLT');
         this.writeSynchsafeU32(frameSize);
         this.writeU16(0x0000);
@@ -822,10 +1001,13 @@ export class Id3V2Writer {
     }
     writeId3V2ApicFrame(mimeType, pictureType, description, imageData) {
         const useIso88591 = isIso88591Compatible(mimeType) && isIso88591Compatible(description);
+        const mimeTypeDataLength = useIso88591
+            ? mimeType.length
+            : textEncoder.encode(mimeType).byteLength;
         const descriptionDataLength = useIso88591
             ? description.length
             : textEncoder.encode(description).byteLength;
-        const frameSize = 1 + mimeType.length + 1 + 1 + descriptionDataLength + 1 + imageData.byteLength;
+        const frameSize = 1 + mimeTypeDataLength + 1 + 1 + descriptionDataLength + 1 + imageData.byteLength;
         this.writeAscii('APIC');
         this.writeSynchsafeU32(frameSize);
         this.writeU16(0x0000);

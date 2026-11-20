@@ -5,24 +5,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { Bitstream } from '../../shared/bitstream.js';
-import { COLOR_PRIMARIES_MAP, MATRIX_COEFFICIENTS_MAP, TRANSFER_CHARACTERISTICS_MAP, UNDETERMINED_LANGUAGE, assert, assertNever, colorSpaceIsComplete, imageMimeTypeToExtension, keyValueIterator, normalizeRotation, promiseWithResolvers, roundToMultiple, simplifyRational, textEncoder, toUint8Array, uint8ArraysAreEqual, writeBits, } from '../misc.js';
-import { CODEC_STRING_MAP, EBMLFloat32, EBMLFloat64, EBMLId, EBMLSignedInt, EBMLUnicodeString, EBMLWriter, } from './ebml.js';
+import { COLOR_PRIMARIES_MAP, MATRIX_COEFFICIENTS_MAP, TRANSFER_CHARACTERISTICS_MAP, UNDETERMINED_LANGUAGE, assert, assertNever, colorSpaceIsEmpty, extractRotationFromMatrix, imageMimeTypeToExtension, keyValueIterator, multiplyMatrices, normalizeRotation, promiseWithResolvers, RAD_TO_DEG, rotationMatrix, simplifyRational, textEncoder, toUint8Array, uint8ArraysAreEqual, roundToDivisor, } from '../misc.js';
+import { CODEC_STRING_MAP, EBML_DATE_EPOCH, EBMLFloat32, EBMLFloat64, EBMLId, EBMLSignedInt, EBMLUnicodeString, EBMLWriter, } from './ebml.js';
 import { buildMatroskaMimeType } from './matroska-misc.js';
 import { WebMOutputFormat } from '../output-format.js';
-import { formatSubtitleTimestamp, inlineTimestampRegex, parseSubtitleTimestamp, convertDialogueLineToMkvFormat, } from '../subtitles.js';
-import { aacChannelMap, aacFrequencyTable, buildAacAudioSpecificConfig } from '../../shared/aac-misc.js';
-import { OPUS_SAMPLE_RATE, PCM_AUDIO_CODECS, generateAv1CodecConfigurationFromCodecString, generateVp9CodecConfigurationFromCodecString, parsePcmCodec, validateAudioChunkMetadata, validateSubtitleMetadata, validateVideoChunkMetadata, } from '../codec.js';
+import { formatSubtitleTimestamp, inlineTimestampRegex, parseSubtitleTimestamp, } from '../subtitles.js';
+import { aacChannelMap, aacFrequencyTable, buildAacAudioSpecificConfig, getAacProgramConfigElementChannelCount, parseAacAudioSpecificConfig, readAdtsProgramConfigElement, } from '../../shared/aac-misc.js';
+import { PCM_AUDIO_CODECS, generateAv1CodecConfigurationFromCodecString, getAudioPreRollDuration, generateVp9CodecConfigurationFromCodecString, parsePcmCodec, validateAudioChunkMetadata, validateSubtitleMetadata, validateVideoChunkMetadata, } from '../codec.js';
 import { MAX_ADTS_FRAME_HEADER_SIZE, MIN_ADTS_FRAME_HEADER_SIZE, readAdtsFrameHeader } from '../adts/adts-reader.js';
 import { FileSlice } from '../reader.js';
 import { Muxer } from '../muxer.js';
-import { parseOpusIdentificationHeader } from '../codec-data.js';
 import { AttachedFile } from '../metadata.js';
+import { Logging } from '../logging.js';
+import { VERSIONED_NAME } from '../version.js';
 const MIN_CLUSTER_TIMESTAMP_MS = -(2 ** 15);
 const MAX_CLUSTER_TIMESTAMP_MS = 2 ** 15 - 1;
-const APP_NAME = 'Mediabunny';
 const SEGMENT_SIZE_BYTES = 6;
-const CLUSTER_SIZE_BYTES = 5;
+const CLUSTER_SIZE_BYTES = 6;
 const TRACK_TYPE_MAP = {
     video: 1,
     audio: 2,
@@ -32,6 +31,7 @@ export class MatroskaMuxer extends Muxer {
     constructor(output, format) {
         super(output);
         this.trackDatas = [];
+        this.closedTracks = new Set();
         this.allTracksKnown = promiseWithResolvers();
         this.segment = null;
         this.segmentInfo = null;
@@ -41,25 +41,34 @@ export class MatroskaMuxer extends Muxer {
         this.attachmentsElement = null;
         this.segmentDuration = null;
         this.cues = null;
-        this.currentCluster = null;
+        this.currentClusterBlocks = [];
         this.currentClusterStartMsTimestamp = null;
         this.currentClusterMaxMsTimestamp = null;
-        this.trackDatasInCurrentCluster = new Map();
-        this.duration = 0;
-        this.writer = output._writer;
+        this.endTimestamp = -Infinity;
+        this.warnedAboutTooNegativeTimestamp = false;
         this.format = format;
-        this.ebmlWriter = new EBMLWriter(this.writer);
-        if (this.format._options.appendOnly) {
-            this.writer.ensureMonotonicity = true;
-        }
     }
     async start() {
         const release = await this.mutex.acquire();
-        this.writeEBMLHeader();
-        this.createSegmentInfo();
-        this.createCues();
-        await this.writer.flush();
-        release();
+        try {
+            this.writer = await this.output._getRootWriter(!!this.format._options.appendOnly);
+            this.ebmlWriter = new EBMLWriter(this.writer);
+            this.writeEBMLHeader();
+            this.createSegmentInfo();
+            this.createCues();
+            await this.writer.flush();
+            for (const track of this.output.tracks) {
+                if (track.isVideoTrack() && track.metadata.decoderConfig) {
+                    this.getVideoTrackData(track, track.metadata.primingPacket ?? null, { decoderConfig: track.metadata.decoderConfig });
+                }
+                else if (track.isAudioTrack() && track.metadata.decoderConfig) {
+                    this.getAudioTrackData(track, track.metadata.primingPacket ?? null, { decoderConfig: track.metadata.decoderConfig });
+                }
+            }
+        }
+        finally {
+            release();
+        }
     }
     writeEBMLHeader() {
         if (this.format._options.onEbmlHeader) {
@@ -71,7 +80,7 @@ export class MatroskaMuxer extends Muxer {
                 { id: EBMLId.EBMLMaxIDLength, data: 4 },
                 { id: EBMLId.EBMLMaxSizeLength, data: 8 },
                 { id: EBMLId.DocType, data: this.format instanceof WebMOutputFormat ? 'webm' : 'matroska' },
-                { id: EBMLId.DocTypeVersion, data: 2 },
+                { id: EBMLId.DocTypeVersion, data: 4 },
                 { id: EBMLId.DocTypeReadVersion, data: 2 },
             ] };
         this.ebmlWriter.writeEBML(ebmlHeader);
@@ -93,17 +102,8 @@ export class MatroskaMuxer extends Muxer {
         const kaxTracks = new Uint8Array([0x16, 0x54, 0xae, 0x6b]);
         const kaxAttachments = new Uint8Array([0x19, 0x41, 0xa4, 0x69]);
         const kaxTags = new Uint8Array([0x12, 0x54, 0xc3, 0x67]);
+        // Entries are ordered by their position in the file
         const seekHead = { id: EBMLId.SeekHead, data: [
-                { id: EBMLId.Seek, data: [
-                        { id: EBMLId.SeekID, data: kaxCues },
-                        {
-                            id: EBMLId.SeekPosition,
-                            size: 5,
-                            data: writeOffsets
-                                ? this.ebmlWriter.offsets.get(this.cues) - this.segmentDataOffset
-                                : 0,
-                        },
-                    ] },
                 { id: EBMLId.Seek, data: [
                         { id: EBMLId.SeekID, data: kaxInfo },
                         {
@@ -148,17 +148,40 @@ export class MatroskaMuxer extends Muxer {
                             },
                         ] }
                     : null,
+                { id: EBMLId.Seek, data: [
+                        { id: EBMLId.SeekID, data: kaxCues },
+                        {
+                            id: EBMLId.SeekPosition,
+                            size: 5,
+                            data: writeOffsets
+                                ? this.ebmlWriter.offsets.get(this.cues) - this.segmentDataOffset
+                                : 0,
+                        },
+                    ] },
             ] };
         this.seekHead = seekHead;
     }
     createSegmentInfo() {
         const segmentDuration = { id: EBMLId.Duration, data: new EBMLFloat64(0) };
         this.segmentDuration = segmentDuration;
+        const creationDate = this.output._metadataTags.creationTime === undefined
+            ? new Date()
+            : this.output._metadataTags.creationTime;
+        let dateUtc = null;
+        if (creationDate) {
+            const nanoseconds = 1000000n * BigInt(creationDate.getTime() - EBML_DATE_EPOCH);
+            if (BigInt.asIntN(64, nanoseconds) !== nanoseconds) {
+                throw new Error('creationTime is out of the range representable by Matroska files.');
+            }
+            // Signed 64-bit integer, two's complement
+            dateUtc = { id: EBMLId.DateUTC, size: 8, data: BigInt.asUintN(64, nanoseconds) };
+        }
         const segmentInfo = { id: EBMLId.Info, data: [
                 { id: EBMLId.TimestampScale, data: 1e6 },
-                { id: EBMLId.MuxingApp, data: APP_NAME },
-                { id: EBMLId.WritingApp, data: APP_NAME },
                 !this.format._options.appendOnly ? segmentDuration : null,
+                dateUtc,
+                { id: EBMLId.MuxingApp, data: VERSIONED_NAME },
+                { id: EBMLId.WritingApp, data: VERSIONED_NAME },
             ] };
         this.segmentInfo = segmentInfo;
     }
@@ -166,18 +189,25 @@ export class MatroskaMuxer extends Muxer {
         const tracksElement = { id: EBMLId.Tracks, data: [] };
         this.tracksElement = tracksElement;
         for (const trackData of this.trackDatas) {
-            const codecId = CODEC_STRING_MAP[trackData.track.source._codec];
+            let codecId = CODEC_STRING_MAP[trackData.track.source._codec];
             assert(codecId);
-            let seekPreRollNs = 0;
-            if (trackData.type === 'audio' && trackData.track.source._codec === 'opus') {
-                seekPreRollNs = 1e6 * 80; // In "Matroska ticks" (nanoseconds)
-                const description = trackData.info.decoderConfig.description;
-                if (description) {
-                    const bytes = toUint8Array(description);
-                    const header = parseOpusIdentificationHeader(bytes);
-                    // Use the preSkip value from the header
-                    seekPreRollNs = Math.round(1e9 * (header.preSkip / OPUS_SAMPLE_RATE));
+            if (trackData.type === 'audio' && trackData.track.source._codec === 'dts') {
+                // We can further refine the Codec ID
+                if (trackData.info.decoderConfig.codec === 'dtse') {
+                    codecId = 'A_DTS/EXPRESS';
                 }
+                else if (trackData.info.decoderConfig.codec === 'dtsl') {
+                    codecId = 'A_DTS/LOSSLESS';
+                }
+            }
+            else if (trackData.type === 'subtitle' && this.format instanceof WebMOutputFormat) {
+                // WebM has its own Codec ID for WebVTT, instead of Matroska's. So weird
+                codecId = 'D_WEBVTT/SUBTITLES';
+            }
+            let seekPreRollNs = 0; // In "Matroska ticks" (nanoseconds)
+            if (trackData.type === 'audio') {
+                const preRollDuration = getAudioPreRollDuration(trackData.track.source._codec, trackData.info.decoderConfig);
+                seekPreRollNs = Math.round(1e9 * preRollDuration);
             }
             tracksElement.data.push({ id: EBMLId.TrackEntry, data: [
                     { id: EBMLId.TrackNumber, data: trackData.track.id },
@@ -202,10 +232,19 @@ export class MatroskaMuxer extends Muxer {
                         ? { id: EBMLId.FlagCommentary, data: 1 }
                         : null,
                     { id: EBMLId.FlagLacing, data: 0 },
+                    (trackData.type === 'video' && trackData.info.alphaMode)
+                        || (trackData.type === 'subtitle' && !(this.format instanceof WebMOutputFormat))
+                        ? { id: EBMLId.MaxBlockAdditionID, data: 1 } // Must be declared if it's used
+                        : null,
                     { id: EBMLId.Language, data: trackData.track.metadata.languageCode ?? UNDETERMINED_LANGUAGE },
                     { id: EBMLId.CodecID, data: codecId },
-                    { id: EBMLId.CodecDelay, data: 0 },
-                    { id: EBMLId.SeekPreRoll, data: seekPreRollNs },
+                    trackData.codecPrivate
+                        ? { id: EBMLId.CodecPrivate, data: toUint8Array(trackData.codecPrivate) }
+                        : null,
+                    trackData.type === 'audio' && trackData.info.codecDelay
+                        ? { id: EBMLId.CodecDelay, data: Math.round(1e9 * trackData.info.codecDelay) }
+                        : null,
+                    seekPreRollNs > 0 ? { id: EBMLId.SeekPreRoll, data: seekPreRollNs } : null,
                     trackData.track.metadata.name !== undefined
                         ? { id: EBMLId.Name, data: new EBMLUnicodeString(trackData.track.metadata.name) }
                         : null,
@@ -216,23 +255,43 @@ export class MatroskaMuxer extends Muxer {
         }
     }
     videoSpecificTrackInfo(trackData) {
-        const { frameRate, rotation } = trackData.track.metadata;
+        const { frameRate, transformationMatrix } = trackData.track.metadata;
         const elements = [
-            (trackData.info.decoderConfig.description
-                ? {
-                    id: EBMLId.CodecPrivate,
-                    data: toUint8Array(trackData.info.decoderConfig.description),
-                }
-                : null),
             (frameRate
                 ? {
                     id: EBMLId.DefaultDuration,
-                    data: 1e9 / frameRate,
+                    data: Math.round(1e9 / frameRate),
                 }
                 : null),
         ];
-        // Convert from clockwise to counter-clockwise
-        const flippedRotation = rotation ? normalizeRotation(-rotation) : 0;
+        // Matroska can only express the transformation as a rotation and per-axis scales of -1, 0 or 1, so we boil
+        // the metadata down to that: a clockwise rotation followed by the scales
+        let rotation;
+        let horizontalScale;
+        let verticalScale;
+        if (transformationMatrix) {
+            rotation = extractRotationFromMatrix(transformationMatrix);
+            // Undo the rotation to isolate the scale part
+            const unrotated = multiplyMatrices(rotationMatrix(-rotation), transformationMatrix);
+            horizontalScale = Math.sign(unrotated[0]);
+            verticalScale = Math.sign(unrotated[4]);
+            if (verticalScale === -1) {
+                // A vertical flip is the same as a 180 degree rotation and a horizontal flip
+                verticalScale = 1;
+                horizontalScale = -horizontalScale;
+                rotation = normalizeRotation(rotation + 180);
+            }
+        }
+        else {
+            rotation = trackData.track.metadata.rotation ?? 0;
+            horizontalScale = trackData.track.metadata.flip ? -1 : 1;
+            verticalScale = 1;
+        }
+        // Matroska applies yaw and pitch (our scales) before roll, but our rotation comes before the scales. On top of
+        // that, Matroska wants counter-clockwise angles.
+        const roll = rotation ? normalizeRotation(horizontalScale === -1 ? rotation : -rotation) : 0;
+        const yaw = Math.round(Math.acos(horizontalScale) * RAD_TO_DEG);
+        const pitch = Math.round(Math.acos(verticalScale) * RAD_TO_DEG);
         const hasNonSquarePixelAspectRatio = !!trackData.info.aspectRatio && (trackData.info.aspectRatio.num * trackData.info.height
             !== trackData.info.aspectRatio.den * trackData.info.width);
         const colorSpace = trackData.info.decoderConfig.colorSpace;
@@ -243,30 +302,32 @@ export class MatroskaMuxer extends Muxer {
                 (hasNonSquarePixelAspectRatio ? { id: EBMLId.DisplayHeight, data: trackData.info.aspectRatio.den } : null),
                 (hasNonSquarePixelAspectRatio ? { id: EBMLId.DisplayUnit, data: 3 } : null), // 3 = display aspect ratio
                 trackData.info.alphaMode ? { id: EBMLId.AlphaMode, data: 1 } : null,
-                (colorSpaceIsComplete(colorSpace)
-                    ? {
+                (colorSpaceIsEmpty(colorSpace)
+                    ? null
+                    : {
                         id: EBMLId.Colour,
                         data: [
                             {
                                 id: EBMLId.MatrixCoefficients,
-                                data: MATRIX_COEFFICIENTS_MAP[colorSpace.matrix],
+                                data: colorSpace?.matrix != null ? MATRIX_COEFFICIENTS_MAP[colorSpace.matrix] : 2,
                             },
                             {
                                 id: EBMLId.TransferCharacteristics,
-                                data: TRANSFER_CHARACTERISTICS_MAP[colorSpace.transfer],
+                                data: colorSpace?.transfer != null
+                                    ? TRANSFER_CHARACTERISTICS_MAP[colorSpace.transfer]
+                                    : 2,
                             },
                             {
                                 id: EBMLId.Primaries,
-                                data: COLOR_PRIMARIES_MAP[colorSpace.primaries],
+                                data: colorSpace?.primaries != null ? COLOR_PRIMARIES_MAP[colorSpace.primaries] : 2,
                             },
                             {
                                 id: EBMLId.Range,
-                                data: colorSpace.fullRange ? 2 : 1,
+                                data: colorSpace?.fullRange != null ? (colorSpace.fullRange ? 2 : 1) : 0,
                             },
                         ],
-                    }
-                    : null),
-                (flippedRotation
+                    }),
+                (roll || yaw || pitch
                     ? {
                         id: EBMLId.Projection,
                         data: [
@@ -274,10 +335,24 @@ export class MatroskaMuxer extends Muxer {
                                 id: EBMLId.ProjectionType,
                                 data: 0, // rectangular
                             },
-                            {
-                                id: EBMLId.ProjectionPoseRoll,
-                                data: new EBMLFloat32((flippedRotation + 180) % 360 - 180), // [0, 270] -> [-180, 90]
-                            },
+                            (yaw
+                                ? {
+                                    id: EBMLId.ProjectionPoseYaw,
+                                    data: new EBMLFloat32(yaw),
+                                }
+                                : null),
+                            (pitch
+                                ? {
+                                    id: EBMLId.ProjectionPosePitch,
+                                    data: new EBMLFloat32(pitch),
+                                }
+                                : null),
+                            (roll
+                                ? {
+                                    id: EBMLId.ProjectionPoseRoll,
+                                    data: new EBMLFloat32((roll + 180) % 360 - 180), // [0, 270] -> [-180, 90]
+                                }
+                                : null),
                         ],
                     }
                     : null),
@@ -289,24 +364,28 @@ export class MatroskaMuxer extends Muxer {
         const pcmInfo = PCM_AUDIO_CODECS.includes(trackData.track.source._codec)
             ? parsePcmCodec(trackData.track.source._codec)
             : null;
+        // For AAC, SamplingFrequency is the rate of the core coder, while the rate the decoder actually outputs (like
+        // SBR's doubled one) goes into OutputSamplingFrequency
+        let samplingFrequency = trackData.info.sampleRate;
+        if (trackData.track.source._codec === 'aac') {
+            assert(trackData.codecPrivate);
+            const config = parseAacAudioSpecificConfig(toUint8Array(trackData.codecPrivate));
+            samplingFrequency = config.coreSampleRate ?? samplingFrequency;
+        }
         return [
-            (trackData.info.decoderConfig.description
-                ? {
-                    id: EBMLId.CodecPrivate,
-                    data: toUint8Array(trackData.info.decoderConfig.description),
-                }
-                : null),
             { id: EBMLId.Audio, data: [
-                    { id: EBMLId.SamplingFrequency, data: new EBMLFloat32(trackData.info.sampleRate) },
+                    { id: EBMLId.SamplingFrequency, data: new EBMLFloat32(samplingFrequency) },
+                    samplingFrequency !== trackData.info.sampleRate
+                        ? { id: EBMLId.OutputSamplingFrequency, data: new EBMLFloat32(trackData.info.sampleRate) }
+                        : null,
                     { id: EBMLId.Channels, data: trackData.info.numberOfChannels },
                     pcmInfo ? { id: EBMLId.BitDepth, data: 8 * pcmInfo.sampleSize } : null,
                 ] },
         ];
     }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     subtitleSpecificTrackInfo(trackData) {
-        return [
-            { id: EBMLId.CodecPrivate, data: textEncoder.encode(trackData.info.config.description) },
-        ];
+        return [];
     }
     maybeCreateTags() {
         const simpleTags = [];
@@ -364,6 +443,13 @@ export class MatroskaMuxer extends Muxer {
                     }
                     ;
                     break;
+                case 'beatsPerMinute':
+                    {
+                        addSimpleTag('BPM', value.toString());
+                        writtenTags.add('BPM');
+                    }
+                    ;
+                    break;
                 case 'comment':
                     {
                         addSimpleTag('COMMENT', value);
@@ -414,6 +500,7 @@ export class MatroskaMuxer extends Muxer {
                     break;
                 case 'images':
                 case 'raw':
+                case 'creationTime':
                     {
                         // Handled elsewhere
                     }
@@ -552,8 +639,8 @@ export class MatroskaMuxer extends Muxer {
         return this.ebmlWriter.dataOffsets.get(this.segment);
     }
     allTracksAreKnown() {
-        for (const track of this.output._tracks) {
-            if (!track.source._closed && !this.trackDatas.some(x => x.track === track)) {
+        for (const track of this.output.tracks) {
+            if (!this.closedTracks.has(track) && !this.trackDatas.some(x => x.track === track)) {
                 return false; // We haven't seen a sample from this open track yet
             }
         }
@@ -570,12 +657,7 @@ export class MatroskaMuxer extends Muxer {
             }
             else {
                 const map = {
-                    webvtt: 'S_TEXT/WEBVTT',
-                    tx3g: 'S_TEXT/UTF8', // Matroska doesn't have tx3g, convert to SRT
-                    ttml: 'S_TEXT/WEBVTT', // Matroska doesn't have TTML, convert to WebVTT
-                    srt: 'S_TEXT/UTF8',
-                    ass: 'S_TEXT/ASS',
-                    ssa: 'S_TEXT/SSA',
+                    webvtt: 'wvtt',
                 };
                 return map[trackData.track.source._codec];
             }
@@ -592,7 +674,7 @@ export class MatroskaMuxer extends Muxer {
         if (existingTrackData) {
             return existingTrackData;
         }
-        validateVideoChunkMetadata(meta);
+        validateVideoChunkMetadata(meta, track.source._codec);
         assert(meta);
         assert(meta.decoderConfig);
         assert(meta.decoderConfig.codedWidth !== undefined);
@@ -613,27 +695,26 @@ export class MatroskaMuxer extends Muxer {
                 height: meta.decoderConfig.codedHeight,
                 aspectRatio,
                 decoderConfig: meta.decoderConfig,
-                alphaMode: !!packet.sideData.alpha, // The first packet determines if this track has alpha or not
+                alphaMode: track.metadata.canBeTransparent || (packet ? !!packet.sideData.alpha : null),
             },
             chunkQueue: [],
             lastWrittenMsTimestamp: null,
+            codecPrivate: meta.decoderConfig.description ?? null,
         };
         if (track.source._codec === 'vp9') {
             // https://www.webmproject.org/docs/container specifies that VP9 "SHOULD" make use of the CodecPrivate
             // field. Since WebCodecs makes no use of the description field for VP9, we need to derive it ourselves:
-            newTrackData.info.decoderConfig = {
-                ...newTrackData.info.decoderConfig,
-                description: new Uint8Array(generateVp9CodecConfigurationFromCodecString(newTrackData.info.decoderConfig.codec)),
-            };
+            newTrackData.codecPrivate = new Uint8Array(generateVp9CodecConfigurationFromCodecString(newTrackData.info.decoderConfig.codec));
         }
         else if (track.source._codec === 'av1') {
             // Per https://github.com/ietf-wg-cellar/matroska-specification/blob/master/codec/av1.md, AV1 requires
             // CodecPrivate to be set, but WebCodecs makes no use of the description field for AV1. Thus, let's derive
             // it ourselves:
-            newTrackData.info.decoderConfig = {
-                ...newTrackData.info.decoderConfig,
-                description: new Uint8Array(generateAv1CodecConfigurationFromCodecString(newTrackData.info.decoderConfig.codec)),
-            };
+            newTrackData.codecPrivate = new Uint8Array(generateAv1CodecConfigurationFromCodecString(newTrackData.info.decoderConfig.codec));
+        }
+        else if (track.source._codec === 'prores') {
+            // "The Private Data contains the FourCC as found in MP4 movies"
+            newTrackData.codecPrivate = textEncoder.encode(meta.decoderConfig.codec);
         }
         this.trackDatas.push(newTrackData);
         this.trackDatas.sort((a, b) => a.track.id - b.track.id);
@@ -647,7 +728,7 @@ export class MatroskaMuxer extends Muxer {
         if (existingTrackData) {
             return existingTrackData;
         }
-        validateAudioChunkMetadata(meta);
+        validateAudioChunkMetadata(meta, track.source._codec);
         assert(meta);
         assert(meta.decoderConfig);
         const decoderConfig = { ...meta.decoderConfig };
@@ -655,6 +736,9 @@ export class MatroskaMuxer extends Muxer {
         if (track.source._codec === 'aac' && !decoderConfig.description) {
             // Matroska stores raw AAC with AudioSpecificConfig in CodecPrivate, not ADTS-wrapped data.
             // Parse the first packet to extract the AudioSpecificConfig.
+            if (!packet) {
+                throw new Error('No AAC description provided; you must therefore provide a priming packet.');
+            }
             const adtsFrame = readAdtsFrameHeader(FileSlice.tempFromBytes(packet.data));
             if (!adtsFrame) {
                 throw new Error('Couldn\'t parse ADTS header from the AAC packet. Make sure the packets are in ADTS format'
@@ -662,15 +746,28 @@ export class MatroskaMuxer extends Muxer {
                     + ' (must be an AudioSpecificConfig as specified in ISO 14496-3) and ensure the packets'
                     + ' are raw AAC data.');
             }
-            const sampleRate = aacFrequencyTable[adtsFrame.samplingFrequencyIndex];
-            const numberOfChannels = aacChannelMap[adtsFrame.channelConfiguration];
-            if (sampleRate === undefined || numberOfChannels === undefined) {
-                throw new Error('Invalid ADTS frame header.');
+            let numberOfChannels;
+            let programConfigElement = null;
+            if (adtsFrame.channelConfiguration === 0) {
+                // The channel layout is described by a PCE in the frame, which has to move into CodecPrivate
+                const headerSize = adtsFrame.crcCheck === null
+                    ? MIN_ADTS_FRAME_HEADER_SIZE
+                    : MAX_ADTS_FRAME_HEADER_SIZE;
+                const result = readAdtsProgramConfigElement(packet.data.subarray(headerSize));
+                if (!result) {
+                    throw new Error('ADTS frames with channel configuration 0 must begin with a program config element.');
+                }
+                programConfigElement = result.programConfigElement;
+                numberOfChannels = getAacProgramConfigElementChannelCount(programConfigElement);
+            }
+            else {
+                numberOfChannels = aacChannelMap[adtsFrame.channelConfiguration];
             }
             decoderConfig.description = buildAacAudioSpecificConfig({
                 objectType: adtsFrame.objectType,
-                sampleRate,
-                numberOfChannels,
+                outputSampleRate: aacFrequencyTable[adtsFrame.samplingFrequencyIndex],
+                outputNumberOfChannels: numberOfChannels,
+                programConfigElement,
             });
             requiresAdtsStripping = true;
         }
@@ -682,9 +779,11 @@ export class MatroskaMuxer extends Muxer {
                 sampleRate: meta.decoderConfig.sampleRate,
                 decoderConfig,
                 requiresAdtsStripping,
+                codecDelay: null,
             },
             chunkQueue: [],
             lastWrittenMsTimestamp: null,
+            codecPrivate: decoderConfig.description ?? null,
         };
         this.trackDatas.push(newTrackData);
         this.trackDatas.sort((a, b) => a.track.id - b.track.id);
@@ -709,6 +808,7 @@ export class MatroskaMuxer extends Muxer {
             },
             chunkQueue: [],
             lastWrittenMsTimestamp: null,
+            codecPrivate: textEncoder.encode(meta.config.description),
         };
         this.trackDatas.push(newTrackData);
         this.trackDatas.sort((a, b) => a.track.id - b.track.id);
@@ -721,20 +821,29 @@ export class MatroskaMuxer extends Muxer {
         const release = await this.mutex.acquire();
         try {
             const trackData = this.getVideoTrackData(track, packet, meta);
+            trackData.info.alphaMode ??= !!packet.sideData.alpha;
+            let packetData = packet.data;
+            if (track.source._codec === 'prores') {
+                if (packetData.byteLength < 8) {
+                    throw new Error('ProRes packet too small, expected at least 8 bytes.');
+                }
+                // Trim off the frame container atom header. FFmpeg does this too and cites the "Matroska spec" as the
+                // reason, despite the spec not saying anything about this.
+                packetData = packetData.subarray(8);
+            }
             const isKeyFrame = packet.type === 'key';
-            let timestamp = this.validateAndNormalizeTimestamp(trackData.track, packet.timestamp, isKeyFrame);
+            this.validateTimestamp(trackData.track, packet.timestamp, isKeyFrame);
+            let timestamp = packet.timestamp;
             let duration = packet.duration;
             if (track.metadata.frameRate !== undefined) {
                 // Constrain the time values to the frame rate
-                timestamp = roundToMultiple(timestamp, 1 / track.metadata.frameRate);
-                duration = roundToMultiple(duration, 1 / track.metadata.frameRate);
+                timestamp = roundToDivisor(timestamp, track.metadata.frameRate);
+                duration = roundToDivisor(duration, track.metadata.frameRate);
             }
             const additions = trackData.info.alphaMode
                 ? packet.sideData.alpha ?? null
                 : null;
-            const videoChunk = this.createInternalChunk(packet.data, timestamp, duration, packet.type, additions);
-            if (track.source._codec === 'vp9')
-                this.fixVP9ColorSpace(trackData, videoChunk);
+            const videoChunk = this.createInternalChunk(packetData, timestamp, duration, packet.type, additions);
             trackData.chunkQueue.push(videoChunk);
             await this.interleaveChunks();
         }
@@ -756,10 +865,19 @@ export class MatroskaMuxer extends Muxer {
                     ? MIN_ADTS_FRAME_HEADER_SIZE
                     : MAX_ADTS_FRAME_HEADER_SIZE;
                 packetData = packetData.subarray(headerLength);
+                if (adtsFrame.channelConfiguration === 0) {
+                    // CodecPrivate already carries the PCE
+                    const result = readAdtsProgramConfigElement(packetData);
+                    if (result) {
+                        packetData = packetData.subarray(result.size);
+                    }
+                }
             }
             const isKeyFrame = packet.type === 'key';
-            const timestamp = this.validateAndNormalizeTimestamp(trackData.track, packet.timestamp, isKeyFrame);
-            const audioChunk = this.createInternalChunk(packetData, timestamp, packet.duration, packet.type);
+            this.validateTimestamp(trackData.track, packet.timestamp, isKeyFrame);
+            // A negative start (like from encoder priming) is expressed this way.
+            trackData.info.codecDelay ??= Math.max(-packet.timestamp, 0);
+            const audioChunk = this.createInternalChunk(packetData, packet.timestamp + trackData.info.codecDelay, packet.duration, packet.type);
             trackData.chunkQueue.push(audioChunk);
             await this.interleaveChunks();
         }
@@ -771,23 +889,27 @@ export class MatroskaMuxer extends Muxer {
         const release = await this.mutex.acquire();
         try {
             const trackData = this.getSubtitleTrackData(track, meta);
-            const timestamp = this.validateAndNormalizeTimestamp(trackData.track, cue.timestamp, true);
+            this.validateTimestamp(trackData.track, cue.timestamp, true);
             let bodyText = cue.text;
-            const timestampMs = Math.round(timestamp * 1000);
-            if (track.source._codec === 'ass' || track.source._codec === 'ssa') {
-                bodyText = convertDialogueLineToMkvFormat(bodyText);
+            const timestampMs = Math.round(cue.timestamp * 1000);
+            // Replace in-body timestamps so that they're relative to the cue start time
+            inlineTimestampRegex.lastIndex = 0;
+            bodyText = bodyText.replace(inlineTimestampRegex, (match) => {
+                const time = parseSubtitleTimestamp(match.slice(1, -1));
+                const offsetTime = time - timestampMs;
+                return `<${formatSubtitleTimestamp(offsetTime / 1000)}>`;
+            });
+            let subtitleChunk;
+            if (this.format instanceof WebMOutputFormat) {
+                // WebM puts the identifier and settings in front of the cue text, and has no place for notes
+                const body = textEncoder.encode(`${cue.identifier ?? ''}\n${cue.settings ?? ''}\n${bodyText}`);
+                subtitleChunk = this.createInternalChunk(body, cue.timestamp, cue.duration, 'key');
             }
             else {
-                inlineTimestampRegex.lastIndex = 0;
-                bodyText = bodyText.replace(inlineTimestampRegex, (match) => {
-                    const time = parseSubtitleTimestamp(match.slice(1, -1));
-                    const offsetTime = time - timestampMs;
-                    return `<${formatSubtitleTimestamp(offsetTime)}>`;
-                });
+                const body = textEncoder.encode(bodyText);
+                const additions = `${cue.settings ?? ''}\n${cue.identifier ?? ''}\n${cue.notes ?? ''}`;
+                subtitleChunk = this.createInternalChunk(body, cue.timestamp, cue.duration, 'key', additions.trim() ? textEncoder.encode(additions) : null);
             }
-            const body = textEncoder.encode(bodyText);
-            const additions = `${cue.settings ?? ''}\n${cue.identifier ?? ''}\n${cue.notes ?? ''}`;
-            const subtitleChunk = this.createInternalChunk(body, timestamp, cue.duration, 'key', additions.trim() ? textEncoder.encode(additions) : null);
             trackData.chunkQueue.push(subtitleChunk);
             await this.interleaveChunks();
         }
@@ -803,7 +925,7 @@ export class MatroskaMuxer extends Muxer {
             let trackWithMinTimestamp = null;
             let minTimestamp = Infinity;
             for (const trackData of this.trackDatas) {
-                if (!isFinalCall && trackData.chunkQueue.length === 0 && !trackData.track.source._closed) {
+                if (!isFinalCall && trackData.chunkQueue.length === 0 && !this.closedTracks.has(trackData.track)) {
                     break outer;
                 }
                 if (trackData.chunkQueue.length > 0 && trackData.chunkQueue[0].timestamp < minTimestamp) {
@@ -815,50 +937,11 @@ export class MatroskaMuxer extends Muxer {
                 break;
             }
             const chunk = trackWithMinTimestamp.chunkQueue.shift();
-            this.writeBlock(trackWithMinTimestamp, chunk);
+            this.addBlock(trackWithMinTimestamp, chunk);
         }
         if (!isFinalCall) {
             await this.writer.flush();
         }
-    }
-    /**
-     * Due to [a bug in Chromium](https://bugs.chromium.org/p/chromium/issues/detail?id=1377842), VP9 streams often
-     * lack color space information. This method patches in that information.
-     */
-    fixVP9ColorSpace(trackData, chunk) {
-        // http://downloads.webmproject.org/docs/vp9/vp9-bitstream_superframe-and-uncompressed-header_v1.0.pdf
-        if (chunk.type !== 'key')
-            return;
-        if (!trackData.info.decoderConfig.colorSpace || !trackData.info.decoderConfig.colorSpace.matrix)
-            return;
-        const bitstream = new Bitstream(chunk.data);
-        bitstream.skipBits(2);
-        const profileLowBit = bitstream.readBits(1);
-        const profileHighBit = bitstream.readBits(1);
-        const profile = (profileHighBit << 1) + profileLowBit;
-        if (profile === 3)
-            bitstream.skipBits(1);
-        const showExistingFrame = bitstream.readBits(1);
-        if (showExistingFrame)
-            return;
-        const frameType = bitstream.readBits(1);
-        if (frameType !== 0)
-            return; // Just to be sure
-        bitstream.skipBits(2);
-        const syncCode = bitstream.readBits(24);
-        if (syncCode !== 0x498342)
-            return;
-        if (profile >= 2)
-            bitstream.skipBits(1);
-        const colorSpaceID = {
-            rgb: 7,
-            bt709: 2,
-            bt470bg: 1,
-            smpte170m: 3,
-        }[trackData.info.decoderConfig.colorSpace.matrix];
-        // The bitstream position is now at the start of the color space bits.
-        // We can use the global writeBits function here as requested.
-        writeBits(chunk.data, bitstream.pos, bitstream.pos + 3, colorSpaceID);
     }
     /** Converts a read-only external chunk into an internal one for easier use. */
     createInternalChunk(data, timestamp, duration, type, additions = null) {
@@ -871,8 +954,8 @@ export class MatroskaMuxer extends Muxer {
         };
         return internalChunk;
     }
-    /** Writes a block containing media data to the file. */
-    writeBlock(trackData, chunk) {
+    /** Adds a block containing media data to the current cluster. */
+    addBlock(trackData, chunk) {
         // Due to the interlacing algorithm, this code will be run once we've seen one chunk from every media track.
         if (!this.segment) {
             this.createSegment();
@@ -888,14 +971,13 @@ export class MatroskaMuxer extends Muxer {
             if (firstQueuedSample) {
                 return firstQueuedSample.type === 'key';
             }
-            return otherTrackData.track.source._closed;
+            return this.closedTracks.has(otherTrackData.track);
         });
         let shouldCreateNewCluster = false;
-        if (!this.currentCluster) {
+        if (this.currentClusterStartMsTimestamp === null) {
             shouldCreateNewCluster = true;
         }
         else {
-            assert(this.currentClusterStartMsTimestamp !== null);
             assert(this.currentClusterMaxMsTimestamp !== null);
             const relativeTimestamp = msTimestamp - this.currentClusterStartMsTimestamp;
             shouldCreateNewCluster = (keyFrameQueuedEverywhere
@@ -910,162 +992,197 @@ export class MatroskaMuxer extends Muxer {
                 || relativeTimestamp > MAX_CLUSTER_TIMESTAMP_MS;
         }
         if (shouldCreateNewCluster) {
-            this.createNewCluster(msTimestamp);
+            this.startNewCluster(msTimestamp);
         }
         const relativeTimestamp = msTimestamp - this.currentClusterStartMsTimestamp;
         if (relativeTimestamp < MIN_CLUSTER_TIMESTAMP_MS) {
             // The block lies too far in the past, it's not representable within this cluster
+            if (!this.warnedAboutTooNegativeTimestamp) {
+                const formatName = this.format instanceof WebMOutputFormat ? 'WebM' : 'Matroska';
+                Logging._warn(`Packets had to be discarded because their timestamp is too negative to represent in`
+                    + ` ${formatName}.`);
+                this.warnedAboutTooNegativeTimestamp = true;
+            }
             return;
         }
-        const prelude = new Uint8Array(4);
-        const view = new DataView(prelude.buffer);
-        // 0x80 to indicate it's the last byte of a multi-byte number
-        view.setUint8(0, 0x80 | trackData.track.id);
-        view.setInt16(1, relativeTimestamp, false);
-        const msDuration = Math.round(1000 * chunk.duration);
-        if (!chunk.additions) {
-            // No additions, we can write out a SimpleBlock
-            view.setUint8(3, Number(chunk.type === 'key') << 7); // Flags (keyframe flag only present for SimpleBlock)
-            const simpleBlock = { id: EBMLId.SimpleBlock, data: [
-                    prelude,
-                    chunk.data,
-                ] };
-            this.ebmlWriter.writeEBML(simpleBlock);
-        }
-        else {
-            const blockGroup = { id: EBMLId.BlockGroup, data: [
-                    { id: EBMLId.Block, data: [
-                            prelude,
-                            chunk.data,
-                        ] },
-                    chunk.type === 'delta'
-                        ? {
-                            id: EBMLId.ReferenceBlock,
-                            data: new EBMLSignedInt(trackData.lastWrittenMsTimestamp - msTimestamp),
-                        }
-                        : null,
-                    chunk.additions
-                        ? { id: EBMLId.BlockAdditions, data: [
-                                { id: EBMLId.BlockMore, data: [
-                                        { id: EBMLId.BlockAddID, data: 1 }, // Some players expect BlockAddID to come first
-                                        { id: EBMLId.BlockAdditional, data: chunk.additions },
-                                    ] },
-                            ] }
-                        : null,
-                    msDuration > 0 ? { id: EBMLId.BlockDuration, data: msDuration } : null,
-                ] };
-            this.ebmlWriter.writeEBML(blockGroup);
-        }
-        this.duration = Math.max(this.duration, msTimestamp + msDuration);
+        this.currentClusterBlocks.push({
+            trackData,
+            chunk,
+            msTimestamp,
+            previousMsTimestamp: trackData.lastWrittenMsTimestamp,
+        });
+        this.endTimestamp = Math.max(this.endTimestamp, msTimestamp + Math.round(1000 * chunk.duration));
         trackData.lastWrittenMsTimestamp = msTimestamp;
-        if (!this.trackDatasInCurrentCluster.has(trackData)) {
-            this.trackDatasInCurrentCluster.set(trackData, {
-                firstMsTimestamp: msTimestamp,
-            });
-        }
         this.currentClusterMaxMsTimestamp = Math.max(this.currentClusterMaxMsTimestamp, msTimestamp);
     }
-    /** Creates a new Cluster element to contain media chunks. */
-    createNewCluster(msTimestamp) {
-        if (this.currentCluster) {
-            this.finalizeCurrentCluster();
+    /** Writes out the current cluster, if any, and begins a new one. */
+    startNewCluster(msTimestamp) {
+        if (this.currentClusterStartMsTimestamp !== null) {
+            this.writeCurrentCluster();
         }
-        if (this.format._options.onCluster) {
-            this.writer.startTrackingWrites();
+        const clusterMsTimestamp = Math.max(0, msTimestamp); // Cluster timestamps cannot be negative
+        this.currentClusterStartMsTimestamp = clusterMsTimestamp;
+        this.currentClusterMaxMsTimestamp = clusterMsTimestamp;
+    }
+    /** Writes the current cluster with all of its blocks to the file. */
+    writeCurrentCluster() {
+        assert(this.currentClusterStartMsTimestamp !== null);
+        const clusterMsTimestamp = this.currentClusterStartMsTimestamp;
+        const firstKeyBlockPerTrack = new Map();
+        const lastBlockPerTrack = new Map();
+        for (const block of this.currentClusterBlocks) {
+            if (block.chunk.type === 'key' && !firstKeyBlockPerTrack.has(block.trackData)) {
+                firstKeyBlockPerTrack.set(block.trackData, block);
+            }
+            // In presentation order:
+            const lastBlock = lastBlockPerTrack.get(block.trackData);
+            if (!lastBlock || block.msTimestamp >= lastBlock.msTimestamp) {
+                lastBlockPerTrack.set(block.trackData, block);
+            }
         }
-        this.currentCluster = {
+        const blockElements = new Map();
+        for (const block of this.currentClusterBlocks) {
+            blockElements.set(block, this.createBlockElement(block, clusterMsTimestamp, lastBlockPerTrack.get(block.trackData) === block));
+        }
+        const cluster = {
             id: EBMLId.Cluster,
             size: this.format._options.appendOnly ? -1 : CLUSTER_SIZE_BYTES,
             data: [
-                { id: EBMLId.Timestamp, data: msTimestamp },
+                { id: EBMLId.Timestamp, data: clusterMsTimestamp },
+                ...blockElements.values(),
             ],
         };
-        this.ebmlWriter.writeEBML(this.currentCluster);
-        this.currentClusterStartMsTimestamp = msTimestamp;
-        this.currentClusterMaxMsTimestamp = msTimestamp;
-        this.trackDatasInCurrentCluster.clear();
-    }
-    finalizeCurrentCluster() {
-        assert(this.currentCluster);
-        if (!this.format._options.appendOnly) {
-            const clusterSize = this.writer.getPos() - this.ebmlWriter.dataOffsets.get(this.currentCluster);
-            const endPos = this.writer.getPos();
-            // Write the size now that we know it
-            this.writer.seek(this.ebmlWriter.offsets.get(this.currentCluster) + 4);
-            this.ebmlWriter.writeVarInt(clusterSize, CLUSTER_SIZE_BYTES);
-            this.writer.seek(endPos);
-        }
         if (this.format._options.onCluster) {
-            assert(this.currentClusterStartMsTimestamp !== null);
-            const { data, start } = this.writer.stopTrackingWrites();
-            this.format._options.onCluster(data, start, this.currentClusterStartMsTimestamp / 1000);
+            this.writer.startTrackingWrites();
         }
-        const clusterOffsetFromSegment = this.ebmlWriter.offsets.get(this.currentCluster) - this.segmentDataOffset;
-        // Group tracks by their first timestamp and create a CuePoint for each unique timestamp
+        this.ebmlWriter.writeEBML(cluster);
+        this.currentClusterBlocks = [];
+        if (this.format._options.onCluster) {
+            const { data, start } = this.writer.stopTrackingWrites();
+            this.format._options.onCluster(data, start, clusterMsTimestamp / 1000);
+        }
+        const clusterOffsetFromSegment = this.ebmlWriter.offsets.get(cluster) - this.segmentDataOffset;
+        const clusterDataOffset = this.ebmlWriter.dataOffsets.get(cluster);
+        // Group tracks by their first key packet's timestamp and create a CuePoint for each unique timestamp
         const groupedByTimestamp = new Map();
-        for (const [trackData, { firstMsTimestamp }] of this.trackDatasInCurrentCluster) {
-            if (!groupedByTimestamp.has(firstMsTimestamp)) {
-                groupedByTimestamp.set(firstMsTimestamp, []);
+        for (const block of firstKeyBlockPerTrack.values()) {
+            if (!groupedByTimestamp.has(block.msTimestamp)) {
+                groupedByTimestamp.set(block.msTimestamp, []);
             }
-            groupedByTimestamp.get(firstMsTimestamp).push(trackData);
+            groupedByTimestamp.get(block.msTimestamp).push(block);
         }
         const groupedAndSortedByTimestamp = [...groupedByTimestamp.entries()].sort((a, b) => a[0] - b[0]);
         // Add CuePoints to the Cues element for better seeking
-        for (const [msTimestamp, trackDatas] of groupedAndSortedByTimestamp) {
+        for (const [msTimestamp, blocks] of groupedAndSortedByTimestamp) {
             assert(this.cues);
             this.cues.data.push({ id: EBMLId.CuePoint, data: [
-                    { id: EBMLId.CueTime, data: msTimestamp },
-                    // Create CueTrackPositions for each track that starts at this timestamp
-                    ...trackDatas.map((trackData) => {
+                    { id: EBMLId.CueTime, data: Math.max(0, msTimestamp) }, // CueTime is unsigned
+                    // Create CueTrackPositions for each track whose first key packet is at this timestamp
+                    ...blocks.map((block) => {
+                        const blockOffset = this.ebmlWriter.offsets.get(blockElements.get(block));
                         return { id: EBMLId.CueTrackPositions, data: [
-                                { id: EBMLId.CueTrack, data: trackData.track.id },
+                                { id: EBMLId.CueTrack, data: block.trackData.track.id },
                                 { id: EBMLId.CueClusterPosition, data: clusterOffsetFromSegment },
+                                { id: EBMLId.CueRelativePosition, data: blockOffset - clusterDataOffset },
                             ] };
                     }),
                 ] });
         }
     }
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
-    async onTrackClose() {
-        const release = await this.mutex.acquire();
-        if (this.allTracksAreKnown()) {
-            this.allTracksKnown.resolve();
+    createBlockElement(block, clusterMsTimestamp, isLastOfTrack) {
+        const { trackData, chunk, msTimestamp } = block;
+        const prelude = new Uint8Array(4);
+        const view = new DataView(prelude.buffer);
+        // 0x80 to indicate it's the last byte of a multi-byte number
+        view.setUint8(0, 0x80 | trackData.track.id);
+        view.setInt16(1, msTimestamp - clusterMsTimestamp, false);
+        const msDuration = Math.round(1000 * chunk.duration);
+        // A SimpleBlock has no duration; readers infer it from the track's next block. So subtitle cues need an
+        // explicit BlockDuration, and so does the last block of each track in the cluster, which has no next block
+        // to infer it from
+        const needsBlockGroup = !!chunk.additions
+            || trackData.type === 'subtitle'
+            || (isLastOfTrack && msDuration > 0);
+        if (!needsBlockGroup) {
+            view.setUint8(3, Number(chunk.type === 'key') << 7); // Flags (keyframe flag only present for SimpleBlock)
+            return { id: EBMLId.SimpleBlock, data: [
+                    prelude,
+                    chunk.data,
+                ] };
         }
-        // Since a track is now closed, we may be able to write out chunks that were previously waiting
-        await this.interleaveChunks();
-        release();
+        return { id: EBMLId.BlockGroup, data: [
+                { id: EBMLId.Block, data: [
+                        prelude,
+                        chunk.data,
+                    ] },
+                chunk.type === 'delta'
+                    ? {
+                        id: EBMLId.ReferenceBlock,
+                        data: new EBMLSignedInt(block.previousMsTimestamp - msTimestamp),
+                    }
+                    : null,
+                chunk.additions
+                    ? { id: EBMLId.BlockAdditions, data: [
+                            { id: EBMLId.BlockMore, data: [
+                                    { id: EBMLId.BlockAddID, data: 1 }, // Some players expect BlockAddID to come first
+                                    { id: EBMLId.BlockAdditional, data: chunk.additions },
+                                ] },
+                        ] }
+                    : null,
+                msDuration > 0 ? { id: EBMLId.BlockDuration, data: msDuration } : null,
+            ] };
+    }
+    async onTrackClose(track) {
+        const release = await this.mutex.acquire();
+        try {
+            this.closedTracks.add(track);
+            if (this.allTracksAreKnown()) {
+                this.allTracksKnown.resolve();
+            }
+            // Since a track is now closed, we may be able to write out chunks that were previously waiting
+            await this.interleaveChunks();
+        }
+        finally {
+            release();
+        }
     }
     /** Finalizes the file, making it ready for use. Must be called after all media chunks have been added. */
     async finalize() {
         const release = await this.mutex.acquire();
-        this.allTracksKnown.resolve();
-        if (!this.segment) {
-            this.createSegment();
+        try {
+            this.allTracksKnown.resolve();
+            for (const trackData of this.trackDatas) {
+                this.closedTracks.add(trackData.track);
+            }
+            if (!this.segment) {
+                this.createSegment();
+            }
+            // Flush any remaining queued chunks to the file
+            await this.interleaveChunks(true);
+            if (this.currentClusterStartMsTimestamp !== null) {
+                this.writeCurrentCluster();
+            }
+            assert(this.cues);
+            this.ebmlWriter.writeEBML(this.cues);
+            if (!this.format._options.appendOnly) {
+                // Write the Segment size
+                const segmentSize = this.writer.getPos() - this.segmentDataOffset;
+                this.writer.seek(this.ebmlWriter.offsets.get(this.segment) + 4);
+                this.ebmlWriter.writeVarInt(segmentSize, SEGMENT_SIZE_BYTES);
+                // Write the duration of the media to the Segment
+                const duration = Math.max(this.endTimestamp, 0);
+                this.segmentDuration.data = new EBMLFloat64(duration);
+                this.writer.seek(this.ebmlWriter.offsets.get(this.segmentDuration));
+                this.ebmlWriter.writeEBML(this.segmentDuration);
+                // Fill in SeekHead position data and write it again
+                assert(this.seekHead);
+                this.writer.seek(this.ebmlWriter.offsets.get(this.seekHead));
+                this.maybeCreateSeekHead(true);
+                this.ebmlWriter.writeEBML(this.seekHead);
+            }
         }
-        // Flush any remaining queued chunks to the file
-        await this.interleaveChunks(true);
-        if (this.currentCluster) {
-            this.finalizeCurrentCluster();
+        finally {
+            release();
         }
-        assert(this.cues);
-        this.ebmlWriter.writeEBML(this.cues);
-        if (!this.format._options.appendOnly) {
-            const endPos = this.writer.getPos();
-            // Write the Segment size
-            const segmentSize = this.writer.getPos() - this.segmentDataOffset;
-            this.writer.seek(this.ebmlWriter.offsets.get(this.segment) + 4);
-            this.ebmlWriter.writeVarInt(segmentSize, SEGMENT_SIZE_BYTES);
-            // Write the duration of the media to the Segment
-            this.segmentDuration.data = new EBMLFloat64(this.duration);
-            this.writer.seek(this.ebmlWriter.offsets.get(this.segmentDuration));
-            this.ebmlWriter.writeEBML(this.segmentDuration);
-            // Fill in SeekHead position data and write it again
-            assert(this.seekHead);
-            this.writer.seek(this.ebmlWriter.offsets.get(this.seekHead));
-            this.maybeCreateSeekHead(true);
-            this.ebmlWriter.writeEBML(this.seekHead);
-            this.writer.seek(endPos);
-        }
-        release();
     }
 }

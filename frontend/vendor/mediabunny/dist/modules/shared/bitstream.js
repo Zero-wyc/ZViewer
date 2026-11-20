@@ -27,9 +27,9 @@ export class Bitstream {
             return this.readBit();
         }
         let result = 0;
+        // Arithmetic instead of bit shifts, since those would overflow for values of 32 bits and wider
         for (let i = 0; i < n; i++) {
-            result <<= 1;
-            result |= this.readBit();
+            result = 2 * result + this.readBit();
         }
         return result;
     }
@@ -39,13 +39,23 @@ export class Bitstream {
             const byteIndex = Math.floor(i / 8);
             let byte = this.bytes[byteIndex];
             const bitIndex = 0b111 - (i & 0b111);
+            const bit = Math.floor(value / 2 ** (end - i - 1)) & 1;
             byte &= ~(1 << bitIndex);
-            byte |= ((value & (1 << (end - i - 1))) >> (end - i - 1)) << bitIndex;
+            byte |= bit << bitIndex;
             this.bytes[byteIndex] = byte;
         }
         this.pos = end;
     }
-    ;
+    copyBits(n, other) {
+        let i = 0;
+        for (i; i < n - 7; i += 8) {
+            this.writeBits(8, other.readBits(8));
+        }
+        const leftover = n - i;
+        if (leftover > 0) {
+            this.writeBits(leftover, other.readBits(leftover));
+        }
+    }
     readAlignedByte() {
         if (this.pos % 8 !== 0) {
             throw new Error('Bitstream is not byte-aligned.');

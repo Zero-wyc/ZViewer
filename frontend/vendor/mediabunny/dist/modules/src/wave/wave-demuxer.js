@@ -6,9 +6,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 import { Demuxer } from '../demuxer.js';
-import { InputAudioTrack } from '../input-track.js';
 import { DEFAULT_TRACK_DISPOSITION } from '../metadata.js';
-import { assert, UNDETERMINED_LANGUAGE } from '../misc.js';
+import { assert, createUtcDate, floorToMultiple, isThenable, parseIsoSuffix, roundIfAlmostInteger, strictTextDecoder, UNDETERMINED_LANGUAGE, } from '../misc.js';
 import { EncodedPacket, PLACEHOLDER_DATA } from '../packet.js';
 import { readAscii, readBytes, readU16, readU32, readU64 } from '../reader.js';
 import { ID3_V2_HEADER_SIZE, parseId3V2Tag, readId3V2Header } from '../id3.js';
@@ -26,23 +25,26 @@ export class WaveDemuxer extends Demuxer {
         this.metadataPromise = null;
         this.dataStart = -1;
         this.dataSize = -1;
+        this.dataSizeCapped = false;
+        this.dataSizeIsPlaceholder = false;
         this.audioInfo = null;
-        this.tracks = [];
-        this.lastKnownPacketIndex = 0;
+        this.trackBackings = [];
         this.metadataTags = {};
         this.reader = input._reader;
     }
     async readMetadata() {
         return this.metadataPromise ??= (async () => {
             let slice = this.reader.requestSlice(0, 12);
-            if (slice instanceof Promise)
+            if (isThenable(slice))
                 slice = await slice;
             assert(slice);
             const riffType = readAscii(slice, 4);
             const littleEndian = riffType !== 'RIFX';
             const isRf64 = riffType === 'RF64';
             const outerChunkSize = readU32(slice, littleEndian);
-            let totalFileSize = isRf64
+            // A RIFF size of 0 means the file was probably never finalized
+            let sizesUnfinalized = !isRf64 && outerChunkSize === 0;
+            let totalFileSize = isRf64 || sizesUnfinalized || outerChunkSize === 0xffffffff
                 ? this.reader.fileSize
                 : Math.min(outerChunkSize + 8, this.reader.fileSize ?? Infinity);
             const format = readAscii(slice, 4);
@@ -54,12 +56,12 @@ export class WaveDemuxer extends Demuxer {
             let currentPos = slice.filePos;
             while (totalFileSize === null || currentPos < totalFileSize) {
                 let slice = this.reader.requestSlice(currentPos, 8);
-                if (slice instanceof Promise)
+                if (isThenable(slice))
                     slice = await slice;
                 if (!slice)
                     break;
                 const chunkId = readAscii(slice, 4);
-                const chunkSize = readU32(slice, littleEndian);
+                let chunkSize = readU32(slice, littleEndian);
                 const startPos = slice.filePos;
                 if (isRf64 && chunksRead === 0 && chunkId !== 'ds64') {
                     throw new Error('Invalid RF64 file: First chunk must be "ds64".');
@@ -69,8 +71,19 @@ export class WaveDemuxer extends Demuxer {
                 }
                 else if (chunkId === 'data') {
                     dataChunkSize ??= chunkSize;
+                    if ((sizesUnfinalized && dataChunkSize === 0)
+                        || (!isRf64 && dataChunkSize === 0xffffffff)) {
+                        // The data goes until the end of the file
+                        dataChunkSize = Number.MAX_SAFE_INTEGER;
+                        chunkSize = dataChunkSize;
+                    }
+                    this.dataSizeIsPlaceholder = dataChunkSize === Number.MAX_SAFE_INTEGER;
+                    if (isRf64) {
+                        // The chunk's own size field is only a placeholder, so make sure to skip over the actual data
+                        chunkSize = dataChunkSize;
+                    }
                     this.dataStart = slice.filePos;
-                    this.dataSize = Math.min(dataChunkSize, (totalFileSize ?? Infinity) - this.dataStart);
+                    this.dataSize = Math.max(Math.min(dataChunkSize, (totalFileSize ?? Infinity) - this.dataStart), 0);
                     if (this.reader.fileSize === null) {
                         break; // Stop once we hit the data chunk
                     }
@@ -78,13 +91,21 @@ export class WaveDemuxer extends Demuxer {
                 else if (chunkId === 'ds64') {
                     // File and data chunk sizes are defined in here instead
                     let ds64Slice = this.reader.requestSlice(startPos, chunkSize);
-                    if (ds64Slice instanceof Promise)
+                    if (isThenable(ds64Slice))
                         ds64Slice = await ds64Slice;
                     if (!ds64Slice)
                         break;
-                    const riffChunkSize = readU64(ds64Slice, littleEndian);
-                    dataChunkSize = readU64(ds64Slice, littleEndian);
-                    totalFileSize = Math.min(riffChunkSize + 8, this.reader.fileSize ?? Infinity);
+                    if (chunkSize < 16) {
+                        throw new Error('Invalid RF64 file: "ds64" chunk is too small.');
+                    }
+                    // Sizes past what a JS number can address exactly can't be real, they're just placeholders. We need
+                    // to cap here to make sure the downstream math still works correctly
+                    const riffChunkSize = Math.min(readU64(ds64Slice, littleEndian), Number.MAX_SAFE_INTEGER);
+                    dataChunkSize = Math.min(readU64(ds64Slice, littleEndian), Number.MAX_SAFE_INTEGER);
+                    sizesUnfinalized = riffChunkSize === 0;
+                    totalFileSize = sizesUnfinalized
+                        ? this.reader.fileSize
+                        : Math.min(riffChunkSize + 8, this.reader.fileSize ?? Infinity);
                 }
                 else if (chunkId === 'LIST') {
                     await this.parseListChunk(startPos, chunkSize, littleEndian);
@@ -103,22 +124,28 @@ export class WaveDemuxer extends Demuxer {
             }
             const blockSize = this.audioInfo.blockSizeInBytes;
             this.dataSize = Math.floor(this.dataSize / blockSize) * blockSize;
-            this.tracks.push(new InputAudioTrack(this.input, new WaveAudioTrackBacking(this)));
+            this.maybeCapDataSize();
+            this.trackBackings.push(new WaveAudioTrackBacking(this));
         })();
     }
     async parseFmtChunk(startPos, size, littleEndian) {
         let slice = this.reader.requestSlice(startPos, size);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
             return; // File too short
+        if (size < 14) {
+            throw new Error('Invalid WAVE file - "fmt " chunk is too small');
+        }
         let formatTag = readU16(slice, littleEndian);
         const numChannels = readU16(slice, littleEndian);
         const sampleRate = readU32(slice, littleEndian);
-        slice.skip(4); // Bytes per second
-        const blockAlign = readU16(slice, littleEndian);
+        slice.skip(4 + 2); // Bytes per second, block align
+        if (numChannels === 0 || sampleRate === 0) {
+            throw new Error('Invalid WAVE file - channel count and sample rate must be positive');
+        }
         let bitsPerSample;
-        if (size === 14) { // Plain WAVEFORMAT
+        if (size < 16) { // Plain WAVEFORMAT
             bitsPerSample = 8;
         }
         else {
@@ -140,17 +167,33 @@ export class WaveDemuxer extends Demuxer {
         if (formatTag === WaveFormat.MULAW || formatTag === WaveFormat.ALAW) {
             bitsPerSample = 8;
         }
+        if (formatTag !== WaveFormat.PCM
+            && formatTag !== WaveFormat.IEEE_FLOAT
+            && formatTag !== WaveFormat.ALAW
+            && formatTag !== WaveFormat.MULAW) {
+            throw new Error(`Unsupported WAVE codec (format tag ${formatTag}). Only integer/float PCM, A-law, and μ-law are`
+                + ` supported.`);
+        }
+        if (formatTag === WaveFormat.PCM && ![8, 16, 24, 32].includes(bitsPerSample)) {
+            throw new Error(`Unsupported WAVE PCM bit depth (${bitsPerSample}). Only 8, 16, 24, and 32 bits are supported.`);
+        }
+        if (formatTag === WaveFormat.IEEE_FLOAT && ![32, 64].includes(bitsPerSample)) {
+            throw new Error(`Unsupported WAVE float bit depth (${bitsPerSample}). Only 32 and 64 bits are supported.`);
+        }
+        const sampleSizeInBytes = Math.ceil(bitsPerSample / 8);
         this.audioInfo = {
             format: formatTag,
             numberOfChannels: numChannels,
             sampleRate,
-            sampleSizeInBytes: Math.ceil(bitsPerSample / 8),
-            blockSizeInBytes: blockAlign,
+            sampleSizeInBytes,
+            blockSizeInBytes: numChannels * sampleSizeInBytes,
         };
     }
     async parseListChunk(startPos, size, littleEndian) {
+        if (size < 4)
+            return; // Chunk too short
         let slice = this.reader.requestSlice(startPos, size);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
             return; // File too short
@@ -163,15 +206,24 @@ export class WaveDemuxer extends Demuxer {
             slice.filePos = currentPos;
             const chunkName = readAscii(slice, 4);
             const chunkSize = readU32(slice, littleEndian);
-            const bytes = readBytes(slice, chunkSize);
-            let stringLength = 0;
-            for (let i = 0; i < bytes.length; i++) {
-                if (bytes[i] === 0) {
-                    break;
-                }
-                stringLength++;
+            if (chunkSize > slice.remainingLength) {
+                break; // The sub-chunk doesn't fit into the LIST chunk
             }
-            const value = String.fromCharCode(...bytes.subarray(0, stringLength));
+            const bytes = readBytes(slice, chunkSize);
+            const nullIndex = bytes.indexOf(0);
+            const stringBytes = bytes.subarray(0, nullIndex === -1 ? bytes.length : nullIndex);
+            // The spec says Latin-1, but many writers (like FFmpeg) put UTF-8 in here. Latin-1 text with non-ASCII
+            // characters is virtually never valid UTF-8, so try that first.
+            let value;
+            try {
+                value = strictTextDecoder.decode(stringBytes);
+            }
+            catch {
+                value = '';
+                for (const byte of stringBytes) {
+                    value += String.fromCharCode(byte);
+                }
+            }
             this.metadataTags.raw ??= {};
             this.metadataTags.raw[chunkName] = value;
             switch (chunkName) {
@@ -217,10 +269,9 @@ export class WaveDemuxer extends Demuxer {
                     ;
                     break;
                 case 'ICRD':
-                case 'IDIT':
                     {
-                        const date = new Date(value);
-                        if (!Number.isNaN(date.getTime())) {
+                        const date = parseIsoSuffix(value);
+                        if (date) {
                             this.metadataTags.date ??= date;
                         }
                     }
@@ -229,8 +280,9 @@ export class WaveDemuxer extends Demuxer {
                 case 'YEAR':
                     {
                         const year = Number.parseInt(value, 10);
-                        if (Number.isInteger(year) && year > 0) {
-                            this.metadataTags.date ??= new Date(year, 0, 1);
+                        const date = createUtcDate(year);
+                        if (year > 0 && !Number.isNaN(date.getTime())) {
+                            this.metadataTags.date ??= date;
                         }
                     }
                     ;
@@ -256,8 +308,10 @@ export class WaveDemuxer extends Demuxer {
     }
     async parseId3Chunk(startPos, size) {
         // Parse ID3 tag embedded in WAV file (non-default, but used a lot in practice anyway)
+        if (size < ID3_V2_HEADER_SIZE)
+            return; // Chunk too short
         let slice = this.reader.requestSlice(startPos, size);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
             slice = await slice;
         if (!slice)
             return; // File too short
@@ -281,8 +335,8 @@ export class WaveDemuxer extends Demuxer {
         if (this.audioInfo.format === WaveFormat.ALAW) {
             return 'alaw';
         }
+        // All formats are little-endian, even in RIFX!
         if (this.audioInfo.format === WaveFormat.PCM) {
-            // All formats are little-endian
             if (this.audioInfo.sampleSizeInBytes === 1) {
                 return 'pcm-u8';
             }
@@ -300,21 +354,31 @@ export class WaveDemuxer extends Demuxer {
             if (this.audioInfo.sampleSizeInBytes === 4) {
                 return 'pcm-f32';
             }
+            else if (this.audioInfo.sampleSizeInBytes === 8) {
+                return 'pcm-f64';
+            }
         }
-        return null;
+        assert(false);
+    }
+    maybeCapDataSize() {
+        assert(this.audioInfo);
+        if (this.dataSizeCapped) {
+            return;
+        }
+        // With unsized sources, we may only get to know the file size after the init logic, so this may only happen
+        // later on
+        const fileSize = this.reader.fileSize;
+        if (fileSize !== null) {
+            this.dataSize = Math.min(this.dataSize, floorToMultiple(fileSize - this.dataStart, this.audioInfo.blockSizeInBytes));
+            this.dataSizeCapped = true;
+        }
     }
     async getMimeType() {
         return 'audio/wav';
     }
-    async computeDuration() {
+    async getTrackBackings() {
         await this.readMetadata();
-        const track = this.tracks[0];
-        assert(track);
-        return track.computeDuration();
-    }
-    async getTracks() {
-        await this.readMetadata();
-        return this.tracks;
+        return this.trackBackings;
     }
     async getMetadataTags() {
         await this.readMetadata();
@@ -326,8 +390,8 @@ class WaveAudioTrackBacking {
     constructor(demuxer) {
         this.demuxer = demuxer;
     }
-    getId() {
-        return 1;
+    getType() {
+        return 'audio';
     }
     getNumber() {
         return 1;
@@ -351,10 +415,6 @@ class WaveAudioTrackBacking {
             sampleRate: this.demuxer.audioInfo.sampleRate,
         };
     }
-    async computeDuration() {
-        const lastPacket = await this.getPacket(Infinity, { metadataOnly: true });
-        return (lastPacket?.timestamp ?? 0) + (lastPacket?.duration ?? 0);
-    }
     getNumberOfChannels() {
         assert(this.demuxer.audioInfo);
         return this.demuxer.audioInfo.numberOfChannels;
@@ -367,6 +427,32 @@ class WaveAudioTrackBacking {
         assert(this.demuxer.audioInfo);
         return this.demuxer.audioInfo.sampleRate;
     }
+    isRelativeToUnixEpoch() {
+        return false;
+    }
+    getUnixTimeForTimestamp() {
+        return null;
+    }
+    getPairingMask() {
+        return 1n;
+    }
+    getBitrate() {
+        return null;
+    }
+    getAverageBitrate() {
+        return null;
+    }
+    async getDurationFromMetadata() {
+        assert(this.demuxer.dataSize !== -1);
+        this.demuxer.maybeCapDataSize();
+        if (this.demuxer.dataSizeIsPlaceholder && !this.demuxer.dataSizeCapped) {
+            return null;
+        }
+        return this.demuxer.dataSize / this.demuxer.audioInfo.blockSizeInBytes / this.demuxer.audioInfo.sampleRate;
+    }
+    async getLiveRefreshInterval() {
+        return null;
+    }
     getName() {
         return null;
     }
@@ -378,26 +464,28 @@ class WaveAudioTrackBacking {
             ...DEFAULT_TRACK_DISPOSITION,
         };
     }
-    async getFirstTimestamp() {
-        return 0;
-    }
     async getPacketAtIndex(packetIndex, options) {
         assert(packetIndex >= 0);
         assert(this.demuxer.audioInfo);
-        const startOffset = packetIndex * PACKET_SIZE_IN_FRAMES * this.demuxer.audioInfo.blockSizeInBytes;
+        const blockSize = this.demuxer.audioInfo.blockSizeInBytes;
+        this.demuxer.maybeCapDataSize();
+        const fileSize = this.demuxer.reader.fileSize;
+        const startOffset = packetIndex * PACKET_SIZE_IN_FRAMES * blockSize;
         if (startOffset >= this.demuxer.dataSize) {
             return null;
         }
-        const sizeInBytes = Math.min(PACKET_SIZE_IN_FRAMES * this.demuxer.audioInfo.blockSizeInBytes, this.demuxer.dataSize - startOffset);
-        if (this.demuxer.reader.fileSize === null) {
+        const sizeInBytes = Math.min(PACKET_SIZE_IN_FRAMES * blockSize, this.demuxer.dataSize - startOffset);
+        if (fileSize === null) {
             // If the file size is unknown, we weren't able to cap the dataSize in the init logic and we instead have to
             // rely on the headers telling us how large the file is. But, these might be wrong, so let's check if the
             // requested slice actually exists.
             let slice = this.demuxer.reader.requestSlice(this.demuxer.dataStart + startOffset, sizeInBytes);
-            if (slice instanceof Promise)
+            if (isThenable(slice))
                 slice = await slice;
             if (!slice) {
-                return null;
+                // It doesn't, but the failed read has told us the file size, so let's try again with a capped dataSize
+                assert(this.demuxer.reader.fileSize !== null);
+                return this.getPacketAtIndex(packetIndex, options);
             }
         }
         let data;
@@ -406,14 +494,13 @@ class WaveAudioTrackBacking {
         }
         else {
             let slice = this.demuxer.reader.requestSlice(this.demuxer.dataStart + startOffset, sizeInBytes);
-            if (slice instanceof Promise)
+            if (isThenable(slice))
                 slice = await slice;
             assert(slice);
             data = readBytes(slice, sizeInBytes);
         }
         const timestamp = packetIndex * PACKET_SIZE_IN_FRAMES / this.demuxer.audioInfo.sampleRate;
-        const duration = sizeInBytes / this.demuxer.audioInfo.blockSizeInBytes / this.demuxer.audioInfo.sampleRate;
-        this.demuxer.lastKnownPacketIndex = Math.max(packetIndex, this.demuxer.lastKnownPacketIndex);
+        const duration = sizeInBytes / blockSize / this.demuxer.audioInfo.sampleRate;
         return new EncodedPacket(data, 'key', timestamp, duration, packetIndex, sizeInBytes);
     }
     getFirstPacket(options) {
@@ -421,7 +508,7 @@ class WaveAudioTrackBacking {
     }
     async getPacket(timestamp, options) {
         assert(this.demuxer.audioInfo);
-        const packetIndex = Math.floor(Math.min(timestamp * this.demuxer.audioInfo.sampleRate / PACKET_SIZE_IN_FRAMES, (this.demuxer.dataSize - 1) / (PACKET_SIZE_IN_FRAMES * this.demuxer.audioInfo.blockSizeInBytes)));
+        const packetIndex = Math.floor(Math.min(roundIfAlmostInteger(timestamp * this.demuxer.audioInfo.sampleRate) / PACKET_SIZE_IN_FRAMES, (this.demuxer.dataSize - 1) / (PACKET_SIZE_IN_FRAMES * this.demuxer.audioInfo.blockSizeInBytes)));
         if (packetIndex < 0) {
             return null;
         }
@@ -429,21 +516,9 @@ class WaveAudioTrackBacking {
         if (packet) {
             return packet;
         }
-        if (packetIndex === 0) {
-            return null; // Empty data chunk
-        }
-        assert(this.demuxer.reader.fileSize === null);
-        // The file is shorter than we thought, meaning the packet we were looking for doesn't exist. So, let's find
-        // the last packet by doing a sequential scan, instead.
-        let currentPacket = await this.getPacketAtIndex(this.demuxer.lastKnownPacketIndex, options);
-        while (currentPacket) {
-            const nextPacket = await this.getNextPacket(currentPacket, options);
-            if (!nextPacket) {
-                break;
-            }
-            currentPacket = nextPacket;
-        }
-        return currentPacket;
+        // The file is shorter than we thought, meaning the packet we were looking for doesn't exist. But by now, the
+        // dataSize has been capped to the actual data, so let's try again.
+        return this.getPacket(timestamp, options);
     }
     getNextPacket(packet, options) {
         assert(this.demuxer.audioInfo);

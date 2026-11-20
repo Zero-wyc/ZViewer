@@ -25,52 +25,16 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = presolve(SCRIPT_DIR, 'mediabunny', 'dist', 'modules', 'src');
 
 export const LOCAL_PATCHES = [
-  {
-    file: 'codec.js',
-    title: 'DTS: 注册为已知音频编码',
-    find: "    'ac3',\n    'eac3',\n];",
-    replace:
-      "    'ac3',\n    'eac3',\n    'dts', // [本地补丁] 见 matroska/ebml.js / matroska/matroska-demuxer.js 中的 DTS 补丁说明\n];",
-  },
-  {
-    file: 'codec.js',
-    title: "DTS: getMseCodec 映射为 'dtsc'",
-    find:
-      "    else if (codec === 'eac3') {\n        return 'ec-3';\n    }\n    else if (PCM_AUDIO_CODECS.includes(codec)) {",
-    replace:
-      "    else if (codec === 'eac3') {\n        return 'ec-3';\n    }\n    // [本地补丁] DTS：MSE/WebCodecs 的 DTS codec string 为 'dtsc'，\n    // 与 playsvideo 的 AUDIO_CODEC_MAP.dts 保持一致。\n    else if (codec === 'dts') {\n        return 'dtsc';\n    }\n    else if (PCM_AUDIO_CODECS.includes(codec)) {",
-  },
-  {
-    file: 'codec.js',
-    title: "DTS: getCodecString 映射为 'dtsc'",
-    find:
-      "    else if (codec === 'eac3') {\n        return 'ec-3';\n    }\n    else if (codec && PCM_AUDIO_CODECS.includes(codec)) {",
-    replace:
-      "    else if (codec === 'eac3') {\n        return 'ec-3';\n    }\n    // [本地补丁] DTS：codec string 为 'dtsc'\n    else if (codec === 'dts') {\n        return 'dtsc';\n    }\n    else if (codec && PCM_AUDIO_CODECS.includes(codec)) {",
-  },
-  {
-    file: 'matroska/ebml.js',
-    title: 'DTS: Matroska CodecID 映射 A_DTS',
-    find: "    'ac3': 'A_AC3',\n    'eac3': 'A_EAC3',\n    'pcm-u8': 'A_PCM/INT/LIT',",
-    replace:
-      "    'ac3': 'A_AC3',\n    'eac3': 'A_EAC3',\n    // [本地补丁] 增加 DTS 支持：mediabunny 上游（含 kzahel@integration）不识别 A_DTS，\n    // 导致含 DTS 音轨的 MKV 被解封装成\"只有视频\"，playsvideo 也就拿不到音频去转码。\n    'dts': 'A_DTS',\n    'pcm-u8': 'A_PCM/INT/LIT',",
-  },
-  {
-    file: 'matroska/matroska-demuxer.js',
-    title: 'DTS: A_DTS 音轨透传解码',
-    find:
-      "                                this.currentTrack.info.codec = 'eac3';\n                                this.currentTrack.info.codecDescription = this.currentTrack.codecPrivate;\n                            }\n                            else if (this.currentTrack.codecId === 'A_PCM/INT/LIT') {",
-    replace:
-      "                                this.currentTrack.info.codec = 'eac3';\n                                this.currentTrack.info.codecDescription = this.currentTrack.codecPrivate;\n                            }\n                            // [本地补丁] DTS：Matroska 里 DTS 音轨的 CodecID 为 A_DTS，\n                            // 各 SimpleBlock 即一个完整的 DTS 帧，无需额外解析，直接透传即可。\n                            // mediabunny 只需\"取出原始 DTS 包\"，解码/转码由 playsvideo 交给 ffmpeg.wasm。\n                            else if (codecIdWithoutSuffix === CODEC_STRING_MAP.dts) {\n                                this.currentTrack.info.codec = 'dts';\n                                if (this.currentTrack.codecPrivate) {\n                                    this.currentTrack.info.codecDescription = this.currentTrack.codecPrivate;\n                                }\n                            }\n                            else if (this.currentTrack.codecId === 'A_PCM/INT/LIT') {",
-  },
-  {
-    file: 'isobmff/isobmff-boxes.js',
-    title: 'FLAC: MP4 AudioSampleEntry 读真实位深（修复 24-bit FLAC 被 Chromium 拒绝）',
-    find:
-      "    let contents;\n    let sampleSizeInBits = 16;\n    const isPcmCodec = PCM_AUDIO_CODECS.includes(trackData.track.source._codec);",
-    replace:
-      "    let contents;\n    let sampleSizeInBits = 16;\n    const isPcmCodec = PCM_AUDIO_CODECS.includes(trackData.track.source._codec);\n    if (trackData.track.source._codec === 'flac' &&\n        trackData.info.decoderConfig.description) {\n        // FLAC's STREAMINFO stores the actual sample depth in a 5-bit field.\n        // Keeping the old 16-bit fallback makes Chromium reject 24-bit FLAC\n        // when the generated FLACSpecificBox declares 24 bits.\n        const descriptionBitstream = new Bitstream(toUint8Array(trackData.info.decoderConfig.description));\n        descriptionBitstream.skipBits(103 + 64);\n        sampleSizeInBits = descriptionBitstream.readBits(5) + 1;\n    }",
-  },
+  // ── 已退休（mediabunny 1.66.2 全部内建，无需再打）────────────────────
+  //
+  // 1-4. DTS 支持（5 hunk：codec.js ×3 + matroska/ebml.js + matroska-demuxer.js）
+  //      上游现已登记 'dts': 'A_DTS'（matroska/ebml.js:742）、给出 codec
+  //      frame size 512（codec.js:800）、MSE codec string 'dtsc'（codec.js:617/667）。
+  // 5.   FLAC 24-bit 位深（isobmff/isobmff-boxes.js）
+  //      上游现按 STREAMINFO 读真实位深（isobmff-boxes.js:699 `readBits(5)+1`）。
+  //
+  // 逐条历史与验证方式见同目录 LOCAL-PATCHES.md。保留本数组与 applyLocalPatches()
+  // 机制：上游若再次回归（例如 DTS 映射被删），在此加回补丁即可，fetch 流程不变。
 ];
 
 function normalize(content) {

@@ -5,7 +5,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { FileSlice } from '../reader.js';
+import { FileSlice, Reader } from '../reader.js';
 export declare const MIN_ADTS_FRAME_HEADER_SIZE = 7;
 export declare const MAX_ADTS_FRAME_HEADER_SIZE = 9;
 export type AdtsFrameHeader = {
@@ -17,5 +17,6 @@ export type AdtsFrameHeader = {
     crcCheck: number | null;
     startPos: number;
 };
+export declare const readConfirmedAdtsFrameHeader: (reader: Reader, startPos: number, searchLength: number, ref: AdtsFrameHeader | null) => Promise<AdtsFrameHeader | null>;
 export declare const readAdtsFrameHeader: (slice: FileSlice) => AdtsFrameHeader | null;
 //# sourceMappingURL=adts-reader.d.ts.map

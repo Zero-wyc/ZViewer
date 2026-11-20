@@ -11,10 +11,13 @@ import { Mp3OutputFormat } from '../output-format.js';
 import { EncodedPacket } from '../packet.js';
 export declare class Mp3Muxer extends Muxer {
     private format;
+    private writeXingHeader;
     private writer;
     private mp3Writer;
     private xingFrameData;
     private frameCount;
+    private frameBitrate;
+    private hasVariableBitrate;
     private framePositions;
     private xingFramePos;
     constructor(output: Output, format: Mp3OutputFormat);

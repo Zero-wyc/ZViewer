@@ -7,7 +7,11 @@
  */
 import { Mp3FrameHeader } from '../../shared/mp3-misc.js';
 import { Reader } from '../reader.js';
-export declare const readNextMp3FrameHeader: (reader: Reader, startPos: number, until: number | null) => Promise<{
+export declare const readConfirmedMp3FrameHeader: (reader: Reader, startPos: number, searchLength: number, ref: Mp3FrameHeader | null) => Promise<{
+    header: Mp3FrameHeader;
+    startPos: number;
+} | null>;
+export declare const readNextMp3FrameHeader: (reader: Reader, startPos: number, until: number | null, ref?: Mp3FrameHeader | null) => Promise<{
     header: Mp3FrameHeader;
     startPos: number;
 } | null>;

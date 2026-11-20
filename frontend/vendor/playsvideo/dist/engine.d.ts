@@ -14,10 +14,14 @@ export interface ReadyDetail {
     /**
      * [本地补丁] 音轨被丢弃时的原因。
      *
-     * 当容器里存在音轨、但没有任何一条能取到 mediabunny 可用的 codec +
-     * decoderConfig（典型为 Dolby TrueHD/Atmos `A_TRUEHD`、MLP、ALAC 等
-     * 未登记 CodecID）时，引擎会丢弃音轨继续产出纯视频 fMP4——画面可播，
-     * 声音缺失。消费方应据此提示用户（切换音轨 / 服务器中转 / CLI 客户端）。
+     * 当容器里存在音轨、但没有任何一条同时满足「codec 可识别 +
+     * 能取到 decoderConfig + 在管线可处理白名单内」时，引擎会丢弃音轨
+     * 继续产出纯视频 fMP4——画面可播，声音缺失。消费方应据此提示用户
+     * （切换音轨 / 服务器中转 / CLI 客户端）。
+     *
+     * 典型对象：Dolby TrueHD/Atmos（`A_TRUEHD`，mediabunny 1.66 起虽能
+     * 识别为 `truehd`/`mlpa`，但 wasm ffmpeg 只有 audio tier，无对应解码器）、
+     * MLP、Vorbis、PCM 等。
      */
     audioDropped?: AudioDroppedInfo | null;
 }
@@ -25,7 +29,7 @@ export interface AudioDroppedInfo {
     reason: 'unsupported-codec';
     /** 容器内音轨条数 */
     trackCount: number;
-    /** 各条被丢弃音轨的容器原始 CodecID（如 `A_TRUEHD`），未知时为 null */
+    /** 各条被丢弃音轨的容器原始 CodecID（如 `A_TRUEHD`），未知时为 codec 名（如 `vorbis`） */
     codecIds: (string | null)[];
 }
 export interface ErrorDetail {

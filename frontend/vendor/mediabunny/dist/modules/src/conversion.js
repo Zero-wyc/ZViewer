@@ -5,20 +5,73 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { AUDIO_CODECS, NON_PCM_AUDIO_CODECS, SUBTITLE_CODECS, VIDEO_CODECS, } from './codec.js';
-import { getEncodableAudioCodecs, getFirstEncodableVideoCodec, Quality, QUALITY_HIGH, } from './encode.js';
+var __addDisposableResource = (this && this.__addDisposableResource) || function (env, value, async) {
+    if (value !== null && value !== void 0) {
+        if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
+        var dispose, inner;
+        if (async) {
+            if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
+            dispose = value[Symbol.asyncDispose];
+        }
+        if (dispose === void 0) {
+            if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
+            dispose = value[Symbol.dispose];
+            if (async) inner = dispose;
+        }
+        if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
+        if (inner) dispose = function() { try { inner.call(this); } catch (e) { return Promise.reject(e); } };
+        env.stack.push({ value: value, dispose: dispose, async: async });
+    }
+    else if (async) {
+        env.stack.push({ async: true });
+    }
+    return value;
+};
+var __disposeResources = (this && this.__disposeResources) || (function (SuppressedError) {
+    return function (env) {
+        function fail(e) {
+            env.error = env.hasError ? new SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
+            env.hasError = true;
+        }
+        var r, s = 0;
+        function next() {
+            while (r = env.stack.pop()) {
+                try {
+                    if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
+                    if (r.dispose) {
+                        var result = r.dispose.call(r.value);
+                        if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) { fail(e); return next(); });
+                    }
+                    else s |= 1;
+                }
+                catch (e) {
+                    fail(e);
+                }
+            }
+            if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
+            if (env.hasError) throw env.error;
+        }
+        return next();
+    };
+})(typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
+    var e = new Error(message);
+    return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+});
+import { AUDIO_CODECS, getMinimumAudioPacketSize, NON_PCM_AUDIO_CODECS, VIDEO_CODECS, } from './codec.js';
+import { getEncodableAudioCodecs, getFirstEncodableVideoCodec, Quality, resolveQuality, } from './encode.js';
 import { Input } from './input.js';
-import { AudioSampleSink, CanvasSink, EncodedPacketSink, VideoSampleSink, } from './media-sink.js';
-import { EncodedVideoPacketSource, EncodedAudioPacketSource, TextSubtitleSource, VideoSampleSource, AudioSampleSource, } from './media-source.js';
-import { assert, clamp, isIso639Dash2LanguageCode, normalizeRotation, promiseWithResolvers, } from './misc.js';
-import { Output } from './output.js';
-import { Mp4OutputFormat } from './output-format.js';
-import { AudioSample, clampCropRectangle, validateCropRectangle, VideoSample } from './sample.js';
+import { Logging } from './logging.js';
+import { AudioSampleSink, EncodedPacketSink, VideoSampleSink, } from './media-sink.js';
+import { EncodedVideoPacketSource, EncodedAudioPacketSource, VideoSampleSource, AudioSampleSource, } from './media-source.js';
+import { assert, assertNever, ceilToMultipleOfTwo, clamp, isIso639Dash2LanguageCode, isNumber, composeRotationAndFlip, promiseWithResolvers, } from './misc.js';
+import { Output, OutputTrackGroup } from './output.js';
+import { NullOutputFormat } from './output-format.js';
+import { AudioSample, clampCropRectangle, getBytesPerSample, validateCropRectangle, } from './sample.js';
 import { validateMetadataTags } from './metadata.js';
-import { formatCuesToAss, formatCuesToSrt, formatCuesToWebVTT } from './subtitles.js';
 import { NullTarget } from './target.js';
+import { PacketOrderValidator } from './muxer.js';
 const validateVideoOptions = (videoOptions) => {
-    if (videoOptions !== undefined && (!videoOptions || typeof videoOptions !== 'object')) {
+    if (!videoOptions || typeof videoOptions !== 'object') {
         throw new TypeError('options.video, when provided, must be an object.');
     }
     if (videoOptions?.discard !== undefined && typeof videoOptions.discard !== 'boolean') {
@@ -30,9 +83,15 @@ const validateVideoOptions = (videoOptions) => {
     if (videoOptions?.codec !== undefined && !VIDEO_CODECS.includes(videoOptions.codec)) {
         throw new TypeError(`options.video.codec, when provided, must be one of: ${VIDEO_CODECS.join(', ')}.`);
     }
-    if (videoOptions?.bitrate !== undefined
-        && !(videoOptions.bitrate instanceof Quality)
-        && (!Number.isInteger(videoOptions.bitrate) || videoOptions.bitrate <= 0)) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const bitrate = videoOptions?.bitrate;
+    if (videoOptions?.quality !== undefined && !(videoOptions.quality instanceof Quality)) {
+        throw new TypeError('options.video.quality, when provided, must be a Quality.');
+    }
+    if (videoOptions?.quality !== undefined && bitrate !== undefined) {
+        throw new TypeError('options.video.quality and options.video.bitrate cannot both be provided.');
+    }
+    if (bitrate !== undefined && !(bitrate instanceof Quality) && (!Number.isInteger(bitrate) || bitrate <= 0)) {
         throw new TypeError('options.video.bitrate, when provided, must be a positive integer or a quality.');
     }
     if (videoOptions?.width !== undefined
@@ -55,6 +114,14 @@ const validateVideoOptions = (videoOptions) => {
     if (videoOptions?.rotate !== undefined && ![0, 90, 180, 270].includes(videoOptions.rotate)) {
         throw new TypeError('options.video.rotate, when provided, must be 0, 90, 180 or 270.');
     }
+    if (videoOptions?.flip !== undefined && typeof videoOptions.flip !== 'boolean') {
+        throw new TypeError('options.video.flip, when provided, must be a boolean.');
+    }
+    if (videoOptions?.allowTransformationMetadata !== undefined
+        && typeof videoOptions.allowTransformationMetadata !== 'boolean') {
+        throw new TypeError('options.video.allowTransformationMetadata, when provided, must be a boolean.');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     if (videoOptions?.allowRotationMetadata !== undefined && typeof videoOptions.allowRotationMetadata !== 'boolean') {
         throw new TypeError('options.video.allowRotationMetadata, when provided, must be a boolean.');
     }
@@ -88,9 +155,18 @@ const validateVideoOptions = (videoOptions) => {
         throw new TypeError('options.video.hardwareAcceleration, when provided, must be \'no-preference\', \'prefer-hardware\' or'
             + ' \'prefer-software\'.');
     }
+    if (videoOptions?.group !== undefined
+        && !(videoOptions.group instanceof OutputTrackGroup
+            || (Array.isArray(videoOptions.group) && videoOptions.group.every(x => x instanceof OutputTrackGroup)))) {
+        throw new TypeError('options.video.group, when provided, must be an OutputTrackGroup or an array of OutputTrackGroups.');
+    }
+    if (videoOptions?.maximumPacketCount !== undefined
+        && (!Number.isInteger(videoOptions.maximumPacketCount) || videoOptions.maximumPacketCount < 0)) {
+        throw new TypeError('options.video.maximumPacketCount, when provided, must be a non-negative integer.');
+    }
 };
 const validateAudioOptions = (audioOptions) => {
-    if (audioOptions !== undefined && (!audioOptions || typeof audioOptions !== 'object')) {
+    if (!audioOptions || typeof audioOptions !== 'object') {
         throw new TypeError('options.audio, when provided, must be an object.');
     }
     if (audioOptions?.discard !== undefined && typeof audioOptions.discard !== 'boolean') {
@@ -102,9 +178,15 @@ const validateAudioOptions = (audioOptions) => {
     if (audioOptions?.codec !== undefined && !AUDIO_CODECS.includes(audioOptions.codec)) {
         throw new TypeError(`options.audio.codec, when provided, must be one of: ${AUDIO_CODECS.join(', ')}.`);
     }
-    if (audioOptions?.bitrate !== undefined
-        && !(audioOptions.bitrate instanceof Quality)
-        && (!Number.isInteger(audioOptions.bitrate) || audioOptions.bitrate <= 0)) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const bitrate = audioOptions?.bitrate;
+    if (audioOptions?.quality !== undefined && !(audioOptions.quality instanceof Quality)) {
+        throw new TypeError('options.audio.quality, when provided, must be a Quality.');
+    }
+    if (audioOptions?.quality !== undefined && bitrate !== undefined) {
+        throw new TypeError('options.audio.quality and options.audio.bitrate cannot both be provided.');
+    }
+    if (bitrate !== undefined && !(bitrate instanceof Quality) && (!Number.isInteger(bitrate) || bitrate <= 0)) {
         throw new TypeError('options.audio.bitrate, when provided, must be a positive integer or a quality.');
     }
     if (audioOptions?.numberOfChannels !== undefined
@@ -114,6 +196,10 @@ const validateAudioOptions = (audioOptions) => {
     if (audioOptions?.sampleRate !== undefined
         && (!Number.isInteger(audioOptions.sampleRate) || audioOptions.sampleRate <= 0)) {
         throw new TypeError('options.audio.sampleRate, when provided, must be a positive integer.');
+    }
+    if (audioOptions?.sampleFormat !== undefined
+        && !['u8', 's16', 's32', 'f32'].includes(audioOptions.sampleFormat)) {
+        throw new TypeError('options.audio.sampleFormat, when provided, must be one of: u8, s16, s32, f32.');
     }
     if (audioOptions?.process !== undefined && typeof audioOptions.process !== 'function') {
         throw new TypeError('options.audio.process, when provided, must be a function.');
@@ -126,20 +212,19 @@ const validateAudioOptions = (audioOptions) => {
         && (!Number.isInteger(audioOptions.processedSampleRate) || audioOptions.processedSampleRate <= 0)) {
         throw new TypeError('options.audio.processedSampleRate, when provided, must be a positive integer.');
     }
-};
-const validateSubtitleOptions = (subtitleOptions) => {
-    if (subtitleOptions !== undefined && (!subtitleOptions || typeof subtitleOptions !== 'object')) {
-        throw new TypeError('options.subtitle, when provided, must be an object.');
+    if (audioOptions?.group !== undefined
+        && !(audioOptions.group instanceof OutputTrackGroup
+            || (Array.isArray(audioOptions.group) && audioOptions.group.every(x => x instanceof OutputTrackGroup)))) {
+        throw new TypeError('options.audio.group, when provided, must be an OutputTrackGroup or an array of OutputTrackGroups.');
     }
-    if (subtitleOptions?.discard !== undefined && typeof subtitleOptions.discard !== 'boolean') {
-        throw new TypeError('options.subtitle.discard, when provided, must be a boolean.');
-    }
-    if (subtitleOptions?.codec !== undefined && !SUBTITLE_CODECS.includes(subtitleOptions.codec)) {
-        throw new TypeError(`options.subtitle.codec, when provided, must be one of: ${SUBTITLE_CODECS.join(', ')}.`);
+    if (audioOptions?.maximumPacketCount !== undefined
+        && (!Number.isInteger(audioOptions.maximumPacketCount) || audioOptions.maximumPacketCount < 0)) {
+        throw new TypeError('options.audio.maximumPacketCount, when provided, must be a non-negative integer.');
     }
 };
 const FALLBACK_NUMBER_OF_CHANNELS = 2;
 const FALLBACK_SAMPLE_RATE = 48000;
+const PACKET_STATS_PACKET_COUNT = 256;
 /**
  * Represents a media file conversion process, used to convert one media file into another. In addition to conversion,
  * this class can be used to resize and rotate video, resample audio, drop tracks, or trim to a specific time range.
@@ -147,6 +232,17 @@ const FALLBACK_SAMPLE_RATE = 48000;
  * @public
  */
 export class Conversion {
+    /**
+     * The current state of the conversion.
+     *
+     * - `'idle'`: The conversion is not currently executing and isn't done; `execute` can be called.
+     * - `'executing'`: A call to `execute` is currently running.
+     * - `'canceled'`: The conversion has been canceled and can no longer be executed.
+     * - `'done'`: The conversion has run to completion. Subsequent calls to `execute` do nothing.
+     */
+    get state() {
+        return this._state;
+    }
     /** Initializes a new conversion process without starting the conversion. */
     static async init(options) {
         const conversion = new Conversion(options);
@@ -156,31 +252,45 @@ export class Conversion {
     /** Creates a new Conversion instance (duh). */
     constructor(options) {
         /** @internal */
-        this._addedCounts = {
-            video: 0,
-            audio: 0,
-            subtitle: 0,
-        };
+        this._state = 'idle';
         /** @internal */
-        this._totalTrackCount = 0;
+        this._timestampOffset = 0;
         /** @internal */
-        this._trackPromises = [];
+        this._timestampOffsetAdjusted = false;
+        /** @internal */
+        this._copyTimestampPossible = new Map();
+        /** @internal */
+        this._copyStartPackets = new Map();
+        /** @internal */
+        this._trackDurations = new Map();
+        /** @internal */
+        this._nextOutputTrackId = 0;
+        /** @internal */
+        this._outputTrackIds = [];
+        /** @internal */
+        this._outputOwnTrackGroups = [];
+        /** @internal */
+        this._trackPumps = [];
+        /** @internal */
+        this._composable = false;
         /** @internal */
         this._executed = false;
         /** @internal */
-        this._synchronizer = new TrackSynchronizer();
+        this._executionUntil = Infinity;
+        /** @internal */
+        this._pauseRequested = false;
+        /** @internal */
+        this._synchronizer = new TrackSynchronizer(this);
         /** @internal */
         this._totalDuration = null;
         /** @internal */
         this._maxTimestamps = new Map(); // Track ID -> timestamp
-        /** @internal */
-        this._canceled = false;
-        /** @internal */
-        this._externalSubtitleSources = [];
         /**
-         * A callback that is fired whenever the conversion progresses. Returns a number between 0 and 1, indicating the
-         * completion of the conversion. Note that a progress of 1 doesn't necessarily mean the conversion is complete;
-         * the conversion is complete once `execute()` resolves.
+         * A callback that is fired whenever the conversion progresses. Gets passed as first argument a number between
+         * 0 and 1, indicating the completion of the conversion. Note that a progress of 1 doesn't necessarily mean the
+         * conversion is complete; the conversion is complete once `execute()` resolves.
+         *
+         * As second argument, this callback receives the input time in seconds that has been processed.
          *
          * In order for progress to be computed, this property must be set before `execute` is called.
          */
@@ -189,12 +299,21 @@ export class Conversion {
         this._computeProgress = false;
         /** @internal */
         this._lastProgress = 0;
+        /** @internal */
+        this._lastProcessedTime = 0;
         /**
          * Whether this conversion, as it has been configured, is valid and can be executed. If this field is `false`, check
-         * the `discardedTracks` field for reasons.
+         * the `discardedTracks` field for reasons. Composable conversions are always valid, even if they utilize
+         * zero tracks.
+         *
+         * Note: a conversion having discarded tracks does not automatically mean it is invalid; if the remaining, utilized
+         * tracks make for a valid output file, the conversion is still allowed.
          */
         this.isValid = false;
-        /** The list of tracks that are included in the output file. */
+        /**
+         * The list of tracks that are included in the output file. When fan-out is used, the same track appears in this
+         * array multiple times.
+         */
         this.utilizedTracks = [];
         /** The list of tracks from the input file that have been discarded, alongside the discard reason. */
         this.discardedTracks = [];
@@ -207,19 +326,76 @@ export class Conversion {
         if (!(options.output instanceof Output)) {
             throw new TypeError('options.output must be an Output.');
         }
-        if (options.output._tracks.length > 0
-            || Object.keys(options.output._metadataTags).length > 0
-            || options.output.state !== 'pending') {
-            throw new TypeError('options.output must be fresh: no tracks or metadata tags added and not started.');
+        if (options.tracks !== undefined
+            && options.tracks !== 'all'
+            && options.tracks !== 'primary') {
+            throw new TypeError('options.tracks, when provided, must be either \'all\' or \'primary\'.');
         }
-        if (typeof options.video !== 'function') {
-            validateVideoOptions(options.video);
+        if (options.composable !== undefined && typeof options.composable !== 'boolean') {
+            throw new TypeError('options.composable, when provided, must be a boolean.');
         }
-        if (typeof options.audio !== 'function') {
-            validateAudioOptions(options.audio);
+        if (options.copy !== undefined && options.copy !== false) {
+            if (!options.copy || typeof options.copy !== 'object') {
+                throw new TypeError('options.copy, when provided, must be an object or false.');
+            }
+            if (options.copy.mode !== undefined && !['forced', 'preferred'].includes(options.copy.mode)) {
+                throw new TypeError('options.copy.mode, when provided, must be \'forced\' or \'preferred\'.');
+            }
+            if (options.copy.shiftTolerance !== undefined
+                && (!isNumber(options.copy.shiftTolerance) || options.copy.shiftTolerance < 0)) {
+                throw new TypeError('options.copy.shiftTolerance, when provided, must be a non-negative number.');
+            }
+            if (options.copy.boundaryPolicy !== undefined
+                && !['expand', 'shrink'].includes(options.copy.boundaryPolicy)) {
+                throw new TypeError('options.copy.boundaryPolicy, when provided, must be \'expand\' or \'shrink\'.');
+            }
+            if (options.copy.boundaryTolerance !== undefined
+                && (!isNumber(options.copy.boundaryTolerance) || options.copy.boundaryTolerance < 0)) {
+                throw new TypeError('options.copy.boundaryTolerance, when provided, must be a non-negative number.');
+            }
         }
-        if (typeof options.subtitle !== 'function') {
-            validateSubtitleOptions(options.subtitle);
+        const composable = options.composable ?? false;
+        if (!composable) {
+            if (options.output.tracks.length > 0
+                || Object.keys(options.output._metadataTags).length > 0
+                || options.output.state !== 'pending') {
+                throw new TypeError('options.output must be fresh: no tracks or metadata tags added and not started.');
+            }
+        }
+        else {
+            if (options.tags !== undefined) {
+                throw new TypeError('options.tags cannot be set by a composable conversion; set metadata directly on the output'
+                    + ' instead.');
+            }
+            if (options.output.state !== 'pending') {
+                throw new TypeError('options.output must not have been started yet.');
+            }
+        }
+        if (options.video !== undefined && typeof options.video !== 'function') {
+            if (Array.isArray(options.video)) {
+                for (const obj of options.video) {
+                    validateVideoOptions(obj);
+                }
+            }
+            else {
+                validateVideoOptions(options.video);
+            }
+        }
+        else {
+            // We'll validate the return value later
+        }
+        if (options.audio !== undefined && typeof options.audio !== 'function') {
+            if (Array.isArray(options.audio)) {
+                for (const obj of options.audio) {
+                    validateAudioOptions(obj);
+                }
+            }
+            else {
+                validateAudioOptions(options.audio);
+            }
+        }
+        else {
+            // We'll validate the return value later
         }
         if (options.trim !== undefined && (!options.trim || typeof options.trim !== 'object')) {
             throw new TypeError('options.trim, when provided, must be an object.');
@@ -227,8 +403,8 @@ export class Conversion {
         if (options.trim?.start !== undefined && (!Number.isFinite(options.trim.start))) {
             throw new TypeError('options.trim.start, when provided, must be a finite number.');
         }
-        if (options.trim?.end !== undefined && (!Number.isFinite(options.trim.end))) {
-            throw new TypeError('options.trim.end, when provided, must be a finite number.');
+        if (options.trim?.end !== undefined && (!isNumber(options.trim.end))) {
+            throw new TypeError('options.trim.end, when provided, must be a number.');
         }
         if (options.trim?.start !== undefined
             && options.trim.end !== undefined
@@ -247,123 +423,221 @@ export class Conversion {
             throw new TypeError('options.showWarnings, when provided, must be a boolean.');
         }
         this._options = options;
+        this._copyMode = options.copy === false ? false : options.copy?.mode ?? 'preferred';
+        this._copyTimestampShiftTolerance = options.copy === false ? 0 : options.copy?.shiftTolerance ?? 0;
+        this._copyBoundaryPolicy = options.copy === false ? 'expand' : options.copy?.boundaryPolicy ?? 'expand';
+        this._copyBoundaryTolerance = options.copy === false ? Infinity : options.copy?.boundaryTolerance ?? Infinity;
+        this._composable = composable;
         this.input = options.input;
         this.output = options.output;
-        const { promise: started, resolve: start } = promiseWithResolvers();
-        this._started = started;
-        this._start = start;
     }
     /** @internal */
     async _init() {
-        this._startTimestamp = this._options.trim?.start ?? Math.max(await this.input.getFirstTimestamp(), 
-        // Samples can also have negative timestamps, but the meaning typically is "don't present me", so let's cut
-        // those out by default.
-        0);
-        this._endTimestamp = Math.max(this._options.trim?.end ?? Infinity, this._startTimestamp);
-        const inputTracks = await this.input.getTracks();
+        const inputFormat = await this.input.getFormat();
+        let tracks;
+        let trackMode = this._options.tracks;
+        if (trackMode === undefined) {
+            // HACK to keep bundle size low, temp for now
+            const defaultTrackMode = inputFormat.name.includes('(HLS)')
+                ? 'primary'
+                : 'all';
+            trackMode = defaultTrackMode;
+        }
+        if (trackMode === 'all') {
+            tracks = await this.input.getTracks();
+        }
+        else if (trackMode === 'primary') {
+            const primaryVideoTrack = await this.input.getPrimaryVideoTrack();
+            const primaryAudioTrack = await this.input.getPrimaryAudioTrack();
+            tracks = [primaryVideoTrack, primaryAudioTrack].filter(x => x !== null);
+        }
+        else {
+            assertNever(trackMode);
+            assert(false);
+        }
         const outputTrackCounts = this.output.format.getSupportedTrackCounts();
-        let nVideo = 1;
-        let nAudio = 1;
-        let nSubtitle = 1;
-        for (const track of inputTracks) {
-            let trackOptions = undefined;
+        // All tracks that aren't discarded by the user
+        const filteredTracks = [];
+        const filteredTrackOptions = [];
+        for (const track of tracks) {
+            let trackOptions;
             if (track.isVideoTrack()) {
                 if (this._options.video) {
                     if (typeof this._options.video === 'function') {
-                        trackOptions = await this._options.video(track, nVideo);
-                        validateVideoOptions(trackOptions);
-                        nVideo++;
+                        const returnedTrackOptions = await this._options.video(track, track.number) ?? {};
+                        if (Array.isArray(returnedTrackOptions)) {
+                            for (const obj of returnedTrackOptions) {
+                                validateVideoOptions(obj);
+                            }
+                        }
+                        else {
+                            validateVideoOptions(returnedTrackOptions);
+                        }
+                        trackOptions = Array.isArray(returnedTrackOptions)
+                            ? returnedTrackOptions
+                            : [returnedTrackOptions];
                     }
                     else {
-                        trackOptions = this._options.video;
+                        // Already validated
+                        trackOptions = Array.isArray(this._options.video)
+                            ? this._options.video
+                            : [this._options.video];
                     }
+                }
+                else {
+                    trackOptions = [{}];
                 }
             }
             else if (track.isAudioTrack()) {
                 if (this._options.audio) {
                     if (typeof this._options.audio === 'function') {
-                        trackOptions = await this._options.audio(track, nAudio);
-                        validateAudioOptions(trackOptions);
-                        nAudio++;
+                        const returnedTrackOptions = await this._options.audio(track, track.number) ?? {};
+                        if (Array.isArray(returnedTrackOptions)) {
+                            for (const obj of returnedTrackOptions) {
+                                validateAudioOptions(obj);
+                            }
+                        }
+                        else {
+                            validateAudioOptions(returnedTrackOptions);
+                        }
+                        trackOptions = Array.isArray(returnedTrackOptions)
+                            ? returnedTrackOptions
+                            : [returnedTrackOptions];
                     }
                     else {
-                        trackOptions = this._options.audio;
+                        // Already validated
+                        trackOptions = Array.isArray(this._options.audio)
+                            ? this._options.audio
+                            : [this._options.audio];
                     }
                 }
-            }
-            else if (track.isSubtitleTrack()) {
-                if (this._options.subtitle) {
-                    if (typeof this._options.subtitle === 'function') {
-                        trackOptions = await this._options.subtitle(track, nSubtitle);
-                        validateSubtitleOptions(trackOptions);
-                        nSubtitle++;
-                    }
-                    else {
-                        trackOptions = this._options.subtitle;
-                    }
+                else {
+                    trackOptions = [{}];
                 }
             }
             else {
                 assert(false);
             }
-            if (trackOptions?.discard) {
+            const discardOptions = trackOptions.filter(x => x.discard);
+            for (const discardOption of discardOptions) {
                 this.discardedTracks.push({
                     track,
                     reason: 'discarded_by_user',
+                    trackOptions: discardOption,
                 });
+            }
+            if (trackOptions.length === discardOptions.length) {
+                if (trackOptions.length === 0) {
+                    this.discardedTracks.push({
+                        track,
+                        reason: 'discarded_by_user',
+                        trackOptions: {},
+                    });
+                }
                 continue;
             }
-            if (this._totalTrackCount === outputTrackCounts.total.max) {
-                this.discardedTracks.push({
-                    track,
-                    reason: 'max_track_count_reached',
-                });
-                continue;
-            }
-            if (this._addedCounts[track.type] === outputTrackCounts[track.type].max) {
-                this.discardedTracks.push({
-                    track,
-                    reason: 'max_track_count_of_type_reached',
-                });
-                continue;
-            }
-            if (track.isVideoTrack()) {
-                await this._processVideoTrack(track, (trackOptions ?? {}));
-            }
-            else if (track.isAudioTrack()) {
-                await this._processAudioTrack(track, (trackOptions ?? {}));
-            }
-            else if (track.isSubtitleTrack()) {
-                await this._processSubtitleTrack(track, (trackOptions ?? {}));
-            }
+            const nonDiscardOptions = trackOptions.filter(x => !x.discard);
+            filteredTracks.push(track);
+            filteredTrackOptions.push(nonDiscardOptions);
         }
-        // Now, let's deal with metadata tags
-        const inputTags = await this.input.getMetadataTags();
-        let outputTags;
-        if (this._options.tags) {
-            const result = typeof this._options.tags === 'function'
-                ? await this._options.tags(inputTags)
-                : this._options.tags;
-            validateMetadataTags(result);
-            outputTags = result;
+        if (this._options.trim?.start !== undefined) {
+            this._startTimestamp = this._options.trim.start;
         }
         else {
-            outputTags = inputTags;
+            // Compute the start timestamp from the set of filtered tracks. Technically these can still be narrowed
+            // down later due to discarded tracks, but we need to fix the start timestamp now due to track processing
+            // depending on it.
+            this._startTimestamp = Math.max(await this.input.getFirstTimestamp(filteredTracks), 
+            // Samples can also have negative timestamps, but the meaning typically is "don't present me", so let's
+            // cut those out by default.
+            0);
         }
-        // Somewhat dirty but pragmatic
-        const inputAndOutputFormatMatch = (await this.input.getFormat()).mimeType === this.output.format.mimeType;
-        const rawTagsAreUnchanged = inputTags.raw === outputTags.raw;
-        if (inputTags.raw && rawTagsAreUnchanged && !inputAndOutputFormatMatch) {
-            // If the input and output formats aren't the same, copying over raw metadata tags makes no sense and only
-            // results in junk tags, so let's cut them out.
-            delete outputTags.raw;
+        this._endTimestamp = Math.max(this._options.trim?.end ?? Infinity, this._startTimestamp);
+        this._timestampOffset = -this._startTimestamp; // Initial value, may get refined later by track processing
+        // Run these sequentially so that output tracks have a deterministic order
+        for (let i = 0; i < filteredTracks.length; i++) {
+            const track = filteredTracks[i];
+            const options = filteredTrackOptions[i];
+            for (const option of options) {
+                if (this.output.tracks.length === outputTrackCounts.total.max) {
+                    this.discardedTracks.push({
+                        track,
+                        reason: 'max_track_count_reached',
+                        trackOptions: option,
+                    });
+                    continue;
+                }
+                const addedCountOfType = this.output.tracks.reduce((count, t) => count + (t.type === track.type ? 1 : 0), 0);
+                if (addedCountOfType === outputTrackCounts[track.type].max) {
+                    this.discardedTracks.push({
+                        track,
+                        reason: 'max_track_count_of_type_reached',
+                        trackOptions: option,
+                    });
+                    continue;
+                }
+                const outputTrackId = this._nextOutputTrackId++;
+                if (track.isVideoTrack()) {
+                    await this._processVideoTrack(track, option, outputTrackId);
+                }
+                else if (track.isAudioTrack()) {
+                    await this._processAudioTrack(track, option, outputTrackId);
+                }
+                else {
+                    assert(false);
+                }
+            }
         }
-        this.output.setMetadataTags(outputTags);
+        // When no track groups are set by the user, then the output track pairability should be *identical* to the
+        // input's. We do the naive algorithm to achieve this: assign each track to its own group, and pair groups with
+        // each other based on input track pairability.
+        for (let i = 0; i < this.utilizedTracks.length - 1; i++) {
+            for (let j = i + 1; j < this.utilizedTracks.length; j++) {
+                const trackA = this.utilizedTracks[i];
+                const trackB = this.utilizedTracks[j];
+                const ownGroupA = this._outputOwnTrackGroups[i];
+                const ownGroupB = this._outputOwnTrackGroups[j];
+                assert(ownGroupA !== undefined);
+                assert(ownGroupB !== undefined);
+                if (ownGroupA && ownGroupB && trackA.canBePairedWith(trackB)) {
+                    ownGroupA.pairWith(ownGroupB);
+                }
+            }
+        }
+        // Now, let's deal with metadata tags. A composable conversion does not touch the output's metadata tags; that
+        // remains the responsibility of whoever owns the output.
+        if (!this._composable) {
+            const inputTags = { ...await this.input.getMetadataTags() };
+            delete inputTags.creationTime; // Makes no sense to inherit this one
+            let outputTags;
+            if (this._options.tags) {
+                const result = typeof this._options.tags === 'function'
+                    ? await this._options.tags(inputTags)
+                    : this._options.tags;
+                validateMetadataTags(result);
+                outputTags = result;
+            }
+            else {
+                outputTags = inputTags;
+            }
+            // Somewhat dirty but pragmatic
+            const inputAndOutputFormatMatch = inputFormat.mimeType === this.output.format.mimeType;
+            const rawTagsAreUnchanged = inputTags.raw === outputTags.raw;
+            if (rawTagsAreUnchanged && !inputAndOutputFormatMatch) {
+                // If the input and output formats aren't the same, copying over raw metadata tags makes no sense and
+                // only results in junk tags, so let's cut them out.
+                delete outputTags.raw;
+            }
+            this.output.setMetadataTags(outputTags);
+        }
         // Let's check if the conversion can actually be executed
-        this.isValid = this._totalTrackCount >= outputTrackCounts.total.min
-            && this._addedCounts.video >= outputTrackCounts.video.min
-            && this._addedCounts.audio >= outputTrackCounts.audio.min
-            && this._addedCounts.subtitle >= outputTrackCounts.subtitle.min;
+        if (!this._composable) {
+            this.isValid = this.output.hasEnoughTracks() && this.output.tracks.length > 0;
+        }
+        else {
+            // Checking Output start validity is not up to us. We even consider zero-track conversions to be valid
+            this.isValid = true;
+        }
         if (this._options.showWarnings ?? true) {
             const warnElements = [];
             const unintentionallyDiscardedTracks = this.discardedTracks.filter(x => x.reason !== 'discarded_by_user');
@@ -372,10 +646,13 @@ export class Conversion {
                 warnElements.push('Some tracks had to be discarded from the conversion:', unintentionallyDiscardedTracks);
             }
             if (!this.isValid) {
-                warnElements.push('\n\n' + this._getInvalidityExplanation().join(''));
+                if (warnElements.length > 0) {
+                    warnElements.push('\n\n');
+                }
+                warnElements.push(this._getInvalidityExplanation().join(''));
             }
             if (warnElements.length > 0) {
-                console.warn(...warnElements);
+                Logging._warn(...warnElements);
             }
         }
     }
@@ -386,41 +663,70 @@ export class Conversion {
             elements.push('Due to missing tracks, this conversion cannot be executed.');
         }
         else {
-            const encodabilityIsTheProblem = this.discardedTracks.every(x => x.reason === 'discarded_by_user' || x.reason === 'no_encodable_target_codec');
+            const encodabilityIsTheProblem = this.discardedTracks.every(x => x.reason === 'discarded_by_user' || x.reason === 'no_encodable_target_codec') && this.discardedTracks.some(x => x.reason === 'no_encodable_target_codec');
             elements.push('Due to discarded tracks, this conversion cannot be executed.');
             if (encodabilityIsTheProblem) {
-                const codecs = this.discardedTracks.flatMap((x) => {
-                    if (x.reason === 'discarded_by_user')
-                        return [];
+                const codecs = [];
+                const uncontainableCodecs = [];
+                for (const x of this.discardedTracks) {
+                    if (x.reason === 'discarded_by_user') {
+                        continue;
+                    }
+                    let supportedCodecs;
                     if (x.track.type === 'video') {
-                        return this.output.format.getSupportedVideoCodecs();
+                        supportedCodecs = this.output.format.getSupportedVideoCodecs();
                     }
                     else if (x.track.type === 'audio') {
-                        return this.output.format.getSupportedAudioCodecs();
+                        supportedCodecs = this.output.format.getSupportedAudioCodecs();
                     }
                     else {
-                        return this.output.format.getSupportedSubtitleCodecs();
+                        supportedCodecs = this.output.format.getSupportedSubtitleCodecs();
                     }
-                });
-                if (codecs.length === 1) {
-                    elements.push(`\nTracks were discarded because your environment is not able to encode '${codecs[0]}'.`);
+                    // If the user requested a specific codec, only that codec was ever attempted
+                    const requestedCodec = x.trackOptions.codec;
+                    if (requestedCodec && !supportedCodecs.includes(requestedCodec)) {
+                        uncontainableCodecs.push(requestedCodec);
+                    }
+                    else {
+                        codecs.push(...supportedCodecs.filter(codec => !requestedCodec || codec === requestedCodec));
+                    }
                 }
-                else {
-                    elements.push('\nTracks were discarded because your environment is not able to encode any of the following'
-                        + ` codecs: ${codecs.map(x => `'${x}'`).join(', ')}.`);
+                const uniqueCodecs = [...new Set(codecs)];
+                const uniqueUncontainableCodecs = [...new Set(uncontainableCodecs)];
+                if (uniqueUncontainableCodecs.length > 0) {
+                    elements.push('\nTracks were discarded because the output format cannot contain the requested codecs'
+                        + ` ${uniqueUncontainableCodecs.map(x => `'${x}'`).join(', ')}.`);
                 }
-                if (codecs.includes('mp3')) {
+                if (uniqueCodecs.length === 1) {
+                    elements.push(`\nTracks were discarded because your environment is not able to encode '${uniqueCodecs[0]}'`
+                        + ' with the provided parameters.');
+                }
+                else if (uniqueCodecs.length > 1) {
+                    elements.push('\nTracks were discarded because your environment is not able to encode any of the codecs'
+                        + ` ${uniqueCodecs.map(x => `'${x}'`).join(', ')} with the provided parameters.`);
+                }
+                if (uniqueCodecs.includes('mp3')) {
                     elements.push(`\nThe @mediabunny/mp3-encoder extension package provides support for encoding MP3.`);
                 }
-                if (codecs.includes('aac')) {
+                if (uniqueCodecs.includes('aac')) {
                     elements.push('\nThe @mediabunny/aac-encoder extension package provides support for encoding AAC.');
                 }
-                if (codecs.includes('ac3') || codecs.includes('eac3')) {
+                if (uniqueCodecs.includes('ac3') || uniqueCodecs.includes('eac3')) {
                     elements.push('\nThe @mediabunny/ac3 extension package provides support'
                         + ' for encoding and decoding AC-3/E-AC-3.');
                 }
-                if (codecs.includes('flac')) {
+                if (uniqueCodecs.includes('flac')) {
                     elements.push('\nThe @mediabunny/flac-encoder extension package provides support for encoding FLAC.');
+                }
+                if (uniqueCodecs.includes('dts')) {
+                    elements.push('\nThe @mediabunny/dts extension package provides support for encoding and decoding DTS.');
+                }
+                if (uniqueCodecs.includes('truehd')) {
+                    elements.push('\nThe @mediabunny/truehd extension package provides support for encoding and decoding TrueHD.');
+                }
+                if (uniqueCodecs.length > 0 && typeof VideoEncoder === 'undefined') {
+                    elements.push('\nIn server-side environments, the @mediabunny/server extension package provides support for'
+                        + ' encoding and decoding all common codecs.');
                 }
             }
             else {
@@ -430,92 +736,131 @@ export class Conversion {
         return elements;
     }
     /**
-     * Adds an external subtitle track to the output. This can be called after `init()` but before `execute()`.
-     * This is useful for adding subtitle tracks from separate files that are not part of the input video.
+     * Executes the conversion process and resolves when the conversion is complete. When
+     * {@link ConversionExecuteOptions.until} is provided, the conversion will be suspended once that output timestamp
+     * is reached and can be resumed with another call to `execute`. An ongoing execution may also be suspended via
+     * {@link ConversionExecuteOptions.pauseSignal}.
      *
-     * @param source - The subtitle source to add
-     * @param metadata - Optional metadata for the subtitle track
-     * @param contentProvider - Optional async function that will be called after the output starts to add content to the subtitle source
+     * Execution will throw if `isValid` is `false`.
      */
-    addExternalSubtitleTrack(source, metadata = {}, contentProvider) {
-        if (this._executed) {
-            throw new Error('Cannot add subtitle tracks after conversion has been executed.');
+    async execute(options = {}) {
+        if (!options || typeof options !== 'object') {
+            throw new TypeError('options must be an object.');
         }
-        if (this.output.state !== 'pending') {
-            throw new Error('Cannot add subtitle tracks after output has been started.');
+        if (options.until !== undefined && (typeof options.until !== 'number' || Number.isNaN(options.until))) {
+            throw new TypeError('options.until, when provided, must be a number.');
         }
-        // Check track count limits
-        const outputTrackCounts = this.output.format.getSupportedTrackCounts();
-        const currentSubtitleCount = this._addedCounts.subtitle + this._externalSubtitleSources.length;
-        if (currentSubtitleCount >= outputTrackCounts.subtitle.max) {
-            throw new Error(`Cannot add more subtitle tracks. Maximum of ${outputTrackCounts.subtitle.max} subtitle track(s) allowed.`);
+        if (options.pauseSignal !== undefined && !(options.pauseSignal instanceof AbortSignal)) {
+            throw new TypeError('options.pauseSignal, when provided, must be an AbortSignal.');
         }
-        const totalTrackCount = this._totalTrackCount + this._externalSubtitleSources.length + 1;
-        if (totalTrackCount > outputTrackCounts.total.max) {
-            throw new Error(`Cannot add more tracks. Maximum of ${outputTrackCounts.total.max} total track(s) allowed.`);
-        }
-        this._externalSubtitleSources.push({ source, metadata, contentProvider });
-        // Update validity check to include external subtitles
-        this.isValid = this._totalTrackCount + this._externalSubtitleSources.length >= outputTrackCounts.total.min
-            && this._addedCounts.video >= outputTrackCounts.video.min
-            && this._addedCounts.audio >= outputTrackCounts.audio.min
-            && this._addedCounts.subtitle + this._externalSubtitleSources.length >= outputTrackCounts.subtitle.min;
-    }
-    /**
-     * Executes the conversion process. Resolves once conversion is complete.
-     *
-     * Will throw if `isValid` is `false`.
-     */
-    async execute() {
         if (!this.isValid) {
             throw new Error('Cannot execute this conversion because its output configuration is invalid. Make sure to always check'
                 + ' the isValid field before executing a conversion.\n'
                 + this._getInvalidityExplanation().join(''));
         }
-        if (this._executed) {
-            throw new Error('Conversion cannot be executed twice.');
+        if (this._state === 'executing') {
+            throw new Error('Cannot call execute() while a previous call to execute() is still running.');
         }
-        this._executed = true;
-        if (this.onProgress) {
-            // Compute duration using only the utilized tracks
-            const durationPromises = this.utilizedTracks.map(x => x.computeDuration());
-            const duration = Math.max(0, ...await Promise.all(durationPromises));
-            this._computeProgress = true;
-            this._totalDuration = Math.min(duration - this._startTimestamp, this._endTimestamp - this._startTimestamp);
-            for (const track of this.utilizedTracks) {
-                this._maxTimestamps.set(track.id, 0);
-            }
-            this.onProgress?.(0);
-        }
-        // Add external subtitle tracks before starting the output
-        for (const { source, metadata } of this._externalSubtitleSources) {
-            this.output.addSubtitleTrack(source, metadata);
-        }
-        await this.output.start();
-        this._start();
-        // Now that output has started and tracks are connected, run content providers
-        const contentProviderPromises = this._externalSubtitleSources
-            .filter(s => s.contentProvider)
-            .map(s => s.contentProvider());
-        if (contentProviderPromises.length > 0) {
-            this._trackPromises.push(...contentProviderPromises);
-        }
-        try {
-            await Promise.all(this._trackPromises);
-        }
-        catch (error) {
-            if (!this._canceled) {
-                // Make sure to cancel to stop other encoding processes and clean up resources
-                void this.cancel();
-            }
-            throw error;
-        }
-        if (this._canceled) {
+        if (this._state === 'canceled') {
             throw new ConversionCanceledError();
         }
-        await this.output.finalize();
+        if (this._state === 'done') {
+            // The conversion already ran to completion, nothing left to do
+            return;
+        }
+        if (this._composable && this.output.state === 'pending') {
+            throw new Error('A composable conversion requires the output to be started. Call start() on the output before executing'
+                + ' the conversion.');
+        }
+        this._state = 'executing';
+        this._executionUntil = options.until ?? Infinity;
+        this._pauseRequested = options.pauseSignal?.aborted ?? false;
+        const onPause = () => {
+            if (this._state !== 'executing') {
+                return;
+            }
+            this._pauseRequested = true;
+            // Release any pumps stuck in the synchronizer so they can reach their next checkpoint and suspend
+            this._synchronizer.resolveAll();
+        };
+        options.pauseSignal?.addEventListener('abort', onPause);
+        for (const pump of this._trackPumps) {
+            if (!pump.done) {
+                pump.resolvers = promiseWithResolvers();
+            }
+        }
+        try {
+            if (!this._executed) {
+                this._executed = true;
+                for (const id of this._outputTrackIds) {
+                    this._synchronizer.declareTrack(id);
+                }
+                if (this.onProgress) {
+                    // Compute duration using only the utilized tracks
+                    const uniqueUtilizedTracks = new Set(this.utilizedTracks);
+                    const durationPromises = [...uniqueUtilizedTracks].map(track => this._getTrackDuration(track));
+                    const duration = Math.max(0, ...await Promise.all(durationPromises));
+                    this._computeProgress = true;
+                    this._totalDuration = Math.min(duration - this._startTimestamp, this._endTimestamp - this._startTimestamp);
+                    for (const id of this._outputTrackIds) {
+                        // Used for progress calculation. We start these at 0 which is technically not always the first
+                        // timestamp, but this is how we choose to model what "progress" means: it's how far we are
+                        // done with the trim region.
+                        this._maxTimestamps.set(id, 0);
+                    }
+                    this.onProgress?.(0, 0);
+                }
+                if (!this._composable) {
+                    await this.output.start();
+                }
+                for (const pump of this._trackPumps) {
+                    pump.start();
+                }
+            }
+            else {
+                // Wake all suspended track pumps
+                for (const pump of this._trackPumps) {
+                    pump.wake?.();
+                }
+            }
+            await Promise.all(this._trackPumps.map(x => x.resolvers.promise));
+        }
+        catch (error) {
+            if (this._state !== 'canceled') {
+                // Make sure to cancel to stop other encoding processes and clean up resources
+                void this.cancel().catch(() => { });
+                throw error;
+            }
+        }
+        finally {
+            options.pauseSignal?.removeEventListener('abort', onPause);
+        }
+        if (this._state === 'canceled') {
+            throw new ConversionCanceledError();
+        }
+        const isDone = this._trackPumps.every(x => x.done);
+        if (!isDone) {
+            this._state = 'idle';
+            return;
+        }
+        if (!this._composable) {
+            try {
+                await this.output.finalize();
+            }
+            catch (error) {
+                this._state = 'canceled';
+                throw error;
+            }
+            if (this._state === 'canceled') {
+                // Canceled while finalizing, which the output doesn't stop anymore
+                throw new ConversionCanceledError();
+            }
+        }
+        this._state = 'done';
         if (this._computeProgress) {
-            this.onProgress?.(1);
+            // By this point, all tracks have closed and removed themselves from _maxTimestamps, so we use the last
+            // processed time we saw while they were still open
+            this.onProgress?.(1, this._lastProcessedTime);
         }
     }
     /**
@@ -523,37 +868,66 @@ export class Conversion {
      * Does nothing if the conversion is already complete.
      */
     async cancel() {
-        if (this.output.state === 'finalizing' || this.output.state === 'finalized') {
+        if (this._state === 'done') {
             return;
         }
-        if (this._canceled) {
-            console.warn('Conversion already canceled.');
+        if (this._state === 'canceled') {
+            Logging._warn('Conversion already canceled.');
             return;
         }
-        this._canceled = true;
-        await this.output.cancel();
+        this._state = 'canceled';
+        // Wake all suspended track pumps so they can wind down
+        for (const pump of this._trackPumps) {
+            pump.wake?.();
+        }
+        this._synchronizer.resolveAll();
+        if (!this._composable) {
+            await this.output.cancel();
+        }
     }
     /** @internal */
-    async _processVideoTrack(track, trackOptions) {
-        const sourceCodec = track.codec;
+    async _processVideoTrack(track, trackOptions, outputTrackId) {
+        const sourceCodec = await track.getCodec();
         if (!sourceCodec) {
             this.discardedTracks.push({
                 track,
                 reason: 'unknown_source_codec',
+                trackOptions,
+            });
+            return;
+        }
+        if (this.output.format.requiresMaximumPacketCount
+            && trackOptions.maximumPacketCount === undefined
+            && this._endTimestamp === Infinity
+            && await track.isLive()) {
+            this.discardedTracks.push({
+                track,
+                reason: 'unknown_maximum_packet_count',
+                trackOptions,
             });
             return;
         }
         let videoSource;
-        const totalRotation = normalizeRotation(track.rotation + (trackOptions.rotate ?? 0));
+        const innateRotation = await track.getRotation();
+        const innateFlip = await track.getFlip();
+        const { rotation: totalRotation, flip: totalFlip } = composeRotationAndFlip(innateRotation, innateFlip, trackOptions.rotate ?? 0, trackOptions.flip ?? false);
         let outputTrackRotation = totalRotation;
-        const canUseRotationMetadata = this.output.format.supportsVideoRotationMetadata
-            && (trackOptions.allowRotationMetadata ?? true);
+        let outputTrackFlip = totalFlip;
+        // When the transformation is left untouched, we forward the input's full matrix so nothing gets lost
+        let outputTrackMatrix = trackOptions.rotate || trackOptions.flip
+            ? null
+            : await track.getTransformationMatrix();
+        const canUseRotationMetadata = this.output.format.supportsVideoTransformationMetadata
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            && (trackOptions.allowTransformationMetadata ?? trackOptions.allowRotationMetadata ?? true);
+        const squarePixelWidth = await track.getSquarePixelWidth();
+        const squarePixelHeight = await track.getSquarePixelHeight();
         const [rotatedWidth, rotatedHeight] = totalRotation % 180 === 0
-            ? [track.squarePixelWidth, track.squarePixelHeight]
-            : [track.squarePixelHeight, track.squarePixelWidth];
-        const crop = trackOptions.crop;
+            ? [squarePixelWidth, squarePixelHeight]
+            : [squarePixelHeight, squarePixelWidth];
+        let crop = trackOptions.crop;
         if (crop) {
-            clampCropRectangle(crop, rotatedWidth, rotatedHeight);
+            crop = clampCropRectangle(crop, rotatedWidth, rotatedHeight);
         }
         const [originalWidth, originalHeight] = crop
             ? [crop.width, crop.height]
@@ -562,7 +936,6 @@ export class Conversion {
         let height = originalHeight;
         const aspectRatio = width / height;
         // A lot of video encoders require that the dimensions be multiples of 2
-        const ceilToMultipleOfTwo = (value) => Math.ceil(value / 2) * 2;
         if (trackOptions.width !== undefined && trackOptions.height === undefined) {
             width = ceilToMultipleOfTwo(trackOptions.width);
             height = ceilToMultipleOfTwo(Math.round(width / aspectRatio));
@@ -575,13 +948,15 @@ export class Conversion {
             width = ceilToMultipleOfTwo(trackOptions.width);
             height = ceilToMultipleOfTwo(trackOptions.height);
         }
-        const firstTimestamp = await track.getFirstTimestamp();
         let videoCodecs = this.output.format.getSupportedVideoCodecs();
-        const needsTranscode = !!trackOptions.forceTranscode
-            || firstTimestamp < this._startTimestamp
+        const alpha = trackOptions.alpha ?? 'discard';
+        let needsTranscode = !this._copyMode
+            || !!trackOptions.forceTranscode
             || !!trackOptions.frameRate
             || trackOptions.keyFrameInterval !== undefined
             || trackOptions.process !== undefined
+            || trackOptions.quality !== undefined
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             || trackOptions.bitrate !== undefined
             || !videoCodecs.includes(sourceCodec)
             || (trackOptions.codec && trackOptions.codec !== sourceCodec)
@@ -591,40 +966,177 @@ export class Conversion {
             // performance-optimal, but right now there's no other way because we can't change the track rotation
             // metadata after the output has already started. Should be possible with API changes in v2, though!
             || (totalRotation !== 0 && !canUseRotationMetadata)
+            || (totalFlip && !canUseRotationMetadata)
             || !!crop;
-        const alpha = trackOptions.alpha ?? 'discard';
+        let copyStartPacket = null;
+        if (!needsTranscode) {
+            // Check if we can copy it
+            const sink = new EncodedPacketSink(track);
+            let startPacket = await sink.getKeyPacket(this._startTimestamp, { verifyKeyPackets: true })
+                ?? await sink.getFirstKeyPacket({ verifyKeyPackets: true });
+            if (startPacket
+                && startPacket.timestamp < this._startTimestamp
+                && startPacket.timestamp + startPacket.duration <= this._startTimestamp
+                && this._copyBoundaryPolicy === 'shrink') {
+                startPacket = await sink.getNextKeyPacket(startPacket, { verifyKeyPackets: true });
+            }
+            copyStartPacket = startPacket;
+            if (startPacket) {
+                // This clamp mirrors the packet timestamp clamping the copy loop does. The reason this is valid is
+                // because in the shrink case, we've already proven that the packet (at least partially) overlaps the
+                // trim region.
+                const effectiveStartTimestamp = this._copyBoundaryPolicy === 'shrink'
+                    ? Math.max(startPacket.timestamp, this._startTimestamp)
+                    : startPacket.timestamp;
+                const boundaryDeviation = this._copyBoundaryPolicy === 'shrink'
+                    ? effectiveStartTimestamp - this._startTimestamp
+                    : Math.max(this._startTimestamp - effectiveStartTimestamp, 0);
+                if (boundaryDeviation > this._copyBoundaryTolerance) {
+                    needsTranscode = true;
+                }
+                else if (!this.output.format.supportsTimestampedMediaData) {
+                    // Wants zero
+                    if (this._timestampOffsetAdjusted) {
+                        // We've already adjusted, we can't adjust twice
+                        const isValid = effectiveStartTimestamp + this._timestampOffset === 0;
+                        if (!isValid) {
+                            needsTranscode = true;
+                        }
+                    }
+                    else {
+                        const correction = clamp(this._startTimestamp - effectiveStartTimestamp, -this._copyTimestampShiftTolerance, this._copyTimestampShiftTolerance);
+                        const shiftedStartTimestamp = effectiveStartTimestamp + correction;
+                        const isValid = shiftedStartTimestamp === this._startTimestamp;
+                        if (isValid) {
+                            this._timestampOffset = -this._startTimestamp + correction;
+                            this._timestampOffsetAdjusted = true;
+                        }
+                        else {
+                            needsTranscode = true;
+                        }
+                    }
+                }
+                else if (this.output.format.negativeTimestampSupport !== 'full'
+                    && effectiveStartTimestamp < this._startTimestamp) {
+                    const correction = Math.min(this._startTimestamp - effectiveStartTimestamp, this._copyTimestampShiftTolerance);
+                    const shiftedStartTimestamp = effectiveStartTimestamp + correction;
+                    const isValid = shiftedStartTimestamp >= this._startTimestamp
+                        || (this.output.format.negativeTimestampSupport === 'prefer-non-negative'
+                            && this._copyMode === 'forced');
+                    if (isValid) {
+                        this._timestampOffset = Math.max(this._timestampOffset, -this._startTimestamp + correction);
+                    }
+                    else {
+                        needsTranscode = true;
+                    }
+                }
+            }
+        }
+        if (needsTranscode && this._copyMode === 'forced') {
+            this.discardedTracks.push({
+                track,
+                reason: 'cannot_copy',
+                trackOptions,
+            });
+            return;
+        }
         if (!needsTranscode) {
             // Fast path, we can simply copy over the encoded packets
             const source = new EncodedVideoPacketSource(sourceCodec);
             videoSource = source;
-            this._trackPromises.push((async () => {
-                await this._started;
+            this._registerTrackPump(async (pump) => {
                 const sink = new EncodedPacketSink(track);
                 const decoderConfig = await track.getDecoderConfig();
                 const meta = { decoderConfig: decoderConfig ?? undefined };
-                const endPacket = Number.isFinite(this._endTimestamp)
-                    ? await sink.getPacket(this._endTimestamp, { metadataOnly: true }) ?? undefined
-                    : undefined;
-                for await (const packet of sink.packets(undefined, endPacket, { verifyKeyPackets: true })) {
-                    if (this._canceled) {
-                        return;
+                const packetOrderValidator = new PacketOrderValidator();
+                let droppingGop = false;
+                let warnedAboutDroppedPackets = false;
+                // eslint-disable-next-line curly
+                if (copyStartPacket)
+                    for await (const packet of sink.packets(copyStartPacket, undefined, { verifyKeyPackets: true })) {
+                        if (this._state === 'canceled') {
+                            break;
+                        }
+                        if (packet.timestamp >= this._endTimestamp) {
+                            if (this._copyBoundaryPolicy === 'shrink') {
+                                break;
+                            }
+                            else {
+                                // Due to B-frames, there might still be packets we care about later on. Do a short
+                                // lookahead to find out if there are.
+                                let current = packet;
+                                let found = false;
+                                const lookahead = 6; // Heuristic, but should be enough for most streams
+                                for (let i = 0; i < lookahead; i++) {
+                                    const next = await sink.getNextPacket(current, { metadataOnly: true });
+                                    if (!next) {
+                                        break;
+                                    }
+                                    if (next.timestamp < this._endTimestamp) {
+                                        found = true;
+                                        break;
+                                    }
+                                    current = next;
+                                }
+                                if (!found) {
+                                    break;
+                                }
+                            }
+                        }
+                        // This check is mostly there to discard open-GOP packets that come before the first key frame we
+                        // copy. Those can't be decoded anyway, and some decoders discard them properly, but some don't, so
+                        // let's just skip them altogether.
+                        if (packet.timestamp < copyStartPacket.timestamp) {
+                            continue;
+                        }
+                        let packetStartTimestamp = packet.timestamp;
+                        let packetEndTimestamp = packet.timestamp + packet.duration;
+                        if (this._copyBoundaryPolicy === 'shrink') {
+                            packetStartTimestamp = Math.max(packetStartTimestamp, this._startTimestamp);
+                            packetEndTimestamp = Math.min(packetEndTimestamp, this._endTimestamp);
+                            packetEndTimestamp = Math.max(packetEndTimestamp, packetStartTimestamp); // Just in case
+                        }
+                        packetStartTimestamp += this._timestampOffset;
+                        packetEndTimestamp += this._timestampOffset;
+                        if (packet.type === 'key') {
+                            droppingGop = false; // Key packets reset it
+                        }
+                        if (droppingGop) {
+                            continue;
+                        }
+                        // Check the packets against the same validator used by muxers. If a key packet validates it,
+                        // we demote it to a delta packet and try again. If the packet still doesn't pass, we simply drop
+                        // it entirely.
+                        let packetType = packet.type;
+                        if (packetType === 'key' && !packetOrderValidator.check(packetStartTimestamp, 'key')) {
+                            packetType = 'delta';
+                        }
+                        if (!packetOrderValidator.digest(packetStartTimestamp, packetType)) {
+                            droppingGop = packet.type === 'key';
+                            if (!warnedAboutDroppedPackets) {
+                                Logging._warn('Some video packets had to be dropped in order to produce correct output timestamps.');
+                                warnedAboutDroppedPackets = true;
+                            }
+                            continue;
+                        }
+                        const modifiedPacket = packet.clone({
+                            timestamp: packetStartTimestamp,
+                            duration: packetEndTimestamp - packetStartTimestamp,
+                            sideData: alpha === 'discard'
+                                ? {} // Remove alpha side data
+                                : packet.sideData,
+                            type: packetType,
+                        });
+                        this._updateProgress(outputTrackId, modifiedPacket.timestamp + modifiedPacket.duration);
+                        await source.add(modifiedPacket, meta);
+                        if (this._synchronizer.shouldWait(outputTrackId, modifiedPacket.timestamp)) {
+                            await this._synchronizer.wait(modifiedPacket.timestamp);
+                        }
+                        await this._checkpoint(pump, modifiedPacket.timestamp);
                     }
-                    const modifiedPacket = packet.clone({
-                        timestamp: packet.timestamp - this._startTimestamp,
-                        sideData: alpha === 'discard'
-                            ? {} // Remove alpha side data
-                            : packet.sideData,
-                    });
-                    assert(modifiedPacket.timestamp >= 0);
-                    this._reportProgress(track.id, modifiedPacket.timestamp);
-                    await source.add(modifiedPacket, meta);
-                    if (this._synchronizer.shouldWait(track.id, modifiedPacket.timestamp)) {
-                        await this._synchronizer.wait(modifiedPacket.timestamp);
-                    }
-                }
-                source.close();
-                this._synchronizer.closeTrack(track.id);
-            })());
+                source.close(); // No-op if a cancel already force-closed it
+                this._closeTrack(outputTrackId);
+            });
         }
         else {
             // We need to decode & reencode the video
@@ -633,13 +1145,16 @@ export class Conversion {
                 this.discardedTracks.push({
                     track,
                     reason: 'undecodable_source_codec',
+                    trackOptions,
                 });
                 return;
             }
             if (trackOptions.codec) {
                 videoCodecs = videoCodecs.filter(codec => codec === trackOptions.codec);
             }
-            const bitrate = trackOptions.bitrate ?? QUALITY_HIGH;
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            const quality = resolveQuality(trackOptions.quality, trackOptions.bitrate)
+                ?? new Quality('high');
             const encodableCodec = await getFirstEncodableVideoCodec(videoCodecs, {
                 width: trackOptions.process && trackOptions.processedWidth
                     ? trackOptions.processedWidth
@@ -647,323 +1162,361 @@ export class Conversion {
                 height: trackOptions.process && trackOptions.processedHeight
                     ? trackOptions.processedHeight
                     : height,
-                bitrate,
+                quality,
             });
             if (!encodableCodec) {
                 this.discardedTracks.push({
                     track,
                     reason: 'no_encodable_target_codec',
+                    trackOptions,
                 });
                 return;
             }
             const encodingConfig = {
                 codec: encodableCodec,
-                bitrate,
+                quality,
                 keyFrameInterval: trackOptions.keyFrameInterval,
                 sizeChangeBehavior: trackOptions.fit ?? 'passThrough',
                 alpha,
                 hardwareAcceleration: trackOptions.hardwareAcceleration,
+                transform: {},
             };
-            const source = new VideoSampleSource(encodingConfig);
-            videoSource = source;
+            assert(encodingConfig.transform);
             let needsRerender = width !== originalWidth
                 || height !== originalHeight
                 || (totalRotation !== 0 && (!canUseRotationMetadata || trackOptions.process !== undefined))
+                || (totalFlip && (!canUseRotationMetadata || trackOptions.process !== undefined))
                 || !!crop
                 // Don't expect encoders to reliably handle non-square pixels:
-                || track.squarePixelWidth !== track.codedWidth
-                || track.squarePixelHeight !== track.codedHeight;
+                || squarePixelWidth !== await track.getCodedWidth()
+                || squarePixelHeight !== await track.getCodedHeight();
             if (!needsRerender) {
-                // If we're directly passing decoded samples back to the encoder, sometimes the encoder may error due
-                // to lack of support of certain video frame formats, like when HDR is at play. To check for this, we
-                // first try to pass a single frame to the encoder to see how it behaves. If it throws, we then fall
-                // back to the rerender path.
-                //
-                // Creating a new temporary Output is sort of hacky, but due to a lack of an isolated encoder API right
-                // now, this is the simplest way. Will refactor in the future! TODO
-                const tempOutput = new Output({
-                    format: new Mp4OutputFormat(), // Supports all video codecs
-                    target: new NullTarget(),
-                });
-                const tempSource = new VideoSampleSource(encodingConfig);
-                tempOutput.addVideoTrack(tempSource);
-                await tempOutput.start();
-                const sink = new VideoSampleSink(track);
-                const firstSample = await sink.getSample(firstTimestamp); // Let's just use the first sample
-                if (firstSample) {
-                    try {
-                        await tempSource.add(firstSample);
-                        firstSample.close();
-                        await tempOutput.finalize();
+                const env_1 = { stack: [], error: void 0, hasError: false };
+                try {
+                    // If we're directly passing decoded samples back to the encoder, sometimes the encoder may error due
+                    // to lack of support of certain video frame formats, like when HDR is at play. To check for this, we
+                    // first try to pass a single frame to the encoder to see how it behaves. If it throws, we then fall
+                    // back to the rerender path.
+                    //
+                    // Creating a new temporary Output is sort of hacky, but due to a lack of an isolated encoder API right
+                    // now, this is the simplest way. Will refactor in the future! TODO
+                    const tempOutput = new Output({
+                        format: new NullOutputFormat(),
+                        target: new NullTarget(),
+                    });
+                    const tempSource = new VideoSampleSource(encodingConfig);
+                    tempOutput.addVideoTrack(tempSource);
+                    await tempOutput.start();
+                    // Let's just use the first sample to test
+                    const sink = new VideoSampleSink(track, { hardwareAcceleration: trackOptions.hardwareAcceleration });
+                    const firstSample = __addDisposableResource(env_1, await sink.getSample(await track.getFirstTimestamp()), false);
+                    if (firstSample) {
+                        try {
+                            await tempSource.add(firstSample);
+                            firstSample.close();
+                            await tempOutput.finalize();
+                        }
+                        catch (error) {
+                            Logging._warn('An error occurred when probing encoder support. Falling back to rerender path.', error);
+                            void tempOutput.cancel();
+                            needsRerender = true;
+                            encodingConfig.transform.force = true;
+                        }
                     }
-                    catch (error) {
-                        console.info('Error when probing encoder support. Falling back to rerender path.', error);
-                        needsRerender = true;
-                        void tempOutput.cancel();
+                    else {
+                        await tempOutput.cancel();
                     }
                 }
-                else {
-                    await tempOutput.cancel();
+                catch (e_1) {
+                    env_1.error = e_1;
+                    env_1.hasError = true;
                 }
+                finally {
+                    __disposeResources(env_1);
+                }
+            }
+            if (trackOptions.frameRate) {
+                encodingConfig.transform.frameRate = trackOptions.frameRate;
+            }
+            if (trackOptions.process) {
+                encodingConfig.transform.process = trackOptions.process;
             }
             if (needsRerender) {
-                this._trackPromises.push((async () => {
-                    await this._started;
-                    const sink = new CanvasSink(track, {
-                        width,
-                        height,
-                        fit: trackOptions.fit ?? 'fill',
-                        rotation: totalRotation, // Bake the rotation into the output
-                        crop: trackOptions.crop,
-                        poolSize: 1,
-                        alpha: alpha === 'keep',
-                    });
-                    const iterator = sink.canvases(this._startTimestamp, this._endTimestamp);
-                    const frameRate = trackOptions.frameRate;
-                    outputTrackRotation = 0; // Since the rotation is baked into the output
-                    let lastCanvas = null;
-                    let lastCanvasTimestamp = null;
-                    let lastCanvasEndTimestamp = null;
-                    /** Repeats the last sample to pad out the time until the specified timestamp. */
-                    const padFrames = async (until) => {
-                        assert(lastCanvas);
-                        assert(frameRate !== undefined);
-                        const frameDifference = Math.round((until - lastCanvasTimestamp) * frameRate);
-                        for (let i = 1; i < frameDifference; i++) {
-                            const sample = new VideoSample(lastCanvas, {
-                                timestamp: lastCanvasTimestamp + i / frameRate,
-                                duration: 1 / frameRate,
-                            });
-                            await this._registerVideoSample(track, trackOptions, source, sample);
-                            sample.close();
+                // Since the transform is baked into the output:
+                outputTrackRotation = 0;
+                outputTrackFlip = false;
+                outputTrackMatrix = null;
+                encodingConfig.transform.width = width;
+                encodingConfig.transform.height = height;
+                encodingConfig.transform.fit = trackOptions.fit ?? 'fill';
+                // The decoded samples already carry the innate rotation and flip, so only the additional ones go here
+                encodingConfig.transform.rotate = trackOptions.rotate;
+                encodingConfig.transform.flip = trackOptions.flip;
+                encodingConfig.transform.crop = crop;
+                encodingConfig.transform.alpha = alpha;
+            }
+            // We need to do this because `process` can emit new timestamps
+            let lastSampleTimestamp = null;
+            encodingConfig.onEncodedSample = (sample) => {
+                lastSampleTimestamp = sample.timestamp;
+            };
+            const source = new VideoSampleSource(encodingConfig);
+            videoSource = source;
+            this._registerTrackPump(async (pump) => {
+                const sink = new VideoSampleSink(track, { hardwareAcceleration: trackOptions.hardwareAcceleration });
+                for await (const sample_1 of sink.samples(this._startTimestamp, this._endTimestamp)) {
+                    const env_2 = { stack: [], error: void 0, hasError: false };
+                    try {
+                        const sample = __addDisposableResource(env_2, sample_1, false);
+                        if (this._state === 'canceled') {
+                            break;
                         }
-                    };
-                    for await (const { canvas, timestamp, duration } of iterator) {
-                        if (this._canceled) {
-                            return;
+                        const clampedStartTimestamp = Math.max(this._startTimestamp, sample.timestamp);
+                        const clampedEndTimestamp = Math.min(this._endTimestamp, sample.timestamp + sample.duration);
+                        if (clampedStartTimestamp > clampedEndTimestamp
+                            || (clampedStartTimestamp === clampedEndTimestamp && sample.duration > 0)) {
+                            // Wholly out of the trim region
+                            continue;
                         }
-                        let adjustedSampleTimestamp = Math.max(timestamp - this._startTimestamp, 0);
-                        lastCanvasEndTimestamp = adjustedSampleTimestamp + duration;
-                        if (frameRate !== undefined) {
-                            // Logic for skipping/repeating frames when a frame rate is set
-                            const alignedTimestamp = Math.floor(adjustedSampleTimestamp * frameRate) / frameRate;
-                            if (lastCanvas !== null) {
-                                if (alignedTimestamp <= lastCanvasTimestamp) {
-                                    lastCanvas = canvas;
-                                    lastCanvasTimestamp = alignedTimestamp;
-                                    // Skip this sample, since we already added one for this frame
-                                    continue;
-                                }
-                                else {
-                                    // Check if we may need to repeat the previous frame
-                                    await padFrames(alignedTimestamp);
-                                }
-                            }
-                            adjustedSampleTimestamp = alignedTimestamp;
-                        }
-                        const sample = new VideoSample(canvas, {
-                            timestamp: adjustedSampleTimestamp,
-                            duration: frameRate !== undefined ? 1 / frameRate : duration,
-                        });
-                        await this._registerVideoSample(track, trackOptions, source, sample);
+                        sample.setTimestamp(clampedStartTimestamp + this._timestampOffset);
+                        sample.setDuration(clampedEndTimestamp - clampedStartTimestamp);
+                        this._updateProgress(outputTrackId, sample.timestamp + sample.duration);
+                        await source.add(sample);
                         sample.close();
-                        if (frameRate !== undefined) {
-                            lastCanvas = canvas;
-                            lastCanvasTimestamp = adjustedSampleTimestamp;
-                        }
-                    }
-                    if (lastCanvas) {
-                        assert(lastCanvasEndTimestamp !== null);
-                        assert(frameRate !== undefined);
-                        // If necessary, pad until the end timestamp of the last sample
-                        await padFrames(Math.floor(lastCanvasEndTimestamp * frameRate) / frameRate);
-                    }
-                    source.close();
-                    this._synchronizer.closeTrack(track.id);
-                })());
-            }
-            else {
-                this._trackPromises.push((async () => {
-                    await this._started;
-                    const sink = new VideoSampleSink(track);
-                    const frameRate = trackOptions.frameRate;
-                    let lastSample = null;
-                    let lastSampleTimestamp = null;
-                    let lastSampleEndTimestamp = null;
-                    /** Repeats the last sample to pad out the time until the specified timestamp. */
-                    const padFrames = async (until) => {
-                        assert(lastSample);
-                        assert(frameRate !== undefined);
-                        const frameDifference = Math.round((until - lastSampleTimestamp) * frameRate);
-                        for (let i = 1; i < frameDifference; i++) {
-                            lastSample.setTimestamp(lastSampleTimestamp + i / frameRate);
-                            lastSample.setDuration(1 / frameRate);
-                            await this._registerVideoSample(track, trackOptions, source, lastSample);
-                        }
-                        lastSample.close();
-                    };
-                    for await (const sample of sink.samples(this._startTimestamp, this._endTimestamp)) {
-                        if (this._canceled) {
-                            sample.close();
-                            lastSample?.close();
-                            return;
-                        }
-                        let adjustedSampleTimestamp = Math.max(sample.timestamp - this._startTimestamp, 0);
-                        lastSampleEndTimestamp = adjustedSampleTimestamp + sample.duration;
-                        if (frameRate !== undefined) {
-                            // Logic for skipping/repeating frames when a frame rate is set
-                            const alignedTimestamp = Math.floor(adjustedSampleTimestamp * frameRate) / frameRate;
-                            if (lastSample !== null) {
-                                if (alignedTimestamp <= lastSampleTimestamp) {
-                                    lastSample.close();
-                                    lastSample = sample;
-                                    lastSampleTimestamp = alignedTimestamp;
-                                    // Skip this sample, since we already added one for this frame
-                                    continue;
-                                }
-                                else {
-                                    // Check if we may need to repeat the previous frame
-                                    await padFrames(alignedTimestamp);
-                                }
+                        if (lastSampleTimestamp !== null) {
+                            if (this._synchronizer.shouldWait(outputTrackId, lastSampleTimestamp)) {
+                                await this._synchronizer.wait(lastSampleTimestamp);
                             }
-                            adjustedSampleTimestamp = alignedTimestamp;
-                            sample.setDuration(1 / frameRate);
-                        }
-                        sample.setTimestamp(adjustedSampleTimestamp);
-                        await this._registerVideoSample(track, trackOptions, source, sample);
-                        if (frameRate !== undefined) {
-                            lastSample = sample;
-                            lastSampleTimestamp = adjustedSampleTimestamp;
-                        }
-                        else {
-                            sample.close();
+                            await this._checkpoint(pump, lastSampleTimestamp);
                         }
                     }
-                    if (lastSample) {
-                        assert(lastSampleEndTimestamp !== null);
-                        assert(frameRate !== undefined);
-                        // If necessary, pad until the end timestamp of the last sample
-                        await padFrames(Math.floor(lastSampleEndTimestamp * frameRate) / frameRate);
+                    catch (e_2) {
+                        env_2.error = e_2;
+                        env_2.hasError = true;
                     }
-                    source.close();
-                    this._synchronizer.closeTrack(track.id);
-                })());
-            }
+                    finally {
+                        __disposeResources(env_2);
+                    }
+                }
+                source.close(); // No-op if a cancel already force-closed it
+                this._closeTrack(outputTrackId);
+            });
+        }
+        let ownGroup = null;
+        if (!trackOptions.group && !this._composable) {
+            // Create per-track groups to replicate the input's pairability graph. Don't do this for composable
+            // conversions.
+            ownGroup = new OutputTrackGroup();
+        }
+        const videoTrackLanguageCode = await track.getLanguageCode();
+        const trackName = await track.getName();
+        const trackDisposition = await track.getDisposition();
+        // The input's bitrate metadata only stays meaningful when packets are copied
+        const bitrate = needsTranscode ? null : await track.getBitrate();
+        const averageBitrate = needsTranscode ? null : await track.getAverageBitrate();
+        const canBeTransparent = alpha === 'keep' && await track.canBeTransparent();
+        let maximumPacketCount = trackOptions.maximumPacketCount;
+        if (this.output.format.requiresMaximumPacketCount && maximumPacketCount === undefined) {
+            const startTimestamp = needsTranscode
+                ? this._startTimestamp
+                : copyStartPacket?.timestamp ?? this._startTimestamp;
+            // Frames map 1:1 to packets, so the input's packet rate is a good stand-in unless the frame rate is changed
+            maximumPacketCount = await this._estimateMaximumPacketCount(track, startTimestamp, trackOptions.frameRate ?? null);
         }
         this.output.addVideoTrack(videoSource, {
             frameRate: trackOptions.frameRate,
             // TODO: This condition can be removed when all demuxers properly homogenize to BCP47 in v2
-            languageCode: isIso639Dash2LanguageCode(track.languageCode) ? track.languageCode : undefined,
-            name: track.name ?? undefined,
-            disposition: track.disposition,
+            languageCode: isIso639Dash2LanguageCode(videoTrackLanguageCode)
+                ? videoTrackLanguageCode
+                : undefined,
+            name: trackName ?? undefined,
+            disposition: trackDisposition,
             rotation: outputTrackRotation,
+            flip: outputTrackFlip,
+            transformationMatrix: outputTrackMatrix ?? undefined,
+            canBeTransparent,
+            group: ownGroup ?? trackOptions.group,
+            bitrate: bitrate ?? undefined,
+            averageBitrate: averageBitrate ?? undefined,
+            maximumPacketCount,
         });
-        this._addedCounts.video++;
-        this._totalTrackCount++;
         this.utilizedTracks.push(track);
+        this._outputTrackIds.push(outputTrackId);
+        this._outputOwnTrackGroups.push(ownGroup);
     }
     /** @internal */
-    async _registerVideoSample(track, trackOptions, source, sample) {
-        if (this._canceled) {
-            return;
-        }
-        this._reportProgress(track.id, sample.timestamp);
-        let finalSamples;
-        if (!trackOptions.process) {
-            finalSamples = [sample];
-        }
-        else {
-            let processed = trackOptions.process(sample);
-            if (processed instanceof Promise)
-                processed = await processed;
-            if (!Array.isArray(processed)) {
-                processed = processed === null ? [] : [processed];
-            }
-            finalSamples = processed.map((x) => {
-                if (x instanceof VideoSample) {
-                    return x;
-                }
-                if (typeof VideoFrame !== 'undefined' && x instanceof VideoFrame) {
-                    return new VideoSample(x);
-                }
-                // Calling the VideoSample constructor here will automatically handle input validation for us
-                // (it throws for any non-legal argument).
-                return new VideoSample(x, {
-                    timestamp: sample.timestamp,
-                    duration: sample.duration,
-                });
-            });
-        }
-        for (const finalSample of finalSamples) {
-            if (this._canceled) {
-                break;
-            }
-            await source.add(finalSample);
-            if (this._synchronizer.shouldWait(track.id, finalSample.timestamp)) {
-                await this._synchronizer.wait(finalSample.timestamp);
-            }
-        }
-        for (const finalSample of finalSamples) {
-            if (finalSample !== sample) {
-                finalSample.close();
-            }
-        }
-    }
-    /** @internal */
-    async _processAudioTrack(track, trackOptions) {
-        const sourceCodec = track.codec;
+    async _processAudioTrack(track, trackOptions, outputTrackId) {
+        const sourceCodec = await track.getCodec();
         if (!sourceCodec) {
             this.discardedTracks.push({
                 track,
                 reason: 'unknown_source_codec',
+                trackOptions,
+            });
+            return;
+        }
+        if (this.output.format.requiresMaximumPacketCount
+            && trackOptions.maximumPacketCount === undefined
+            && this._endTimestamp === Infinity
+            && await track.isLive()) {
+            this.discardedTracks.push({
+                track,
+                reason: 'unknown_maximum_packet_count',
+                trackOptions,
             });
             return;
         }
         let audioSource;
-        const originalNumberOfChannels = track.numberOfChannels;
-        const originalSampleRate = track.sampleRate;
-        const firstTimestamp = await track.getFirstTimestamp();
+        const originalNumberOfChannels = await track.getNumberOfChannels();
+        const originalSampleRate = await track.getSampleRate();
         let numberOfChannels = trackOptions.numberOfChannels ?? originalNumberOfChannels;
         let sampleRate = trackOptions.sampleRate ?? originalSampleRate;
-        let needsResample = numberOfChannels !== originalNumberOfChannels
-            || sampleRate !== originalSampleRate
-            || firstTimestamp < this._startTimestamp
-            || (firstTimestamp > this._startTimestamp && !this.output.format.supportsTimestampedMediaData);
+        let outputCodec = null;
         let audioCodecs = this.output.format.getSupportedAudioCodecs();
-        if (!trackOptions.forceTranscode
-            && !trackOptions.bitrate
-            && !needsResample
-            && audioCodecs.includes(sourceCodec)
-            && (!trackOptions.codec || trackOptions.codec === sourceCodec)
-            && !trackOptions.process) {
+        let needsTranscode = !this._copyMode
+            || !!trackOptions.forceTranscode
+            || !!trackOptions.quality
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            || !!trackOptions.bitrate
+            || numberOfChannels !== originalNumberOfChannels
+            || sampleRate !== originalSampleRate
+            || !audioCodecs.includes(sourceCodec)
+            || (!!trackOptions.codec && trackOptions.codec !== sourceCodec)
+            || trackOptions.process !== undefined
+            || trackOptions.sampleFormat !== undefined;
+        let copyStartPacket = null;
+        if (!needsTranscode) {
+            // Check if we can copy it
+            const sink = new EncodedPacketSink(track);
+            let startPacket = await sink.getKeyPacket(this._startTimestamp, { verifyKeyPackets: true })
+                ?? await sink.getFirstKeyPacket({ verifyKeyPackets: true });
+            if (startPacket
+                && ((this._copyBoundaryPolicy === 'shrink'
+                    && startPacket.timestamp < this._startTimestamp)
+                    || (this._copyBoundaryPolicy === 'expand'
+                        // Check if the packet is wholly before the start
+                        && startPacket.timestamp + startPacket.duration <= this._startTimestamp
+                        // With delta packets, the rest of the key packet's group may still reach past the start
+                        && await track.hasOnlyKeyPackets()))) {
+                startPacket = await sink.getNextKeyPacket(startPacket, { verifyKeyPackets: true });
+            }
+            const preRollDuration = await track.getPreRollDuration();
+            assert(preRollDuration !== null); // Because the codec is known
+            if (startPacket && this._copyBoundaryPolicy === 'expand' && preRollDuration > 0) {
+                // Reach back far enough for the decoder to have converged by the start, or as far as the track goes
+                startPacket = await sink.getKeyPacket(startPacket.timestamp - preRollDuration, { verifyKeyPackets: true }) ?? await sink.getFirstKeyPacket({ verifyKeyPackets: true });
+            }
+            copyStartPacket = startPacket;
+            if (startPacket) {
+                const boundaryDeviation = this._copyBoundaryPolicy === 'shrink'
+                    ? Math.max(startPacket.timestamp - this._startTimestamp, 0)
+                    : Math.max(this._startTimestamp - startPacket.timestamp, 0);
+                if (boundaryDeviation > this._copyBoundaryTolerance) {
+                    needsTranscode = true;
+                }
+                else if (!this.output.format.supportsTimestampedMediaData) {
+                    // Wants zero
+                    if (this._timestampOffsetAdjusted) {
+                        // We've already adjusted, we can't adjust twice
+                        const isValid = startPacket.timestamp + this._timestampOffset === 0;
+                        if (!isValid) {
+                            needsTranscode = true;
+                        }
+                    }
+                    else {
+                        const correction = clamp(this._startTimestamp - startPacket.timestamp, -this._copyTimestampShiftTolerance, this._copyTimestampShiftTolerance);
+                        const shiftedStartTimestamp = startPacket.timestamp + correction;
+                        const isValid = shiftedStartTimestamp === this._startTimestamp;
+                        if (isValid) {
+                            this._timestampOffset = -this._startTimestamp + correction;
+                            this._timestampOffsetAdjusted = true;
+                        }
+                        else {
+                            needsTranscode = true;
+                        }
+                    }
+                }
+                else if (this.output.format.negativeTimestampSupport !== 'full'
+                    && startPacket.timestamp < this._startTimestamp) {
+                    const correction = Math.min(this._startTimestamp - startPacket.timestamp, this._copyTimestampShiftTolerance);
+                    const shiftedStartTimestamp = startPacket.timestamp + correction;
+                    const isValid = shiftedStartTimestamp >= this._startTimestamp
+                        || (this.output.format.negativeTimestampSupport === 'prefer-non-negative'
+                            && this._copyMode === 'forced');
+                    if (isValid) {
+                        this._timestampOffset = Math.max(this._timestampOffset, -this._startTimestamp + correction);
+                    }
+                    else {
+                        needsTranscode = true;
+                    }
+                }
+            }
+        }
+        if (needsTranscode && this._copyMode === 'forced') {
+            this.discardedTracks.push({
+                track,
+                reason: 'cannot_copy',
+                trackOptions,
+            });
+            return;
+        }
+        if (!needsTranscode) {
             // Fast path, we can simply copy over the encoded packets
             const source = new EncodedAudioPacketSource(sourceCodec);
             audioSource = source;
-            this._trackPromises.push((async () => {
-                await this._started;
+            this._registerTrackPump(async (pump) => {
                 const sink = new EncodedPacketSink(track);
                 const decoderConfig = await track.getDecoderConfig();
                 const meta = { decoderConfig: decoderConfig ?? undefined };
-                const endPacket = Number.isFinite(this._endTimestamp)
-                    ? await sink.getPacket(this._endTimestamp, { metadataOnly: true }) ?? undefined
-                    : undefined;
-                for await (const packet of sink.packets(undefined, endPacket)) {
-                    if (this._canceled) {
-                        return;
+                const packetOrderValidator = new PacketOrderValidator();
+                let droppingGop = false;
+                let warnedAboutDroppedPackets = false;
+                // eslint-disable-next-line curly
+                if (copyStartPacket)
+                    for await (const packet of sink.packets(copyStartPacket)) {
+                        if (this._state === 'canceled') {
+                            break;
+                        }
+                        if (packet.timestamp >= this._endTimestamp) {
+                            break;
+                        }
+                        if (this._copyBoundaryPolicy === 'shrink'
+                            && packet.timestamp + packet.duration > this._endTimestamp) {
+                            break;
+                        }
+                        if (packet.timestamp < copyStartPacket.timestamp) {
+                            continue;
+                        }
+                        const packetTimestamp = packet.timestamp + this._timestampOffset;
+                        if (packet.type === 'key') {
+                            droppingGop = false;
+                        }
+                        if (droppingGop) {
+                            continue;
+                        }
+                        // If packets violate the ordering rule (and would throw in the muxer), drop 'em
+                        if (!packetOrderValidator.digest(packetTimestamp, packet.type)) {
+                            droppingGop = packet.type === 'key';
+                            if (!warnedAboutDroppedPackets) {
+                                Logging._warn('Some audio packets had to be dropped in order to produce correct output timestamps.');
+                                warnedAboutDroppedPackets = true;
+                            }
+                            continue;
+                        }
+                        const modifiedPacket = packet.clone({
+                            timestamp: packetTimestamp,
+                            duration: packet.duration,
+                        });
+                        this._updateProgress(outputTrackId, modifiedPacket.timestamp + modifiedPacket.duration);
+                        await source.add(modifiedPacket, meta);
+                        if (this._synchronizer.shouldWait(outputTrackId, modifiedPacket.timestamp)) {
+                            await this._synchronizer.wait(modifiedPacket.timestamp);
+                        }
+                        await this._checkpoint(pump, modifiedPacket.timestamp);
                     }
-                    const modifiedPacket = packet.clone({
-                        timestamp: packet.timestamp - this._startTimestamp,
-                    });
-                    assert(modifiedPacket.timestamp >= 0);
-                    this._reportProgress(track.id, modifiedPacket.timestamp);
-                    await source.add(modifiedPacket, meta);
-                    if (this._synchronizer.shouldWait(track.id, modifiedPacket.timestamp)) {
-                        await this._synchronizer.wait(modifiedPacket.timestamp);
-                    }
-                }
-                source.close();
-                this._synchronizer.closeTrack(track.id);
-            })());
+                source.close(); // No-op if a cancel already force-closed it
+                this._closeTrack(outputTrackId);
+            });
         }
         else {
             // We need to decode & reencode the audio
@@ -972,14 +1525,16 @@ export class Conversion {
                 this.discardedTracks.push({
                     track,
                     reason: 'undecodable_source_codec',
+                    trackOptions,
                 });
                 return;
             }
-            let codecOfChoice = null;
             if (trackOptions.codec) {
                 audioCodecs = audioCodecs.filter(codec => codec === trackOptions.codec);
             }
-            const bitrate = trackOptions.bitrate ?? QUALITY_HIGH;
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            const quality = resolveQuality(trackOptions.quality, trackOptions.bitrate)
+                ?? new Quality('high');
             const encodableCodecs = await getEncodableAudioCodecs(audioCodecs, {
                 numberOfChannels: trackOptions.process && trackOptions.processedNumberOfChannels
                     ? trackOptions.processedNumberOfChannels
@@ -987,7 +1542,7 @@ export class Conversion {
                 sampleRate: trackOptions.process && trackOptions.processedSampleRate
                     ? trackOptions.processedSampleRate
                     : sampleRate,
-                bitrate,
+                quality,
             });
             if (!encodableCodecs.some(codec => NON_PCM_AUDIO_CODECS.includes(codec))
                 && audioCodecs.some(codec => NON_PCM_AUDIO_CODECS.includes(codec))
@@ -998,253 +1553,284 @@ export class Conversion {
                 const encodableCodecsWithDefaultParams = await getEncodableAudioCodecs(audioCodecs, {
                     numberOfChannels: FALLBACK_NUMBER_OF_CHANNELS,
                     sampleRate: FALLBACK_SAMPLE_RATE,
-                    bitrate,
+                    quality,
                 });
                 const nonPcmCodec = encodableCodecsWithDefaultParams
                     .find(codec => NON_PCM_AUDIO_CODECS.includes(codec));
                 if (nonPcmCodec) {
                     // We are able to encode using a non-PCM codec, but it'll require resampling
-                    needsResample = true;
-                    codecOfChoice = nonPcmCodec;
+                    outputCodec = nonPcmCodec;
                     numberOfChannels = FALLBACK_NUMBER_OF_CHANNELS;
                     sampleRate = FALLBACK_SAMPLE_RATE;
                 }
+                else {
+                    outputCodec = encodableCodecs[0] ?? null;
+                }
             }
             else {
-                codecOfChoice = encodableCodecs[0] ?? null;
+                outputCodec = encodableCodecs[0] ?? null;
             }
-            if (codecOfChoice === null) {
+            if (outputCodec === null) {
                 this.discardedTracks.push({
                     track,
                     reason: 'no_encodable_target_codec',
+                    trackOptions,
                 });
                 return;
             }
-            if (needsResample) {
-                audioSource = this._resampleAudio(track, trackOptions, codecOfChoice, numberOfChannels, sampleRate, bitrate);
+            const encodingConfig = {
+                codec: outputCodec,
+                quality,
+                transform: {
+                    sampleFormat: trackOptions.sampleFormat,
+                    process: trackOptions.process,
+                },
+            };
+            assert(encodingConfig.transform);
+            if (numberOfChannels !== originalNumberOfChannels) {
+                encodingConfig.transform.numberOfChannels = numberOfChannels;
             }
-            else {
-                const source = new AudioSampleSource({
-                    codec: codecOfChoice,
-                    bitrate,
-                });
-                audioSource = source;
-                this._trackPromises.push((async () => {
-                    await this._started;
-                    const sink = new AudioSampleSink(track);
-                    for await (const sample of sink.samples(undefined, this._endTimestamp)) {
-                        if (this._canceled) {
-                            sample.close();
-                            return;
+            if (sampleRate !== originalSampleRate) {
+                encodingConfig.transform.sampleRate = sampleRate;
+            }
+            let lastSampleTimestamp = null;
+            encodingConfig.onEncodedSample = (sample) => {
+                lastSampleTimestamp = sample.timestamp;
+            };
+            const source = new AudioSampleSource(encodingConfig);
+            audioSource = source;
+            this._registerTrackPump(async (pump) => {
+                let paddingLengthInSamples = null;
+                const sink = new AudioSampleSink(track);
+                for await (const sample_2 of sink.samples(this._startTimestamp, this._endTimestamp)) {
+                    const env_3 = { stack: [], error: void 0, hasError: false };
+                    try {
+                        const sample = __addDisposableResource(env_3, sample_2, false);
+                        if (this._state === 'canceled') {
+                            break;
                         }
+                        let startFrame = 0;
+                        let endFrame = sample.numberOfFrames;
+                        if (sample.timestamp < this._startTimestamp) {
+                            startFrame = Math.round((this._startTimestamp - sample.timestamp) * sample.sampleRate);
+                        }
+                        if (sample.timestamp + sample.duration > this._endTimestamp) {
+                            endFrame = Math.round((this._endTimestamp - sample.timestamp) * sample.sampleRate);
+                        }
+                        if (startFrame >= endFrame) {
+                            // Sample lies wholly out of trim region
+                            sample.close();
+                            continue; // No break since we may be before the start
+                        }
+                        // Can't assign to "using" identifiers so we gotta do this
+                        let finalSampleLet;
+                        if (startFrame > 0 || endFrame < sample.numberOfFrames) {
+                            // Trim the sample if it sticks out of the trim region on either end
+                            const trimmedSample = sample.trim(startFrame, endFrame);
+                            sample.close();
+                            finalSampleLet = trimmedSample;
+                            if (trimmedSample.numberOfFrames === 0) {
+                                trimmedSample.close();
+                                continue;
+                            }
+                        }
+                        else {
+                            finalSampleLet = sample;
+                        }
+                        const finalSample = __addDisposableResource(env_3, finalSampleLet, false);
                         // Offset the timestamp as needed
-                        sample.setTimestamp(sample.timestamp - this._startTimestamp);
-                        await this._registerAudioSample(track, trackOptions, source, sample);
-                        sample.close();
+                        finalSample.setTimestamp(finalSample.timestamp + this._timestampOffset);
+                        if (paddingLengthInSamples === null) {
+                            paddingLengthInSamples = this.output.format.supportsTimestampedMediaData
+                                ? 0
+                                : Math.round(finalSample.timestamp * finalSample.sampleRate);
+                        }
+                        if (paddingLengthInSamples > 0) {
+                            // Add padding samples at the beginning, at most a second each so long paddings don't need huge
+                            // allocations. Their parameters come from the decoded sample rather than the track metadata,
+                            // since these can differ (think implicitly signaled HE-AAC).
+                            const bytesPerFrame = getBytesPerSample(sample.format) * finalSample.numberOfChannels;
+                            const silence = new Uint8Array(bytesPerFrame * Math.min(paddingLengthInSamples, finalSample.sampleRate));
+                            if (sample.format === 'u8' || sample.format === 'u8-planar') {
+                                silence.fill(2 ** 7); // Fill it with the silent value
+                            }
+                            for (let offset = 0; offset < paddingLengthInSamples; offset += finalSample.sampleRate) {
+                                const env_4 = { stack: [], error: void 0, hasError: false };
+                                try {
+                                    const frameCount = Math.min(paddingLengthInSamples - offset, finalSample.sampleRate);
+                                    const silentSample = __addDisposableResource(env_4, new AudioSample({
+                                        data: silence.subarray(0, bytesPerFrame * frameCount),
+                                        _doNotCopy: true,
+                                        // Use the same format the decoder is spitting out. This avoids feeding changing sample
+                                        // formats to the audio encoder.
+                                        format: sample.format,
+                                        numberOfChannels: finalSample.numberOfChannels,
+                                        sampleRate: finalSample.sampleRate,
+                                        timestamp: offset / finalSample.sampleRate,
+                                    }), false);
+                                    await this._registerAudioSample(pump, silentSample, source, outputTrackId, () => lastSampleTimestamp);
+                                }
+                                catch (e_3) {
+                                    env_4.error = e_3;
+                                    env_4.hasError = true;
+                                }
+                                finally {
+                                    __disposeResources(env_4);
+                                }
+                            }
+                            paddingLengthInSamples = 0;
+                        }
+                        await this._registerAudioSample(pump, finalSample, source, outputTrackId, () => lastSampleTimestamp);
                     }
-                    source.close();
-                    this._synchronizer.closeTrack(track.id);
-                })());
+                    catch (e_4) {
+                        env_3.error = e_4;
+                        env_3.hasError = true;
+                    }
+                    finally {
+                        __disposeResources(env_3);
+                    }
+                }
+                source.close(); // No-op if a cancel already force-closed it
+                this._closeTrack(outputTrackId);
+            });
+        }
+        let ownGroup = null;
+        if (!trackOptions.group && !this._composable) {
+            // Create per-track groups to replicate the input's pairability graph. Don't do this for composable
+            // conversions.
+            ownGroup = new OutputTrackGroup();
+        }
+        const audioTrackLanguageCode = await track.getLanguageCode();
+        const trackName = await track.getName();
+        const trackDisposition = await track.getDisposition();
+        // The input's bitrate metadata only stays meaningful when packets are copied
+        const bitrate = needsTranscode ? null : await track.getBitrate();
+        const averageBitrate = needsTranscode ? null : await track.getAverageBitrate();
+        let maximumPacketCount = trackOptions.maximumPacketCount;
+        if (this.output.format.requiresMaximumPacketCount && maximumPacketCount === undefined) {
+            let packetRate = null;
+            if (needsTranscode) {
+                assert(outputCodec);
+                packetRate = sampleRate / getMinimumAudioPacketSize(outputCodec, sampleRate);
             }
+            const startTimestamp = needsTranscode
+                ? this._startTimestamp
+                : copyStartPacket?.timestamp ?? this._startTimestamp;
+            maximumPacketCount = await this._estimateMaximumPacketCount(track, startTimestamp, packetRate);
         }
         this.output.addAudioTrack(audioSource, {
             // TODO: This condition can be removed when all demuxers properly homogenize to BCP47 in v2
-            languageCode: isIso639Dash2LanguageCode(track.languageCode) ? track.languageCode : undefined,
-            name: track.name ?? undefined,
-            disposition: track.disposition,
+            languageCode: isIso639Dash2LanguageCode(audioTrackLanguageCode)
+                ? audioTrackLanguageCode
+                : undefined,
+            name: trackName ?? undefined,
+            disposition: trackDisposition,
+            group: ownGroup ?? trackOptions.group,
+            bitrate: bitrate ?? undefined,
+            averageBitrate: averageBitrate ?? undefined,
+            maximumPacketCount,
         });
-        this._addedCounts.audio++;
-        this._totalTrackCount++;
         this.utilizedTracks.push(track);
+        this._outputTrackIds.push(outputTrackId);
+        this._outputOwnTrackGroups.push(ownGroup);
     }
     /** @internal */
-    async _registerAudioSample(track, trackOptions, source, sample) {
-        if (this._canceled) {
-            return;
+    async _estimateMaximumPacketCount(track, startTimestamp, packetRate) {
+        if (packetRate === null) {
+            const stats = await track.computePacketStats(PACKET_STATS_PACKET_COUNT);
+            if (stats.averagePacketRate === Infinity) {
+                // All packets sit at a single instant, so the stats went through and counted every last one of them
+                return stats.packetCount;
+            }
+            packetRate = stats.averagePacketRate;
         }
-        this._reportProgress(track.id, sample.timestamp);
-        let finalSamples;
-        if (!trackOptions.process) {
-            finalSamples = [sample];
+        const endTimestamp = Math.min(await this._getTrackDuration(track), this._endTimestamp);
+        const duration = Math.max(endTimestamp - startTimestamp, 0);
+        // Let's give this a generous margin
+        return Math.ceil(1.5 * packetRate * duration) + 64;
+    }
+    /** @internal */
+    _getTrackDuration(track) {
+        let promise = this._trackDurations.get(track);
+        if (!promise) {
+            promise = (async () => {
+                if (await track.isLive()) {
+                    return Infinity; // Upper bound (assuming no universe heat death)
+                }
+                return (await track.getDurationFromMetadata()) ?? (await track.computeDuration());
+            })();
+            this._trackDurations.set(track, promise);
         }
-        else {
-            let processed = trackOptions.process(sample);
-            if (processed instanceof Promise)
-                processed = await processed;
-            if (!Array.isArray(processed)) {
-                processed = processed === null ? [] : [processed];
+        return promise;
+    }
+    /** @internal */
+    async _registerAudioSample(pump, sample, source, outputTrackId, getLastSampleTimestamp) {
+        this._updateProgress(outputTrackId, sample.timestamp + sample.duration);
+        await source.add(sample);
+        sample.close();
+        const lastSampleTimestamp = getLastSampleTimestamp();
+        if (lastSampleTimestamp !== null) {
+            if (this._synchronizer.shouldWait(outputTrackId, lastSampleTimestamp)) {
+                await this._synchronizer.wait(lastSampleTimestamp);
             }
-            if (!processed.every(x => x instanceof AudioSample)) {
-                throw new TypeError('The audio process function must return an AudioSample, null, or an array of AudioSamples.');
-            }
-            finalSamples = processed;
-        }
-        for (const finalSample of finalSamples) {
-            if (this._canceled) {
-                break;
-            }
-            await source.add(finalSample);
-            if (this._synchronizer.shouldWait(track.id, finalSample.timestamp)) {
-                await this._synchronizer.wait(finalSample.timestamp);
-            }
-        }
-        for (const finalSample of finalSamples) {
-            if (finalSample !== sample) {
-                finalSample.close();
-            }
+            await this._checkpoint(pump, lastSampleTimestamp);
         }
     }
-    /** Converts or passes through a subtitle track into the output format. */
-    async _processSubtitleTrack(track, trackOptions) {
-        const sourceCodec = track.codec;
-        if (!sourceCodec) {
-            this.discardedTracks.push({
-                track,
-                reason: 'unknown_source_codec',
-            });
-            return;
-        }
-        // Determine target codec
-        let targetCodec = trackOptions.codec ?? sourceCodec;
-        const supportedCodecs = this.output.format.getSupportedSubtitleCodecs();
-        // Check if target codec is supported by output format
-        if (!supportedCodecs.includes(targetCodec)) {
-            // Try to use source codec if no specific codec was requested
-            if (!trackOptions.codec && supportedCodecs.includes(sourceCodec)) {
-                targetCodec = sourceCodec;
-            }
-            else {
-                // If a specific codec was requested but not supported, or source codec not supported, discard
-                this.discardedTracks.push({
-                    track,
-                    reason: 'no_encodable_target_codec',
+    /** @internal */
+    _registerTrackPump(fn) {
+        const pump = {
+            done: false,
+            resolvers: promiseWithResolvers(),
+            wake: null,
+            start: () => {
+                void fn(pump).then(() => {
+                    pump.done = true;
+                    pump.resolvers.resolve();
+                }, (error) => {
+                    pump.resolvers.reject(error);
                 });
-                return;
-            }
+            },
+        };
+        this._trackPumps.push(pump);
+    }
+    /** @internal */
+    async _checkpoint(pump, timestamp) {
+        while (this._state !== 'canceled' && (timestamp >= this._executionUntil || this._pauseRequested)) {
+            // We've reached the target; signal it and suspend until the next execution wakes us up
+            pump.resolvers.resolve();
+            const { promise, resolve } = promiseWithResolvers();
+            pump.wake = resolve;
+            await promise;
         }
-        // Create subtitle source
-        const subtitleSource = new TextSubtitleSource(targetCodec);
-        // Add track promise to extract and add subtitle cues
-        this._trackPromises.push((async () => {
-            await this._started;
-            let subtitleText;
-            // If no trim or codec conversion needed, use the efficient export method
-            if (this._startTimestamp === 0 && !Number.isFinite(this._endTimestamp) && targetCodec === sourceCodec) {
-                subtitleText = await track.exportToText();
-            }
-            else {
-                // Extract and adjust cues for trim/conversion
-                const cues = [];
-                for await (const cue of track.getCues()) {
-                    const cueEndTime = cue.timestamp + cue.duration;
-                    // Apply trim if needed
-                    if (this._startTimestamp > 0 || Number.isFinite(this._endTimestamp)) {
-                        // Skip cues completely outside trim range
-                        if (cueEndTime <= this._startTimestamp || cue.timestamp >= this._endTimestamp) {
-                            continue;
-                        }
-                        // Adjust cue timing
-                        const adjustedTimestamp = Math.max(cue.timestamp - this._startTimestamp, 0);
-                        const adjustedEndTime = Math.min(cueEndTime - this._startTimestamp, this._endTimestamp - this._startTimestamp);
-                        cues.push({
-                            ...cue,
-                            timestamp: adjustedTimestamp,
-                            duration: adjustedEndTime - adjustedTimestamp,
-                        });
-                    }
-                    else {
-                        cues.push(cue);
-                    }
-                    if (this._canceled) {
-                        return;
-                    }
-                }
-                // Convert to target format
-                if (targetCodec === 'srt') {
-                    subtitleText = formatCuesToSrt(cues);
-                }
-                else if (targetCodec === 'webvtt') {
-                    subtitleText = formatCuesToWebVTT(cues);
-                }
-                else if (targetCodec === 'ass' || targetCodec === 'ssa') {
-                    // When converting to ASS/SSA, try to preserve the header from source if it's also ASS/SSA
-                    let header = '';
-                    if (sourceCodec === 'ass' || sourceCodec === 'ssa') {
-                        // Get the full text to extract header
-                        const fullText = await track.exportToText();
-                        const eventsIndex = fullText.indexOf('[Events]');
-                        if (eventsIndex !== -1) {
-                            // Extract everything before [Events] + Format line
-                            const formatMatch = fullText.substring(eventsIndex).match(/Format:[^\n]+\n/);
-                            if (formatMatch) {
-                                header = fullText.substring(0, eventsIndex + formatMatch.index + formatMatch[0].length);
-                            }
-                        }
-                    }
-                    subtitleText = formatCuesToAss(cues, header);
-                }
-                else {
-                    // For other formats (tx3g, ttml), export from track
-                    subtitleText = await track.exportToText(targetCodec);
-                }
-            }
-            await subtitleSource.add(subtitleText);
-            subtitleSource.close();
-        })());
-        this.output.addSubtitleTrack(subtitleSource, {
-            languageCode: isIso639Dash2LanguageCode(track.languageCode) ? track.languageCode : undefined,
-            name: track.name ?? undefined,
-        });
-        this._addedCounts.subtitle++;
-        this._totalTrackCount++;
-        this.utilizedTracks.push(track);
     }
     /** @internal */
-    _resampleAudio(track, trackOptions, codec, targetNumberOfChannels, targetSampleRate, bitrate) {
-        const source = new AudioSampleSource({
-            codec,
-            bitrate,
-        });
-        this._trackPromises.push((async () => {
-            await this._started;
-            const resampler = new AudioResampler({
-                targetNumberOfChannels,
-                targetSampleRate,
-                startTime: this._startTimestamp,
-                endTime: this._endTimestamp,
-                onSample: async (sample) => {
-                    await this._registerAudioSample(track, trackOptions, source, sample);
-                    sample.close();
-                },
-            });
-            const sink = new AudioSampleSink(track);
-            const iterator = sink.samples(this._startTimestamp, this._endTimestamp);
-            for await (const sample of iterator) {
-                if (this._canceled) {
-                    sample.close();
-                    return;
-                }
-                await resampler.add(sample);
-                sample.close();
-            }
-            await resampler.finalize();
-            source.close();
-            this._synchronizer.closeTrack(track.id);
-        })());
-        return source;
+    _closeTrack(id) {
+        this._synchronizer.closeTrack(id);
+        this._maxTimestamps.delete(id);
+        this._reportProgress();
     }
     /** @internal */
-    _reportProgress(trackId, endTimestamp) {
+    _updateProgress(trackId, endTimestamp) {
         if (!this._computeProgress) {
             return;
         }
-        assert(this._totalDuration !== null);
         this._maxTimestamps.set(trackId, Math.max(endTimestamp, this._maxTimestamps.get(trackId)));
+        this._reportProgress();
+    }
+    /** @internal */
+    _reportProgress() {
+        if (!this._computeProgress || this._maxTimestamps.size === 0) {
+            return;
+        }
+        assert(this._totalDuration !== null);
         const minTimestamp = Math.min(...this._maxTimestamps.values());
-        const newProgress = clamp(minTimestamp / this._totalDuration, 0, 1);
+        const newProgress = this._totalDuration > 0
+            ? clamp(minTimestamp / this._totalDuration, 0, 1)
+            : 0;
+        this._lastProcessedTime = minTimestamp;
         if (newProgress !== this._lastProgress) {
             this._lastProgress = newProgress;
-            this.onProgress?.(newProgress);
+            this.onProgress?.(newProgress, minTimestamp);
         }
     }
 }
@@ -1260,7 +1846,7 @@ export class ConversionCanceledError extends Error {
         this.name = 'ConversionCanceledError';
     }
 }
-const MAX_TIMESTAMP_GAP = 5;
+const MAX_TIMESTAMP_GAP = 1; // in seconds
 /**
  * Utility class for synchronizing multiple track packet consumers with one another. We don't want one consumer to get
  * too out-of-sync with the others, as that may lead to a large number of packets that need to be internally buffered
@@ -1268,9 +1854,46 @@ const MAX_TIMESTAMP_GAP = 5;
  * slowest consumer.
  */
 class TrackSynchronizer {
-    constructor() {
+    constructor(conversion) {
         this.maxTimestamps = new Map(); // Track ID -> timestamp
         this.resolvers = [];
+        this.conversion = conversion;
+    }
+    declareTrack(trackId) {
+        // Using -Infinity will automatically cause all tracks to wait for each other at the start until they figure out
+        // the true min timestamp
+        this.maxTimestamps.set(trackId, -Infinity);
+    }
+    shouldWait(trackId, timestamp) {
+        const currentValue = this.maxTimestamps.get(trackId);
+        assert(currentValue !== undefined);
+        this.maxTimestamps.set(trackId, Math.max(timestamp, currentValue));
+        const newMin = this.computeMinAndMaybeResolve();
+        if (this.conversion._state === 'canceled'
+            || this.conversion._pauseRequested
+            || timestamp >= this.conversion._executionUntil) {
+            // No point in throttling consumers that are about to suspend or wind down anyway
+            return false;
+        }
+        return timestamp - newMin > MAX_TIMESTAMP_GAP; // Should wait if it is too far ahead of the slowest consumer
+    }
+    wait(timestamp) {
+        const { promise, resolve } = promiseWithResolvers();
+        this.resolvers.push({
+            timestamp,
+            resolve,
+        });
+        return promise;
+    }
+    closeTrack(trackId) {
+        this.maxTimestamps.delete(trackId);
+        this.computeMinAndMaybeResolve();
+    }
+    resolveAll() {
+        for (const entry of this.resolvers) {
+            entry.resolve();
+        }
+        this.resolvers.length = 0;
     }
     computeMinAndMaybeResolve() {
         let newMin = Infinity;
@@ -1287,250 +1910,5 @@ class TrackSynchronizer {
             }
         }
         return newMin;
-    }
-    shouldWait(trackId, timestamp) {
-        this.maxTimestamps.set(trackId, Math.max(timestamp, this.maxTimestamps.get(trackId) ?? -Infinity));
-        const newMin = this.computeMinAndMaybeResolve();
-        return timestamp - newMin >= MAX_TIMESTAMP_GAP; // Should wait if it is too far ahead of the slowest consumer
-    }
-    wait(timestamp) {
-        const { promise, resolve } = promiseWithResolvers();
-        this.resolvers.push({
-            timestamp,
-            resolve,
-        });
-        return promise;
-    }
-    closeTrack(trackId) {
-        this.maxTimestamps.delete(trackId);
-        this.computeMinAndMaybeResolve();
-    }
-}
-/**
- * Utility class to handle audio resampling, handling both sample rate resampling as well as channel up/downmixing.
- * The advantage over doing this manually rather than using OfflineAudioContext to do it for us is the artifact-free
- * handling of putting multiple resampled audio samples back to back, which produces flaky results using
- * OfflineAudioContext.
- */
-export class AudioResampler {
-    constructor(options) {
-        this.sourceSampleRate = null;
-        this.sourceNumberOfChannels = null;
-        this.targetSampleRate = options.targetSampleRate;
-        this.targetNumberOfChannels = options.targetNumberOfChannels;
-        this.startTime = options.startTime;
-        this.endTime = options.endTime;
-        this.onSample = options.onSample;
-        this.bufferSizeInFrames = Math.floor(this.targetSampleRate * 5.0); // 5 seconds
-        this.bufferSizeInSamples = this.bufferSizeInFrames * this.targetNumberOfChannels;
-        this.outputBuffer = new Float32Array(this.bufferSizeInSamples);
-        this.bufferStartFrame = 0;
-        this.maxWrittenFrame = -1;
-    }
-    /**
-     * Sets up the channel mixer to handle up/downmixing in the case where input and output channel counts don't match.
-     */
-    doChannelMixerSetup() {
-        assert(this.sourceNumberOfChannels !== null);
-        const sourceNum = this.sourceNumberOfChannels;
-        const targetNum = this.targetNumberOfChannels;
-        // Logic taken from
-        // https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API
-        // Most of the mapping functions are branchless.
-        if (sourceNum === 1 && targetNum === 2) {
-            // Mono to Stereo: M -> L, M -> R
-            this.channelMixer = (sourceData, sourceFrameIndex) => {
-                return sourceData[sourceFrameIndex * sourceNum];
-            };
-        }
-        else if (sourceNum === 1 && targetNum === 4) {
-            // Mono to Quad: M -> L, M -> R, 0 -> SL, 0 -> SR
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                return sourceData[sourceFrameIndex * sourceNum] * +(targetChannelIndex < 2);
-            };
-        }
-        else if (sourceNum === 1 && targetNum === 6) {
-            // Mono to 5.1: 0 -> L, 0 -> R, M -> C, 0 -> LFE, 0 -> SL, 0 -> SR
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                return sourceData[sourceFrameIndex * sourceNum] * +(targetChannelIndex === 2);
-            };
-        }
-        else if (sourceNum === 2 && targetNum === 1) {
-            // Stereo to Mono: 0.5 * (L + R)
-            this.channelMixer = (sourceData, sourceFrameIndex) => {
-                const baseIdx = sourceFrameIndex * sourceNum;
-                return 0.5 * (sourceData[baseIdx] + sourceData[baseIdx + 1]);
-            };
-        }
-        else if (sourceNum === 2 && targetNum === 4) {
-            // Stereo to Quad: L -> L, R -> R, 0 -> SL, 0 -> SR
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                return sourceData[sourceFrameIndex * sourceNum + targetChannelIndex] * +(targetChannelIndex < 2);
-            };
-        }
-        else if (sourceNum === 2 && targetNum === 6) {
-            // Stereo to 5.1: L -> L, R -> R, 0 -> C, 0 -> LFE, 0 -> SL, 0 -> SR
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                return sourceData[sourceFrameIndex * sourceNum + targetChannelIndex] * +(targetChannelIndex < 2);
-            };
-        }
-        else if (sourceNum === 4 && targetNum === 1) {
-            // Quad to Mono: 0.25 * (L + R + SL + SR)
-            this.channelMixer = (sourceData, sourceFrameIndex) => {
-                const baseIdx = sourceFrameIndex * sourceNum;
-                return 0.25 * (sourceData[baseIdx] + sourceData[baseIdx + 1]
-                    + sourceData[baseIdx + 2] + sourceData[baseIdx + 3]);
-            };
-        }
-        else if (sourceNum === 4 && targetNum === 2) {
-            // Quad to Stereo: 0.5 * (L + SL), 0.5 * (R + SR)
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                const baseIdx = sourceFrameIndex * sourceNum;
-                return 0.5 * (sourceData[baseIdx + targetChannelIndex]
-                    + sourceData[baseIdx + targetChannelIndex + 2]);
-            };
-        }
-        else if (sourceNum === 4 && targetNum === 6) {
-            // Quad to 5.1: L -> L, R -> R, 0 -> C, 0 -> LFE, SL -> SL, SR -> SR
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                const baseIdx = sourceFrameIndex * sourceNum;
-                // It's a bit harder to do this one branchlessly
-                if (targetChannelIndex < 2)
-                    return sourceData[baseIdx + targetChannelIndex]; // L, R
-                if (targetChannelIndex === 2 || targetChannelIndex === 3)
-                    return 0; // C, LFE
-                return sourceData[baseIdx + targetChannelIndex - 2]; // SL, SR
-            };
-        }
-        else if (sourceNum === 6 && targetNum === 1) {
-            // 5.1 to Mono: sqrt(1/2) * (L + R) + C + 0.5 * (SL + SR)
-            this.channelMixer = (sourceData, sourceFrameIndex) => {
-                const baseIdx = sourceFrameIndex * sourceNum;
-                return Math.SQRT1_2 * (sourceData[baseIdx] + sourceData[baseIdx + 1])
-                    + sourceData[baseIdx + 2]
-                    + 0.5 * (sourceData[baseIdx + 4] + sourceData[baseIdx + 5]);
-            };
-        }
-        else if (sourceNum === 6 && targetNum === 2) {
-            // 5.1 to Stereo: L + sqrt(1/2) * (C + SL), R + sqrt(1/2) * (C + SR)
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                const baseIdx = sourceFrameIndex * sourceNum;
-                return sourceData[baseIdx + targetChannelIndex]
-                    + Math.SQRT1_2 * (sourceData[baseIdx + 2] + sourceData[baseIdx + targetChannelIndex + 4]);
-            };
-        }
-        else if (sourceNum === 6 && targetNum === 4) {
-            // 5.1 to Quad: L + sqrt(1/2) * C, R + sqrt(1/2) * C, SL, SR
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                const baseIdx = sourceFrameIndex * sourceNum;
-                // It's a bit harder to do this one branchlessly
-                if (targetChannelIndex < 2) {
-                    return sourceData[baseIdx + targetChannelIndex] + Math.SQRT1_2 * sourceData[baseIdx + 2];
-                }
-                return sourceData[baseIdx + targetChannelIndex + 2]; // SL, SR
-            };
-        }
-        else {
-            // Discrete fallback: direct mapping with zero-fill or drop
-            this.channelMixer = (sourceData, sourceFrameIndex, targetChannelIndex) => {
-                return targetChannelIndex < sourceNum
-                    ? sourceData[sourceFrameIndex * sourceNum + targetChannelIndex]
-                    : 0;
-            };
-        }
-    }
-    ensureTempBufferSize(requiredSamples) {
-        let length = this.tempSourceBuffer.length;
-        while (length < requiredSamples) {
-            length *= 2;
-        }
-        if (length !== this.tempSourceBuffer.length) {
-            const newBuffer = new Float32Array(length);
-            newBuffer.set(this.tempSourceBuffer);
-            this.tempSourceBuffer = newBuffer;
-        }
-    }
-    async add(audioSample) {
-        if (this.sourceSampleRate === null) {
-            // This is the first sample, so let's init the missing data. Initting the sample rate from the decoded
-            // sample is more reliable than using the file's metadata, because decoders are free to emit any sample rate
-            // they see fit.
-            this.sourceSampleRate = audioSample.sampleRate;
-            this.sourceNumberOfChannels = audioSample.numberOfChannels;
-            // Pre-allocate temporary buffer for source data
-            this.tempSourceBuffer = new Float32Array(this.sourceSampleRate * this.sourceNumberOfChannels);
-            this.doChannelMixerSetup();
-        }
-        const requiredSamples = audioSample.numberOfFrames * audioSample.numberOfChannels;
-        this.ensureTempBufferSize(requiredSamples);
-        // Copy the audio data to the temp buffer
-        const sourceDataSize = audioSample.allocationSize({ planeIndex: 0, format: 'f32' });
-        const sourceView = new Float32Array(this.tempSourceBuffer.buffer, 0, sourceDataSize / 4);
-        audioSample.copyTo(sourceView, { planeIndex: 0, format: 'f32' });
-        const inputStartTime = audioSample.timestamp - this.startTime;
-        const inputDuration = audioSample.numberOfFrames / this.sourceSampleRate;
-        const inputEndTime = Math.min(inputStartTime + inputDuration, this.endTime - this.startTime);
-        // Compute which output frames are affected by this sample
-        const outputStartFrame = Math.floor(inputStartTime * this.targetSampleRate);
-        const outputEndFrame = Math.ceil(inputEndTime * this.targetSampleRate);
-        for (let outputFrame = outputStartFrame; outputFrame < outputEndFrame; outputFrame++) {
-            if (outputFrame < this.bufferStartFrame) {
-                continue; // Skip writes to the past
-            }
-            while (outputFrame >= this.bufferStartFrame + this.bufferSizeInFrames) {
-                // The write is after the current buffer, so finalize it
-                await this.finalizeCurrentBuffer();
-                this.bufferStartFrame += this.bufferSizeInFrames;
-            }
-            const bufferFrameIndex = outputFrame - this.bufferStartFrame;
-            assert(bufferFrameIndex < this.bufferSizeInFrames);
-            const outputTime = outputFrame / this.targetSampleRate;
-            const inputTime = outputTime - inputStartTime;
-            const sourcePosition = inputTime * this.sourceSampleRate;
-            const sourceLowerFrame = Math.floor(sourcePosition);
-            const sourceUpperFrame = Math.ceil(sourcePosition);
-            const fraction = sourcePosition - sourceLowerFrame;
-            // Process each output channel
-            for (let targetChannel = 0; targetChannel < this.targetNumberOfChannels; targetChannel++) {
-                let lowerSample = 0;
-                let upperSample = 0;
-                if (sourceLowerFrame >= 0 && sourceLowerFrame < audioSample.numberOfFrames) {
-                    lowerSample = this.channelMixer(sourceView, sourceLowerFrame, targetChannel);
-                }
-                if (sourceUpperFrame >= 0 && sourceUpperFrame < audioSample.numberOfFrames) {
-                    upperSample = this.channelMixer(sourceView, sourceUpperFrame, targetChannel);
-                }
-                // For resampling, we do naive linear interpolation to find the in-between sample. This produces
-                // suboptimal results especially for downsampling (for which a low-pass filter would first need to be
-                // applied), but AudioContext doesn't do this either, so, whatever, for now.
-                const outputSample = lowerSample + fraction * (upperSample - lowerSample);
-                // Write to output buffer (interleaved)
-                const outputIndex = bufferFrameIndex * this.targetNumberOfChannels + targetChannel;
-                this.outputBuffer[outputIndex] += outputSample; // Add in case of overlapping samples
-            }
-            this.maxWrittenFrame = Math.max(this.maxWrittenFrame, bufferFrameIndex);
-        }
-    }
-    async finalizeCurrentBuffer() {
-        if (this.maxWrittenFrame < 0) {
-            return; // Nothing to finalize
-        }
-        const samplesWritten = (this.maxWrittenFrame + 1) * this.targetNumberOfChannels;
-        const outputData = new Float32Array(samplesWritten);
-        outputData.set(this.outputBuffer.subarray(0, samplesWritten));
-        const timestampSeconds = this.bufferStartFrame / this.targetSampleRate;
-        const audioSample = new AudioSample({
-            format: 'f32',
-            sampleRate: this.targetSampleRate,
-            numberOfChannels: this.targetNumberOfChannels,
-            timestamp: timestampSeconds,
-            data: outputData,
-        });
-        await this.onSample(audioSample);
-        this.outputBuffer.fill(0);
-        this.maxWrittenFrame = -1;
-    }
-    finalize() {
-        return this.finalizeCurrentBuffer();
     }
 }

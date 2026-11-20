@@ -107,7 +107,7 @@ export class EncodedPacket {
             throw new TypeError('Metadata-only packets cannot be converted to a video chunk.');
         }
         if (typeof EncodedVideoChunk === 'undefined') {
-            throw new Error('Your browser does not support EncodedVideoChunk.');
+            throw new Error('EncodedVideoChunk is not available in this environment.');
         }
         return new EncodedVideoChunk({
             data: this.data,
@@ -129,7 +129,7 @@ export class EncodedPacket {
             throw new TypeError('Metadata-only packets cannot be converted to a video chunk.');
         }
         if (typeof EncodedVideoChunk === 'undefined') {
-            throw new Error('Your browser does not support EncodedVideoChunk.');
+            throw new Error('EncodedVideoChunk is not available in this environment.');
         }
         return new EncodedVideoChunk({
             data: this.sideData.alpha,
@@ -146,7 +146,7 @@ export class EncodedPacket {
             throw new TypeError('Metadata-only packets cannot be converted to an audio chunk.');
         }
         if (typeof EncodedAudioChunk === 'undefined') {
-            throw new Error('Your browser does not support EncodedAudioChunk.');
+            throw new Error('EncodedAudioChunk is not available in this environment.');
         }
         return new EncodedAudioChunk({
             data: this.data,
@@ -192,6 +192,6 @@ export class EncodedPacket {
         if (options?.sideData !== undefined && (typeof options.sideData !== 'object' || options.sideData === null)) {
             throw new TypeError('options.sideData, when provided, must be an object.');
         }
-        return new EncodedPacket(options?.data ?? this.data, options?.type ?? this.type, options?.timestamp ?? this.timestamp, options?.duration ?? this.duration, options?.sequenceNumber ?? this.sequenceNumber, this.byteLength, options?.sideData ?? this.sideData);
+        return new EncodedPacket(options?.data ?? this.data, options?.type ?? this.type, options?.timestamp ?? this.timestamp, options?.duration ?? this.duration, options?.sequenceNumber ?? this.sequenceNumber, options?.data?.byteLength ?? this.byteLength, options?.sideData ?? this.sideData);
     }
 }

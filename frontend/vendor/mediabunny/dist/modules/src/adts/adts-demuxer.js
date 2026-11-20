@@ -5,24 +5,25 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { aacChannelMap, aacFrequencyTable } from '../../shared/aac-misc.js';
+import { aacChannelMap, aacFrequencyTable, getAacProgramConfigElementChannelCount, readAdtsProgramConfigElement, } from '../../shared/aac-misc.js';
 import { Demuxer } from '../demuxer.js';
-import { ID3_V2_HEADER_SIZE, parseId3V2Tag, readId3V2Header, } from '../id3.js';
-import { InputAudioTrack } from '../input-track.js';
+import { ID3_V2_HEADER_SIZE, parseId3V2Tag, readId3V2Header, skipId3V2Tags, } from '../id3.js';
 import { DEFAULT_TRACK_DISPOSITION } from '../metadata.js';
-import { assert, AsyncMutex, binarySearchExact, binarySearchLessOrEqual, UNDETERMINED_LANGUAGE, } from '../misc.js';
+import { assert, AsyncMutex, binarySearchExact, binarySearchLessOrEqual, isThenable, roundIfAlmostInteger, UNDETERMINED_LANGUAGE, } from '../misc.js';
 import { EncodedPacket, PLACEHOLDER_DATA } from '../packet.js';
 import { readBytes } from '../reader.js';
-import { MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE, readAdtsFrameHeader, } from './adts-reader.js';
+import { Logging } from '../logging.js';
+import { MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE, readAdtsFrameHeader, readConfirmedAdtsFrameHeader, } from './adts-reader.js';
 export const SAMPLES_PER_AAC_FRAME = 1024;
 export class AdtsDemuxer extends Demuxer {
     constructor(input) {
         super(input);
         this.metadataPromise = null;
         this.firstFrameHeader = null;
+        this.numberOfChannels = null;
         this.loadedSamples = [];
         this.metadataTags = null;
-        this.tracks = [];
+        this.trackBackings = [];
         this.readingMutex = new AsyncMutex();
         this.lastSampleLoaded = false;
         this.lastLoadedPos = 0;
@@ -36,37 +37,52 @@ export class AdtsDemuxer extends Demuxer {
                 await this.advanceReader();
             }
             // There has to be a frame if this demuxer got selected
-            assert(this.firstFrameHeader);
+            const header = this.firstFrameHeader;
+            assert(header);
+            if (header.channelConfiguration === 0) {
+                // The channel layout comes from the PCE at the start of the frame's raw data block
+                const headerSize = header.crcCheck === null ? MIN_ADTS_FRAME_HEADER_SIZE : MAX_ADTS_FRAME_HEADER_SIZE;
+                let slice = this.reader.requestSlice(header.startPos + headerSize, header.frameLength - headerSize);
+                if (isThenable(slice))
+                    slice = await slice;
+                if (!slice) {
+                    throw new Error('Invalid ADTS file: the first frame is cut off.');
+                }
+                const result = readAdtsProgramConfigElement(readBytes(slice, header.frameLength - headerSize));
+                if (!result) {
+                    throw new Error('Invalid ADTS file: frames with channel configuration 0 must begin with a program config'
+                        + ' element.');
+                }
+                this.numberOfChannels = getAacProgramConfigElementChannelCount(result.programConfigElement);
+            }
+            else {
+                this.numberOfChannels = aacChannelMap[header.channelConfiguration];
+            }
             // Create the single audio track
-            this.tracks = [new InputAudioTrack(this.input, new AdtsAudioTrackBacking(this))];
+            this.trackBackings = [new AdtsAudioTrackBacking(this)];
         })();
     }
     async advanceReader() {
+        let header;
         if (this.lastLoadedPos === 0) {
-            // Skip all ID3v2 tags at the start of the file
-            while (true) {
-                let slice = this.reader.requestSlice(this.lastLoadedPos, ID3_V2_HEADER_SIZE);
-                if (slice instanceof Promise)
-                    slice = await slice;
-                if (!slice) {
-                    this.lastSampleLoaded = true;
-                    return;
-                }
-                const id3V2Header = readId3V2Header(slice);
-                if (!id3V2Header) {
-                    break;
-                }
-                this.lastLoadedPos = slice.filePos + id3V2Header.size;
+            // Start at the first confirmed frame, not at a false sync word in junk before it
+            const startPos = await skipId3V2Tags(this.reader, 0);
+            header = await readConfirmedAdtsFrameHeader(this.reader, startPos, 4096, null);
+        }
+        else {
+            // The next frame starts where the previous one ended
+            let slice = this.reader.requestSliceRange(this.lastLoadedPos, MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE);
+            if (isThenable(slice))
+                slice = await slice;
+            header = slice && readAdtsFrameHeader(slice);
+            if (!header) {
+                // Something else follows, like ID3v2 tags (timed metadata in HLS packed audio) or junk, so let's resync
+                // on the next confirmed frame of the stream
+                assert(this.firstFrameHeader);
+                const startPos = await skipId3V2Tags(this.reader, this.lastLoadedPos);
+                header = await readConfirmedAdtsFrameHeader(this.reader, startPos, 2 ** 16, this.firstFrameHeader);
             }
         }
-        let slice = this.reader.requestSliceRange(this.lastLoadedPos, MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE);
-        if (slice instanceof Promise)
-            slice = await slice;
-        if (!slice) {
-            this.lastSampleLoaded = true;
-            return;
-        }
-        const header = readAdtsFrameHeader(slice);
         if (!header) {
             this.lastSampleLoaded = true;
             return;
@@ -76,15 +92,20 @@ export class AdtsDemuxer extends Demuxer {
             this.lastSampleLoaded = true;
             return;
         }
-        if (!this.firstFrameHeader) {
-            this.firstFrameHeader = header;
-        }
-        const sampleRate = aacFrequencyTable[header.samplingFrequencyIndex];
+        this.firstFrameHeader ??= header;
+        const sampleRate = aacFrequencyTable[this.firstFrameHeader.samplingFrequencyIndex];
         assert(sampleRate !== undefined);
-        const sampleDuration = SAMPLES_PER_AAC_FRAME / sampleRate;
+        if (header.samplingFrequencyIndex !== this.firstFrameHeader.samplingFrequencyIndex) {
+            // Since a track can only have one sample rate, the stream ends here
+            Logging._warn(`The sample rate changes mid-stream (from ${sampleRate} Hz to`
+                + ` ${aacFrequencyTable[header.samplingFrequencyIndex]} Hz), which isn't properly supported or`
+                + ` handled by Mediabunny.`);
+            this.lastSampleLoaded = true;
+            return;
+        }
         const sample = {
             timestamp: this.nextTimestampInSamples / sampleRate,
-            duration: sampleDuration,
+            duration: SAMPLES_PER_AAC_FRAME / sampleRate,
             dataStart: header.startPos,
             dataSize: header.frameLength,
         };
@@ -95,15 +116,9 @@ export class AdtsDemuxer extends Demuxer {
     async getMimeType() {
         return 'audio/aac';
     }
-    async getTracks() {
+    async getTrackBackings() {
         await this.readMetadata();
-        return this.tracks;
-    }
-    async computeDuration() {
-        await this.readMetadata();
-        const track = this.tracks[0];
-        assert(track);
-        return track.computeDuration();
+        return this.trackBackings;
     }
     async getMetadataTags() {
         const release = await this.readingMutex.acquire();
@@ -116,7 +131,7 @@ export class AdtsDemuxer extends Demuxer {
             let currentPos = 0;
             while (true) {
                 let headerSlice = this.reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-                if (headerSlice instanceof Promise)
+                if (isThenable(headerSlice))
                     headerSlice = await headerSlice;
                 if (!headerSlice)
                     break;
@@ -125,7 +140,7 @@ export class AdtsDemuxer extends Demuxer {
                     break;
                 }
                 let contentSlice = this.reader.requestSlice(headerSlice.filePos, id3V2Header.size);
-                if (contentSlice instanceof Promise)
+                if (isThenable(contentSlice))
                     contentSlice = await contentSlice;
                 if (!contentSlice)
                     break;
@@ -143,22 +158,35 @@ class AdtsAudioTrackBacking {
     constructor(demuxer) {
         this.demuxer = demuxer;
     }
-    getId() {
-        return 1;
+    getType() {
+        return 'audio';
     }
     getNumber() {
         return 1;
     }
-    async getFirstTimestamp() {
-        return 0;
-    }
     getTimeResolution() {
-        const sampleRate = this.getSampleRate();
-        return sampleRate / SAMPLES_PER_AAC_FRAME;
+        return this.getSampleRate();
     }
-    async computeDuration() {
-        const lastPacket = await this.getPacket(Infinity, { metadataOnly: true });
-        return (lastPacket?.timestamp ?? 0) + (lastPacket?.duration ?? 0);
+    isRelativeToUnixEpoch() {
+        return false;
+    }
+    getUnixTimeForTimestamp() {
+        return null;
+    }
+    getPairingMask() {
+        return 1n;
+    }
+    getBitrate() {
+        return null;
+    }
+    getAverageBitrate() {
+        return null;
+    }
+    async getDurationFromMetadata() {
+        return null; // No way
+    }
+    async getLiveRefreshInterval() {
+        return null;
     }
     getName() {
         return null;
@@ -174,10 +202,8 @@ class AdtsAudioTrackBacking {
         return this.demuxer.firstFrameHeader.objectType;
     }
     getNumberOfChannels() {
-        assert(this.demuxer.firstFrameHeader);
-        const numberOfChannels = aacChannelMap[this.demuxer.firstFrameHeader.channelConfiguration];
-        assert(numberOfChannels !== undefined);
-        return numberOfChannels;
+        assert(this.demuxer.numberOfChannels !== null);
+        return this.demuxer.numberOfChannels;
     }
     getSampleRate() {
         assert(this.demuxer.firstFrameHeader);
@@ -212,7 +238,7 @@ class AdtsAudioTrackBacking {
         }
         else {
             let slice = this.demuxer.reader.requestSlice(rawSample.dataStart, rawSample.dataSize);
-            if (slice instanceof Promise)
+            if (isThenable(slice))
                 slice = await slice;
             if (!slice) {
                 return null; // Data didn't fit into the rest of the file
@@ -246,8 +272,10 @@ class AdtsAudioTrackBacking {
     async getPacket(timestamp, options) {
         const release = await this.demuxer.readingMutex.acquire();
         try {
+            const sampleRate = this.getSampleRate();
+            const snappedTimestamp = roundIfAlmostInteger(timestamp * sampleRate) / sampleRate;
             while (true) {
-                const index = binarySearchLessOrEqual(this.demuxer.loadedSamples, timestamp, x => x.timestamp);
+                const index = binarySearchLessOrEqual(this.demuxer.loadedSamples, snappedTimestamp, x => x.timestamp);
                 if (index === -1 && this.demuxer.loadedSamples.length > 0) {
                     // We're before the first sample
                     return null;

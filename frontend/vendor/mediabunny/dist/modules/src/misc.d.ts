@@ -13,19 +13,91 @@ export declare function assert(x: unknown): asserts x;
  * @public
  */
 export type Rotation = 0 | 90 | 180 | 270;
+export declare const DEG_TO_RAD: number;
+export declare const RAD_TO_DEG: number;
 export declare const normalizeRotation: (rotation: number) => Rotation;
-export type TransformationMatrix = [number, number, number, number, number, number, number, number, number];
+/**
+ * Row-major 3x3 affine transformation matrix.
+ * @group Miscellaneous
+ * @public
+ */
+export type TransformationMatrix = [
+    a: number,
+    b: number,
+    u: number,
+    c: number,
+    d: number,
+    v: number,
+    x: number,
+    y: number,
+    w: number
+];
+export declare const IDENTITY_MATRIX: TransformationMatrix;
+/**
+ * Applies a linear transformation (no translation) to a width-by-height frame about its center, with the result
+ * sitting in the positive quadrant.
+ */
+export declare const centeredTransformationMatrix: (linear: TransformationMatrix, width: number, height: number) => TransformationMatrix;
+/**
+ * Extracts the rotation from a transformation matrix, assuming the matrix has the form "rotate, then maybe flip
+ * horizontally", and snapping to the nearest multiple of 90 degrees.
+ */
+export declare const extractRotationFromMatrix: (matrix: TransformationMatrix) => Rotation;
+/** Whether the transformation matrix flips the frame, i.e. has a negative determinant. */
+export declare const matrixIsFlipped: (matrix: TransformationMatrix) => boolean;
+export declare const rotationMatrix: (rotationInDegrees: number) => TransformationMatrix;
+export declare const translationMatrix: (x: number, y: number) => TransformationMatrix;
+export declare const scaleMatrix: (x: number, y: number) => TransformationMatrix;
+/** Computes a * b. Since points are row vectors, this applies a first, then b. */
+export declare const multiplyMatrices: (a: TransformationMatrix, b: TransformationMatrix) => TransformationMatrix;
+/**
+ * Composes two "rotate, then flip" transformations into one. A flip conjugates any rotation that follows it, meaning
+ * the second rotation flips direction if the first flip is set.
+ */
+export declare const composeRotationAndFlip: (rotation1: Rotation, flip1: boolean, rotation2: Rotation, flip2: boolean) => {
+    rotation: Rotation;
+    flip: boolean;
+};
 export declare const last: <T>(arr: T[]) => T | undefined;
 export declare const isU32: (value: number) => boolean;
+export declare const isI32: (value: number) => boolean;
 /** Reads an exponential-Golomb universal code from a Bitstream.  */
 export declare const readExpGolomb: (bitstream: Bitstream) => number;
+export declare const writeExpGolomb: (bitstream: Bitstream, value: number) => void;
 /** Reads a signed exponential-Golomb universal code from a Bitstream. */
 export declare const readSignedExpGolomb: (bitstream: Bitstream) => number;
-export declare const writeBits: (bytes: Uint8Array, start: number, end: number, value: number) => void;
 export declare const toUint8Array: (source: AllowSharedBufferSource) => Uint8Array;
 export declare const toDataView: (source: AllowSharedBufferSource) => DataView;
-export declare const textDecoder: TextDecoder;
-export declare const textEncoder: TextEncoder;
+export declare const TextEncoder: {
+    new (): TextEncoder;
+    prototype: TextEncoder;
+} | {
+    new (): {
+        readonly encoding: "utf-8";
+        encode(input?: string): Uint8Array<ArrayBuffer>;
+    };
+};
+export declare const TextDecoder: {
+    new (label?: string, options?: TextDecoderOptions): TextDecoder;
+    prototype: TextDecoder;
+} | {
+    new (label?: string): {
+        readonly encoding: "utf-8" | "utf-16le" | "utf-16be";
+        decode(input?: AllowSharedBufferSource): string;
+    };
+};
+export declare const textDecoder: {
+    readonly encoding: "utf-8" | "utf-16le" | "utf-16be";
+    decode(input?: AllowSharedBufferSource): string;
+} | TextDecoder;
+export declare const strictTextDecoder: {
+    readonly encoding: "utf-8" | "utf-16le" | "utf-16be";
+    decode(input?: AllowSharedBufferSource): string;
+} | TextDecoder;
+export declare const textEncoder: {
+    readonly encoding: "utf-8";
+    encode(input?: string): Uint8Array<ArrayBuffer>;
+} | TextEncoder;
 export declare const isIso88591Compatible: (text: string) => boolean;
 export declare const COLOR_PRIMARIES_MAP: {
     bt709: number;
@@ -56,18 +128,22 @@ export type RequiredNonNull<T> = {
     [K in keyof T]-?: NonNullable<T[K]>;
 };
 export declare const colorSpaceIsComplete: (colorSpace: VideoColorSpaceInit | undefined) => colorSpace is RequiredNonNull<VideoColorSpaceInit>;
+export declare const colorSpaceIsEmpty: (colorSpace: VideoColorSpaceInit | undefined) => boolean;
+export declare const EMPTY_COLOR_SPACE: VideoColorSpaceInit;
 export declare const isAllowSharedBufferSource: (x: unknown) => boolean;
 export declare class AsyncMutex {
     currentPromise: Promise<void>;
     pending: number;
     acquire(): Promise<() => void>;
 }
+export declare const HEX_STRING_REGEX: RegExp;
 export declare const bytesToHexString: (bytes: Uint8Array) => string;
+export declare const hexStringToBytes: (hexString: string) => Uint8Array<ArrayBuffer>;
 export declare const reverseBitsU32: (x: number) => number;
 /** Returns the smallest index i such that val[i] === key, or -1 if no such index exists. */
 export declare const binarySearchExact: <T>(arr: T[], key: number, valueGetter: (x: T) => number) => number;
 /** Returns the largest index i such that val[i] <= key, or -1 if no such index exists. */
-export declare const binarySearchLessOrEqual: <T>(arr: T[], key: number, valueGetter: (x: T) => number) => number;
+export declare const binarySearchLessOrEqual: <T>(arr: ArrayLike<T>, key: number, valueGetter: (x: T) => number) => number;
 /** Assumes the array is already sorted. */
 export declare const insertSorted: <T>(arr: T[], item: T, valueGetter: (x: T) => number) => void;
 export declare const promiseWithResolvers: <T = void>() => {
@@ -98,11 +174,16 @@ export declare const setInt64: (view: DataView, byteOffset: number, value: numbe
  */
 export declare const mapAsyncGenerator: <T, U>(generator: AsyncGenerator<T, void, unknown>, map: (t: T) => U) => AsyncGenerator<U, void, unknown>;
 export declare const clamp: (value: number, min: number, max: number) => number;
+export declare const lerp: (from: number, to: number, t: number) => number;
+export declare const modEuclid: (value: number, modulus: number) => number;
 export declare const UNDETERMINED_LANGUAGE = "und";
 export declare const roundIfAlmostInteger: (value: number) => number;
 export declare const roundToMultiple: (value: number, multiple: number) => number;
+export declare const roundToDivisor: (value: number, multiple: number) => number;
 export declare const floorToMultiple: (value: number, multiple: number) => number;
+export declare const floorToDivisor: (value: number, multiple: number) => number;
 export declare const ilog: (x: number) => number;
+export declare const popcount: (value: number) => number;
 export declare const isIso639Dash2LanguageCode: (x: string) => boolean;
 export declare const SECOND_TO_MICROSECOND_FACTOR: number;
 /**
@@ -112,16 +193,29 @@ export declare const SECOND_TO_MICROSECOND_FACTOR: number;
  */
 export type SetRequired<T, K extends keyof T> = T & Required<Pick<T, K>>;
 /**
+ * Recursively makes all properties of T readonly.
+ * @group Miscellaneous
+ * @public
+ */
+export type DeepReadonly<T> = T extends object ? {
+    readonly [K in keyof T]: DeepReadonly<T[K]>;
+} : T;
+/**
+ * Sets all keys K of T to be optional.
+ * @group Miscellaneous
+ * @public
+ */
+export type SetOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+/**
  * Merges two RequestInit objects with special handling for headers.
  * Headers are merged case-insensitively, but original casing is preserved.
  * init2 headers take precedence and will override case-insensitive matches from init1.
  */
 export declare const mergeRequestInit: (init1: RequestInit, init2: RequestInit) => RequestInit;
+/** Normalizes HeadersInit to a Record<string, string> format. */
+export declare const normalizeHeaders: (headers: HeadersInit) => Record<string, string>;
 export declare const retriedFetch: (fetchFn: typeof fetch, url: string | URL | Request, requestInit: RequestInit, getRetryDelay: (previousAttempts: number, error: unknown, url: string | URL | Request) => number | null, shouldStop: () => boolean) => Promise<Response>;
-export declare const computeRationalApproximation: (x: number, maxDenominator: number) => {
-    numerator: number;
-    denominator: number;
-};
+export declare const computeRationalApproximation: (x: number, maxDenominator: number) => Rational;
 export declare class CallSerializer {
     currentPromise: Promise<void>;
     call(fn: () => Promise<void> | void): Promise<void>;
@@ -130,12 +224,19 @@ export declare const isWebKit: () => boolean;
 export declare const isFirefox: () => boolean;
 export declare const isChromium: () => boolean;
 export declare const getChromiumVersion: () => number | null;
+export declare const isAndroid: () => boolean;
+export declare const missingWebCodecsClassMessage: (className: string) => string;
+export declare const isCodecReclaimedError: (error: unknown) => boolean;
 /**
  * T or a promise that resolves to T.
  * @group Miscellaneous
  * @public
  */
 export type MaybePromise<T> = T | Promise<T>;
+/**
+ * Needed to properly deal with custom Promise implementations and because this is closer to how the JS spec does it.
+ */
+export declare const isThenable: <T>(value: MaybePromise<T>) => value is Promise<T>;
 /** Acts like `??` except the condition is -1 and not null/undefined. */
 export declare const coalesceIndex: (a: number, b: number) => number;
 export declare const closedIntervalsOverlap: (startA: number, endA: number, startB: number, endB: number) => boolean;
@@ -152,6 +253,29 @@ export declare const bytesToBase64: (bytes: Uint8Array) => string;
 export declare const uint8ArraysAreEqual: (a: Uint8Array, b: Uint8Array) => boolean;
 export declare const polyfillSymbolDispose: () => void;
 export declare const isNumber: (x: unknown) => boolean;
+/**
+ * A path to a file. File paths can be relative or absolute, and be local paths or full URLs. Paths must be POSIX-like,
+ * using `/` as the separator.
+ *
+ * Examples of valid paths:
+ * - `'video.mp4'`
+ * - `'path/to/video.mp4'`
+ * - `'./video.mp4'`
+ * - `'../video.mp4'`
+ * - `'/path/to/video.mp4'`
+ * - `'https://example.com/video.mp4'`
+ * - `'file:///home/user/video.mp4'`
+ * - `'video.mp4?key=foo'`
+ *
+ * @group Miscellaneous
+ * @public
+ */
+export type FilePath = string;
+export declare const joinPaths: (basePath: FilePath, relativePath: FilePath) => string;
+export declare const getQueryParameter: (path: string, name: string) => string | null;
+export declare const arrayCount: <T>(array: T[], predicate: (item: T) => boolean) => number;
+export declare const arrayArgmin: <T>(array: T[], getValue: (item: T) => number) => number;
+export declare const arrayArgmax: <T>(array: T[], getValue: (item: T) => number) => number;
 /**
  * A rational number; a ratio of two integers.
  * @group Miscellaneous
@@ -170,7 +294,7 @@ export declare const simplifyRational: (rational: Rational) => Rational;
  * @public
  */
 export type Rectangle = {
-    /** The distance in pixels to the left edge of the rectangle . */
+    /** The distance in pixels to the left edge of the rectangle. */
     left: number;
     /** The distance in pixels to the top edge of the rectangle. */
     top: number;
@@ -180,6 +304,9 @@ export type Rectangle = {
     height: number;
 };
 export declare const validateRectangle: (rect: Rectangle, propertyPath: string) => void;
+export type NonFunctionKeys<T> = {
+    [K in keyof T]-?: T[K] extends ((...args: never[]) => unknown) ? never : K;
+}[keyof T];
 export type UnthrottledTimerHandle = {
     id: ReturnType<typeof setTimeout> | number;
 };
@@ -187,5 +314,61 @@ export declare const setTimeoutUnthrottled: (callback: Function, delay: number) 
 export declare const clearTimeoutUnthrottled: (timer: UnthrottledTimerHandle) => void;
 export declare const setIntervalUnthrottled: (callback: Function, delay: number) => UnthrottledTimerHandle;
 export declare const clearIntervalUnthrottled: (timer: UnthrottledTimerHandle) => void;
+export declare const wait: (ms: number) => Promise<unknown>;
+export declare const rejectAfter: (ms: number, message?: string) => Promise<unknown>;
+export declare const toArray: <T>(x: T | T[]) => T[];
+/**
+ * Options for {@link EventEmitter.on}.
+ *
+ * @group Miscellaneous
+ * @public
+ */
+export type EventListenerOptions = {
+    /** If `true`, the listener will be automatically removed after being called once. Defaults to `false`. */
+    once?: boolean;
+};
+/**
+ * A class that manages event listeners and dispatches events to them.
+ *
+ * @group Miscellaneous
+ * @public
+ */
+export declare class EventEmitter<TEvents extends Record<string, unknown>> {
+    /** Registers a listener for the given event. Returns a function that, when called, removes the listener again. */
+    on<K extends keyof TEvents>(event: K, listener: (data: TEvents[K]) => unknown, options?: EventListenerOptions): () => void;
+}
+export declare const ceilToMultipleOfTwo: (value: number) => number;
+/**
+ * Utility class for running async functions in parallel up to a certain level of parallelism. Can be used to apply
+ * backpressure only if the concurrency level would be exceeded.
+ *
+ * @group Miscellaneous
+ * @public
+*/
+export declare class ConcurrentRunner {
+    /**
+     * The maximum number of in-flight promises. You can also think of it as the "high water mark".
+     * You can set this value to dynamically change the level of parallelism.
+     */
+    parallelism: number;
+    constructor(parallelism: number);
+    /** Whether any function has errored. The runner is effectively bricked if this is `true`, by design. */
+    get errored(): boolean;
+    /** The number of tasks currently running. */
+    get inFlightCount(): number;
+    /**
+     * Schedules an async function to be run. If the maximum allowed level of parallelism has not yet been reached,
+     * the function will be executed immediately and `run()` will resolve immediately. Otherwise, the function will be
+     * called as soon as any currently-running function finishes, and `run()` will only resolve then.
+     *
+     * Throws if the runner is errored.
+     */
+    run(fn: () => Promise<unknown>): Promise<void>;
+    /** Waits for all currently running functions to finish. Throws if the runner is errored. */
+    flush(): Promise<void>;
+}
+export declare const isRecordStringString: (value: unknown) => value is Record<string, string>;
+export declare const createUtcDate: (year: number, monthIndex?: number, day?: number) => Date;
+export declare const parseIsoSuffix: (text: string) => Date | null;
 export {};
 //# sourceMappingURL=misc.d.ts.map

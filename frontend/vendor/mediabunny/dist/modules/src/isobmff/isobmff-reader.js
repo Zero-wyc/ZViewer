@@ -6,7 +6,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 import { RichImageData } from '../metadata.js';
-import { textDecoder } from '../misc.js';
+import { TextDecoder, textDecoder } from '../misc.js';
 import { readAscii, readBytes, readI32Be, readU16Be, readU32Be, readU64Be, readU8 } from '../reader.js';
 export const MIN_BOX_HEADER_SIZE = 8;
 export const MAX_BOX_HEADER_SIZE = 16;
@@ -43,6 +43,50 @@ export const readIsomVariableInteger = (slice) => {
     }
     return result;
 };
+export const readEsDescriptor = (slice) => {
+    const tag = readU8(slice);
+    if (tag !== 0x03) {
+        throw new Error('Invalid esds: expected ES_Descriptor.');
+    }
+    readIsomVariableInteger(slice); // Length
+    slice.skip(2); // ES ID
+    const mixed = readU8(slice);
+    const streamDependenceFlag = (mixed & 0x80) !== 0;
+    const urlFlag = (mixed & 0x40) !== 0;
+    const ocrStreamFlag = (mixed & 0x20) !== 0;
+    if (streamDependenceFlag) {
+        slice.skip(2);
+    }
+    if (urlFlag) {
+        const urlLength = readU8(slice);
+        slice.skip(urlLength);
+    }
+    if (ocrStreamFlag) {
+        slice.skip(2);
+    }
+    const decoderConfigTag = readU8(slice);
+    if (decoderConfigTag !== 0x04) {
+        throw new Error('Invalid esds: expected DecoderConfigDescriptor.');
+    }
+    const decoderConfigDescriptorLength = readIsomVariableInteger(slice); // Length
+    const payloadStart = slice.filePos;
+    const objectTypeIndication = readU8(slice);
+    slice.skip(1 + 3 + 4 + 4);
+    let decoderSpecificInfo = null;
+    if (decoderConfigDescriptorLength > slice.filePos - payloadStart) {
+        // There's a DecoderSpecificInfo at the end, let's read it
+        const decoderSpecificInfoTag = readU8(slice);
+        if (decoderSpecificInfoTag !== 0x05) {
+            throw new Error('Invalid esds: expected DecoderSpecificInfo.');
+        }
+        const decoderSpecificInfoLength = readIsomVariableInteger(slice);
+        decoderSpecificInfo = readBytes(slice, decoderSpecificInfoLength);
+    }
+    return {
+        objectTypeIndication,
+        decoderSpecificInfo,
+    };
+};
 export const readMetadataStringShort = (slice) => {
     let stringLength = readU16Be(slice);
     slice.skip(2); // Language
@@ -54,7 +98,7 @@ export const readDataBox = (slice) => {
     if (!header || header.name !== 'data') {
         return null;
     }
-    if (slice.remainingLength < 8) {
+    if (header.contentSize < 8 || slice.remainingLength < 8) {
         // Box is too small
         return null;
     }

@@ -12,6 +12,7 @@ import { WavOutputFormat } from '../output-format.js';
 export declare class WaveMuxer extends Muxer {
     private format;
     private isRf64;
+    private appendOnly;
     private writer;
     private riffWriter;
     private headerWritten;
@@ -20,6 +21,7 @@ export declare class WaveMuxer extends Muxer {
     private sampleCount;
     private riffSizePos;
     private dataSizePos;
+    private factSampleCountPos;
     private ds64RiffSizePos;
     private ds64DataSizePos;
     private ds64SampleCountPos;

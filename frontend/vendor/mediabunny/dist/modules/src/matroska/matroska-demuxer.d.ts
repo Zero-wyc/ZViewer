@@ -5,10 +5,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { AacCodecInfo, AudioCodec, SubtitleCodec, VideoCodec } from '../codec.js';
+import { AacCodecInfo, AudioCodec, DtsFourCc, ProresFourCc, VideoCodec } from '../codec.js';
 import { Demuxer } from '../demuxer.js';
 import { Input } from '../input.js';
-import { InputTrack } from '../input-track.js';
+import { InputTrackBacking } from '../input-track.js';
 import { MetadataTags, TrackDisposition } from '../metadata.js';
 import { Rotation } from '../misc.js';
 import { FileSlice, Reader } from '../reader.js';
@@ -24,6 +24,7 @@ type Segment = {
     duration: number;
     seekEntries: SeekEntry[];
     tracks: InternalTrack[];
+    idToTrack: Map<number, InternalTrack>;
     cuePoints: CuePoint[];
     dataStartPos: number;
     elementEndPos: number | null;
@@ -33,8 +34,9 @@ type Segment = {
      * same cluster in quick succession.
      */
     lastReadCluster: Cluster | null;
+    clusterSummaries: Map<number, ClusterSummary>;
     metadataTags: MetadataTags;
-    metadataTagsCollected: boolean;
+    metadataTagsPromise: Promise<void> | null;
 };
 type SeekEntry = {
     id: number;
@@ -47,6 +49,10 @@ type Cluster = {
     dataStartPos: number;
     timestamp: number;
     trackData: Map<number, ClusterTrackData>;
+};
+type ClusterSummary = {
+    elementEndPos: number;
+    trackIds: Set<number>;
 };
 type ClusterTrackData = {
     track: InternalTrack;
@@ -72,8 +78,8 @@ type ClusterBlock = {
     data: Uint8Array;
     lacing: BlockLacing;
     decoded: boolean;
+    postProcessed: boolean;
     mainAdditional: Uint8Array | null;
-    referencedTimestamps: number[];
 };
 type CuePoint = {
     time: number;
@@ -113,16 +119,20 @@ type InternalTrack = {
     clusterPositionCache: {
         elementStartPos: number;
         startTimestamp: number;
+        hasKeyFrame: boolean;
     }[];
     cuePoints: CuePoint[];
     disposition: TrackDisposition;
-    inputTrack: InputTrack | null;
+    trackBacking: InputTrackBacking | null;
     codecId: string | null;
     codecPrivate: Uint8Array | null;
     defaultDuration: number | null;
     defaultDurationNs: number | null;
+    codecDelay: number;
+    codecDelayNs: number;
     name: string | null;
     languageCode: string;
+    hasLanguageBcp47: boolean;
     decodingInstructions: DecodingInstruction[];
     info: null | {
         type: 'video';
@@ -130,26 +140,28 @@ type InternalTrack = {
         height: number;
         displayWidth: number | null;
         displayHeight: number | null;
-        displayUnit: number | null;
+        displayUnit: number;
+        stereoMode: number;
         squarePixelWidth: number;
         squarePixelHeight: number;
+        horizontalScale: number;
+        verticalScale: number;
         rotation: Rotation;
         codec: VideoCodec | null;
         codecDescription: Uint8Array | null;
-        colorSpace: VideoColorSpaceInit | null;
+        colorSpace: VideoColorSpaceInit;
         alphaMode: boolean;
+        proresFormat: ProresFourCc | null;
     } | {
         type: 'audio';
         numberOfChannels: number;
         sampleRate: number;
+        outputSampleRate: number | null;
         bitDepth: number;
         codec: AudioCodec | null;
         codecDescription: Uint8Array | null;
         aacCodecInfo: AacCodecInfo | null;
-    } | {
-        type: 'subtitle';
-        codec: SubtitleCodec | null;
-        codecPrivateText: string | null;
+        dtsFormat: DtsFourCc | null;
     };
 };
 export declare class MatroskaDemuxer extends Demuxer {
@@ -166,6 +178,12 @@ export declare class MatroskaDemuxer extends Demuxer {
     } | null;
     currentCueTime: number | null;
     currentDecodingInstruction: DecodingInstruction | null;
+    currentProjection: {
+        type: number;
+        yaw: number;
+        pitch: number;
+        roll: number;
+    } | null;
     currentTagTargetIsMovie: boolean;
     currentSimpleTagName: string | null;
     currentAttachedFile: {
@@ -176,21 +194,24 @@ export declare class MatroskaDemuxer extends Demuxer {
         fileDescription: string | null;
     } | null;
     isWebM: boolean;
+    claimedSeekTargets: Set<number>;
+    elementNestingDepth: number;
     constructor(input: Input);
-    computeDuration(): Promise<number>;
-    getTracks(): Promise<InputTrack[]>;
+    getTrackBackings(): Promise<InputTrackBacking[]>;
     getMimeType(): Promise<string>;
     getMetadataTags(): Promise<MetadataTags>;
     readMetadata(): Promise<void>;
     readSegment(segmentDataStart: number, dataSize: number | undefined): Promise<void>;
     readCluster(startPos: number, segment: Segment): Promise<Cluster>;
     getTrackDataInCluster(cluster: Cluster, trackNumber: number): ClusterTrackData | null;
-    expandLacedBlocks(blocks: ClusterBlock[], track: InternalTrack): void;
+    expandLacedBlocks(blocks: ClusterBlock[], track: InternalTrack): ClusterBlock[];
     loadSegmentMetadata(segment: Segment): Promise<void>;
+    claimSeekTarget(position: number): boolean;
     readContiguousElements(slice: FileSlice, stopIds?: number[]): number;
     traverseElement(slice: FileSlice, stopIds?: number[]): boolean;
     decodeBlockData(track: InternalTrack, rawData: Uint8Array): Uint8Array<ArrayBufferLike>;
     processTagValue(name: string, value: string | Uint8Array): void;
+    getDurationFromMetadata(segment: Segment): number | null;
 }
 export {};
 //# sourceMappingURL=matroska-demuxer.d.ts.map

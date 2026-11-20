@@ -5,13 +5,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { toUint8Array, assert, isU32, last, textEncoder, COLOR_PRIMARIES_MAP, TRANSFER_CHARACTERISTICS_MAP, MATRIX_COEFFICIENTS_MAP, colorSpaceIsComplete, UNDETERMINED_LANGUAGE, assertNever, keyValueIterator, } from '../misc.js';
+import { toUint8Array, assert, isI32, isU32, last, IDENTITY_MATRIX, centeredTransformationMatrix, multiplyMatrices, rotationMatrix, scaleMatrix, textEncoder, COLOR_PRIMARIES_MAP, TRANSFER_CHARACTERISTICS_MAP, MATRIX_COEFFICIENTS_MAP, colorSpaceIsEmpty, UNDETERMINED_LANGUAGE, assertNever, keyValueIterator, toDataView, } from '../misc.js';
 import { generateAv1CodecConfigurationFromCodecString, parsePcmCodec, PCM_AUDIO_CODECS, } from '../codec.js';
 import { formatSubtitleTimestamp } from '../subtitles.js';
-import { getTrackMetadata, GLOBAL_TIMESCALE, intoTimescale, } from './isobmff-muxer.js';
-import { parseAc3SyncFrame, parseEac3SyncFrame, parseOpusIdentificationHeader } from '../codec-data.js';
+import { getTrackMetadata, GLOBAL_TIMESCALE, intoTimescale, presentationSpan, } from './isobmff-muxer.js';
+import { buildDtsSpecificBox, determineAudioPacketType, parseAc3SyncFrame, parseDtsFrame, parseEac3SyncFrame, parseOpusIdentificationHeader, } from '../codec-data.js';
 import { RichImageData } from '../metadata.js';
 import { Bitstream } from '../../shared/bitstream.js';
+import { VERSIONED_NAME } from '../version.js';
 export class IsobmffBoxWriter {
     constructor(writer) {
         this.writer = writer;
@@ -128,6 +129,15 @@ const u64 = (value) => {
     view.setUint32(4, value, false);
     return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
 };
+const i64 = (value) => {
+    view.setInt32(0, Math.floor(value / 2 ** 32), false);
+    view.setUint32(4, value, false);
+    return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
+};
+const f64 = (value) => {
+    view.setFloat64(0, value, false);
+    return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
+};
 const fixed_8_8 = (value) => {
     view.setInt16(0, 2 ** 8 * value, false);
     return [bytes[0], bytes[1]];
@@ -165,27 +175,6 @@ const ascii = (text, nullTerminated = false) => {
         bytes.push(0x00);
     return bytes;
 };
-const lastPresentedSample = (samples) => {
-    let result = null;
-    for (const sample of samples) {
-        if (!result || sample.timestamp > result.timestamp) {
-            result = sample;
-        }
-    }
-    return result;
-};
-const rotationMatrix = (rotationInDegrees) => {
-    const theta = rotationInDegrees * (Math.PI / 180);
-    const cosTheta = Math.round(Math.cos(theta));
-    const sinTheta = Math.round(Math.sin(theta));
-    // Matrices are post-multiplied in ISOBMFF, meaning this is the transpose of your typical rotation matrix
-    return [
-        cosTheta, sinTheta, 0,
-        -sinTheta, cosTheta, 0,
-        0, 0, 1,
-    ];
-};
-const IDENTITY_MATRIX = /* #__PURE__ */ rotationMatrix(0);
 const matrixToBytes = (matrix) => {
     return [
         fixed_16_16(matrix[0]), fixed_16_16(matrix[1]), fixed_2_30(matrix[2]),
@@ -218,14 +207,28 @@ export const ftyp = (details) => {
         ]);
     }
     if (details.fragmented) {
-        return box('ftyp', [
-            ascii('iso5'), // Major brand
-            u32(minorVersion), // Minor version
-            // Compatible brands
-            ascii('iso5'),
-            ascii('iso6'),
-            ascii('mp41'),
-        ]);
+        if (details.cmaf) {
+            return box('ftyp', [
+                ascii('iso5'), // Major brand
+                u32(minorVersion), // Minor version
+                // Compatible brands
+                ascii('iso5'),
+                ascii('iso6'),
+                ascii('mp41'),
+                ascii('cmfc'),
+                ascii('dash'),
+            ]);
+        }
+        else {
+            return box('ftyp', [
+                ascii('iso5'), // Major brand
+                u32(minorVersion), // Minor version
+                // Compatible brands
+                ascii('iso5'),
+                ascii('iso6'),
+                ascii('mp41'),
+            ]);
+        }
     }
     return box('ftyp', [
         ascii('isom'), // Major brand
@@ -236,6 +239,41 @@ export const ftyp = (details) => {
         ascii('mp41'),
     ]);
 };
+/** Segment Type Box */
+export const styp = () => box('styp', [
+    ascii('iso5'), // Major brand
+    u32(0), // Minor version
+    // Compatible brands
+    ascii('iso5'),
+    ascii('iso6'),
+    ascii('mp41'),
+    ascii('cmfc'),
+    ascii('dash'),
+]);
+/** Segment Index Box */
+export const sidx = (muxer, referencedSize) => {
+    assert(referencedSize < 2 ** 31);
+    const earliestPresentationTime = Math.max(0, muxer.minWrittenTimestamp);
+    let duration = Math.max(0, muxer.maxWrittenEndTimestamp - earliestPresentationTime);
+    if (!Number.isFinite(duration)) {
+        duration = 0;
+    }
+    const durationInTimescale = intoTimescale(duration, GLOBAL_TIMESCALE);
+    if (durationInTimescale >= 2 ** 32) {
+        throw new Error('CMAF segments must be shorter than 20.712612 hours.');
+    }
+    return fullBox('sidx', 1, 0, [
+        u32(1), // Reference ID
+        u32(GLOBAL_TIMESCALE), // Timescale
+        u64(intoTimescale(earliestPresentationTime, GLOBAL_TIMESCALE)), // Earliest presentation time
+        u64(0), // First offset
+        u16(0), // Reserved
+        u16(1), // Reference count
+        u32(referencedSize), // Reference type (0) + referenced size
+        u32(durationInTimescale), // Subsegment duration
+        u32(0), // Starts with SAP + SAP type + SAP delta time (no information provided)
+    ]);
+};
 /** Movie Sample Data Box. Contains the actual frames/samples of the media. */
 export const mdat = (reserveLargeSize) => ({ type: 'mdat', largeSize: reserveLargeSize });
 /** Free Space Box: A box that designates unused space in the movie data file. */
@@ -244,20 +282,21 @@ export const free = (size) => ({ type: 'free', size });
  * Movie Box: Used to specify the information that defines a movie - that is, the information that allows
  * an application to interpret the sample data that is stored elsewhere.
  */
-export const moov = (muxer) => box('moov', undefined, [
-    mvhd(muxer.creationTime, muxer.trackDatas),
-    ...muxer.trackDatas.map(x => trak(x, muxer.creationTime)),
-    muxer.isFragmented ? mvex(muxer.trackDatas) : null,
-    udta(muxer),
-]);
+export const moov = (muxer) => {
+    return box('moov', undefined, [
+        mvhd(muxer.creationTime, muxer.trackDatas),
+        ...muxer.trackDatas.map(x => trak(x, muxer.creationTime)),
+        muxer.isFragmented ? mvex(muxer.trackDatas) : null,
+        udta(muxer),
+    ]);
+};
 /** Movie Header Box: Used to specify the characteristics of the entire movie, such as timescale and duration. */
 export const mvhd = (creationTime, trackDatas) => {
-    const duration = intoTimescale(Math.max(0, ...trackDatas
-        .filter(x => x.samples.length > 0)
-        .map((x) => {
-        const lastSample = lastPresentedSample(x.samples);
-        return lastSample.timestamp + lastSample.duration;
-    })), GLOBAL_TIMESCALE);
+    const duration = Math.max(0, ...trackDatas
+        .map(trackData => (
+    // Round separately to match the edit list
+    Math.max(0, intoTimescale(presentationSpan(trackData), GLOBAL_TIMESCALE)
+        + intoTimescale(trackData.startTimestampOffset ?? 0, GLOBAL_TIMESCALE)))));
     const nextTrackId = Math.max(0, ...trackDatas.map(x => x.track.id)) + 1;
     // Conditionally use u64 if u32 isn't enough
     const needsU64 = !isU32(creationTime) || !isU32(duration);
@@ -282,8 +321,10 @@ export const mvhd = (creationTime, trackDatas) => {
  */
 export const trak = (trackData, creationTime) => {
     const trackMetadata = getTrackMetadata(trackData);
+    const needsEditList = trackData.startTimestampOffset !== null && trackData.startTimestampOffset !== 0;
     return box('trak', undefined, [
         tkhd(trackData, creationTime),
+        needsEditList ? edts(trackData) : null,
         mdia(trackData, creationTime),
         trackMetadata.name !== undefined
             ? box('udta', undefined, [
@@ -296,14 +337,20 @@ export const trak = (trackData, creationTime) => {
 };
 /** Track Header Box: Specifies the characteristics of a single track within a movie. */
 export const tkhd = (trackData, creationTime) => {
-    const lastSample = lastPresentedSample(trackData.samples);
-    const durationInGlobalTimescale = intoTimescale(lastSample ? lastSample.timestamp + lastSample.duration : 0, GLOBAL_TIMESCALE);
+    // Round separately to match the edit list
+    const durationInGlobalTimescale = Math.max(0, intoTimescale(presentationSpan(trackData), GLOBAL_TIMESCALE)
+        + intoTimescale(trackData.startTimestampOffset ?? 0, GLOBAL_TIMESCALE));
     const needsU64 = !isU32(creationTime) || !isU32(durationInGlobalTimescale);
     const u32OrU64 = needsU64 ? u64 : u32;
     let matrix;
-    if (trackData.type === 'video') {
-        const rotation = trackData.track.metadata.rotation;
-        matrix = rotationMatrix(rotation ?? 0);
+    if (trackData.type === 'video' && trackData.track.metadata.transformationMatrix) {
+        matrix = trackData.track.metadata.transformationMatrix;
+    }
+    else if (trackData.type === 'video') {
+        const { rotation, flip } = trackData.track.metadata;
+        // Rotation is applied before flipping
+        const linear = multiplyMatrices(rotationMatrix(rotation ?? 0), scaleMatrix(flip ? -1 : 1, 1));
+        matrix = centeredTransformationMatrix(linear, trackData.info.width, trackData.info.height);
     }
     else {
         matrix = IDENTITY_MATRIX;
@@ -312,6 +359,16 @@ export const tkhd = (trackData, creationTime) => {
     if (trackData.track.metadata.disposition?.default !== false) {
         flags |= 0x1; // Track enabled
     }
+    // Set the alternate group based on the track type; this mirror's how FFmpeg does it. A more advanced version would
+    // determine the alternate groups based on the actual track pairability graph. Note that it appears important that
+    // video get assigned to group 0, see https://github.com/Vanilagy/mediabunny/issues/454.
+    const alternateGroup = trackData.type === 'video'
+        ? 0
+        : trackData.type === 'audio'
+            ? 1
+            : trackData.type === 'subtitle'
+                ? 2
+                : assertNever(trackData);
     return fullBox('tkhd', +needsU64, flags, [
         u32OrU64(creationTime), // Creation time
         u32OrU64(creationTime), // Modification time
@@ -320,7 +377,7 @@ export const tkhd = (trackData, creationTime) => {
         u32OrU64(durationInGlobalTimescale), // Duration
         Array(8).fill(0), // Reserved
         u16(0), // Layer
-        u16(trackData.track.id), // Alternate group
+        u16(alternateGroup), // Alternate group
         fixed_8_8(trackData.type === 'audio' ? 1 : 0), // Volume
         u16(0), // Reserved
         matrixToBytes(matrix), // Matrix
@@ -328,16 +385,63 @@ export const tkhd = (trackData, creationTime) => {
         fixed_16_16(trackData.type === 'video' ? trackData.info.height : 0), // Track height
     ]);
 };
+/** Edit Box: Specifies edits to the track's media. */
+export const edts = (trackData) => {
+    const offset = trackData.startTimestampOffset;
+    assert(offset !== null);
+    if (offset > 0) {
+        // Positive offset: empty segment at the start, then the full media afterwards
+        const startOffset = intoTimescale(offset, GLOBAL_TIMESCALE);
+        const mediaDuration = intoTimescale(presentationSpan(trackData), GLOBAL_TIMESCALE);
+        const needs64Bits = !isU32(startOffset) || !isU32(mediaDuration);
+        const u32OrU64 = needs64Bits ? u64 : u32;
+        const i32OrI64 = needs64Bits ? i64 : i32;
+        return box('edts', undefined, [
+            fullBox('elst', needs64Bits ? 1 : 0, 0, [
+                u32(2), // Entry count
+                // #1
+                u32OrU64(startOffset), // Segment duration
+                i32OrI64(-1), // Media time
+                fixed_16_16(1), // Media rate
+                // #2
+                u32OrU64(mediaDuration), // Segment duration
+                i32OrI64(0), // Media time
+                fixed_16_16(1), // Media rate
+            ]),
+        ]);
+    }
+    else {
+        // Negative offset: the negative section of the media is trimmed off
+        const mediaTime = intoTimescale(-offset, trackData.timescale);
+        // Not the entire media is visible.
+        // For fragmented files, this value is zero, which simply means "unknown duration" in this case. Spec:
+        // "the segment_duration of this edit may be zero"
+        const mediaDuration = Math.max(0, intoTimescale(presentationSpan(trackData), GLOBAL_TIMESCALE)
+            + intoTimescale(offset, GLOBAL_TIMESCALE));
+        const needs64Bits = !isI32(mediaTime) || !isU32(mediaDuration);
+        const u32OrU64 = needs64Bits ? u64 : u32;
+        const i32OrI64 = needs64Bits ? i64 : i32;
+        return box('edts', undefined, [
+            fullBox('elst', needs64Bits ? 1 : 0, 0, [
+                u32(1), // Entry count
+                // #1
+                u32OrU64(mediaDuration), // Segment duration
+                i32OrI64(mediaTime), // Media time
+                fixed_16_16(1), // Media rate
+            ]),
+        ]);
+    }
+};
 /** Media Box: Describes and define a track's media type and sample data. */
 export const mdia = (trackData, creationTime) => box('mdia', undefined, [
     mdhd(trackData, creationTime),
-    hdlr(true, TRACK_TYPE_TO_COMPONENT_SUBTYPE[trackData.type], TRACK_TYPE_TO_HANDLER_NAME[trackData.type]),
+    hdlr(true, TRACK_TYPE_TO_COMPONENT_SUBTYPE[trackData.type], TRACK_TYPE_TO_HANDLER_NAME[trackData.type], undefined, trackData.muxer.isQuickTime),
     minf(trackData),
 ]);
 /** Media Header Box: Specifies the characteristics of a media, including timescale and duration. */
 export const mdhd = (trackData, creationTime) => {
-    const lastSample = lastPresentedSample(trackData.samples);
-    const localDuration = intoTimescale(lastSample ? lastSample.timestamp + lastSample.duration : 0, trackData.timescale);
+    // Since _this_ duration represents the raw media duration, edit list offsets are not taken into account here
+    const localDuration = intoTimescale(presentationSpan(trackData), trackData.timescale);
     const needsU64 = !isU32(creationTime) || !isU32(localDuration);
     const u32OrU64 = needsU64 ? u64 : u32;
     return fullBox('mdhd', +needsU64, 0, [
@@ -360,13 +464,13 @@ const TRACK_TYPE_TO_HANDLER_NAME = {
     subtitle: 'MediabunnyTextHandler',
 };
 /** Handler Reference Box. */
-export const hdlr = (hasComponentType, handlerType, name, manufacturer = '\0\0\0\0') => fullBox('hdlr', 0, 0, [
+export const hdlr = (hasComponentType, handlerType, name, manufacturer = '\0\0\0\0', isQuickTime = false) => fullBox('hdlr', 0, 0, [
     hasComponentType ? ascii('mhlr') : u32(0), // Component type
     ascii(handlerType), // Component subtype
     ascii(manufacturer), // Component manufacturer
     u32(0), // Component flags
     u32(0), // Component flags mask
-    ascii(name, true), // Component name
+    isQuickTime ? [u8(name.length), ascii(name)] : ascii(name, true), // Component name, a Pascal string for QuickTime
 ]);
 /**
  * Media Information Box: Stores handler-specific information for a track's media data. The media handler uses this
@@ -428,6 +532,7 @@ export const stbl = (trackData) => {
         stsz(trackData),
         stco(trackData),
         stss(trackData),
+        ...sgpdAndSbgp(trackData.samples, false),
     ]);
 };
 /**
@@ -440,16 +545,12 @@ export const stsd = (trackData) => {
         sampleDescription = videoSampleDescription(videoCodecToBoxName(trackData.track.source._codec, trackData.info.decoderConfig.codec), trackData);
     }
     else if (trackData.type === 'audio') {
-        const boxName = audioCodecToBoxName(trackData.track.source._codec, trackData.muxer.isQuickTime);
+        const boxName = audioCodecToBoxName(trackData.track.source._codec, trackData.info.decoderConfig.codec, trackData.muxer.isQuickTime);
         assert(boxName);
         sampleDescription = soundSampleDescription(boxName, trackData);
     }
     else if (trackData.type === 'subtitle') {
-        const boxName = SUBTITLE_CODEC_TO_BOX_NAME[trackData.track.source._codec];
-        if (!boxName) {
-            throw new Error(`Subtitle codec '${trackData.track.source._codec}' is not supported in MP4/MOV. Only WebVTT is supported.`);
-        }
-        sampleDescription = subtitleSampleDescription(boxName, trackData);
+        sampleDescription = subtitleSampleDescription(SUBTITLE_CODEC_TO_BOX_NAME[trackData.track.source._codec], trackData);
     }
     assert(sampleDescription);
     return fullBox('stsd', 0, 0, [
@@ -471,14 +572,31 @@ export const videoSampleDescription = (compressionType, trackData) => box(compre
     u32(0x00480000), // Vertical resolution
     u32(0), // Reserved
     u16(1), // Frame count
-    Array(32).fill(0), // Compressor name
-    u16(0x0018), // Depth
+    // Compressor name
+    u8(VERSIONED_NAME.length), // Weird Pascal-style string
+    ascii(VERSIONED_NAME),
+    Array(31 - VERSIONED_NAME.length).fill(0),
+    u16(trackData.info.hasAlphaChannel ? 32 : 24), // Depth
     i16(0xffff), // Pre-defined
 ], [
-    VIDEO_CODEC_TO_CONFIGURATION_BOX[trackData.track.source._codec](trackData),
+    VIDEO_CODEC_TO_CONFIGURATION_BOX[trackData.track.source._codec]?.(trackData) ?? null,
     pasp(trackData),
-    colorSpaceIsComplete(trackData.info.decoderConfig.colorSpace) ? colr(trackData) : null,
+    colorSpaceIsEmpty(trackData.info.decoderConfig.colorSpace)
+        ? null
+        : colr(trackData),
+    btrt(trackData),
 ]);
+/** Bit Rate Box: Signals the average and peak bitrate of the track. */
+export const btrt = (trackData) => {
+    if (trackData.avgBitrate === 0 && trackData.maxBitrate === 0) {
+        return null;
+    }
+    return box('btrt', [
+        u32(0), // Decoding buffer size (unknown)
+        u32(trackData.maxBitrate), // Max bitrate
+        u32(trackData.avgBitrate), // Average bitrate
+    ]);
+};
 /** Pixel Aspect Ratio Box: Specifies pixel width:height spacing for non-square pixels. */
 export const pasp = (trackData) => {
     if (trackData.info.pixelAspectRatio.num === trackData.info.pixelAspectRatio.den) {
@@ -490,13 +608,23 @@ export const pasp = (trackData) => {
     ]);
 };
 /** Colour Information Box: Specifies the color space of the video. */
-export const colr = (trackData) => box('colr', [
-    ascii('nclx'), // Colour type
-    u16(COLOR_PRIMARIES_MAP[trackData.info.decoderConfig.colorSpace.primaries]), // Colour primaries
-    u16(TRANSFER_CHARACTERISTICS_MAP[trackData.info.decoderConfig.colorSpace.transfer]), // Transfer characteristics
-    u16(MATRIX_COEFFICIENTS_MAP[trackData.info.decoderConfig.colorSpace.matrix]), // Matrix coefficients
-    u8((trackData.info.decoderConfig.colorSpace.fullRange ? 1 : 0) << 7), // Full range flag
-]);
+export const colr = (trackData) => {
+    const colorSpace = trackData.info.decoderConfig.colorSpace;
+    return box('colr', [
+        // Colour type
+        ascii(trackData.muxer.isQuickTime ? 'nclc' : 'nclx'),
+        // Colour primaries
+        u16(colorSpace?.primaries != null ? COLOR_PRIMARIES_MAP[colorSpace.primaries] : 2),
+        // Transfer characteristics
+        u16(colorSpace?.transfer != null ? TRANSFER_CHARACTERISTICS_MAP[colorSpace.transfer] : 2),
+        // Matrix coefficients
+        u16(colorSpace?.matrix != null ? MATRIX_COEFFICIENTS_MAP[colorSpace.matrix] : 2),
+        // Full range flag
+        trackData.muxer.isQuickTime
+            ? [] // Doesn't have it
+            : u8((colorSpace?.fullRange ? 1 : 0) << 7),
+    ]);
+};
 /** AVC Configuration Box: Provides additional information to the decoder. */
 export const avcC = (trackData) => trackData.info.decoderConfig && box('avcC', [
     // For AVC, description is an AVCDecoderConfigurationRecord, so nothing else to do here
@@ -517,7 +645,7 @@ export const vpcC = (trackData) => {
     const parts = decoderConfig.codec.split('.'); // We can derive the required values from the codec string
     const profile = Number(parts[1]);
     const level = Number(parts[2]);
-    const bitDepth = Number(parts[3]);
+    const bitDepth = parts[3] ? Number(parts[3]) : 8; // VP8 is always 8-bit
     const chromaSubsampling = parts[4] ? Number(parts[4]) : 1; // 4:2:0 colocated with luma (0,0)
     const videoFullRangeFlag = parts[8] ? Number(parts[8]) : Number(decoderConfig.colorSpace?.fullRange ?? 0);
     const thirdByte = (bitDepth << 4) + (chromaSubsampling << 1) + videoFullRangeFlag;
@@ -525,17 +653,17 @@ export const vpcC = (trackData) => {
         ? Number(parts[5])
         : decoderConfig.colorSpace?.primaries
             ? COLOR_PRIMARIES_MAP[decoderConfig.colorSpace.primaries]
-            : 2; // Default to undetermined
+            : 1;
     const transferCharacteristics = parts[6]
         ? Number(parts[6])
         : decoderConfig.colorSpace?.transfer
             ? TRANSFER_CHARACTERISTICS_MAP[decoderConfig.colorSpace.transfer]
-            : 2;
+            : 1;
     const matrixCoefficients = parts[7]
         ? Number(parts[7])
         : decoderConfig.colorSpace?.matrix
             ? MATRIX_COEFFICIENTS_MAP[decoderConfig.colorSpace.matrix]
-            : 2;
+            : 1;
     return fullBox('vpcC', 1, 0, [
         u8(profile), // Profile
         u8(level), // Level
@@ -555,26 +683,29 @@ export const soundSampleDescription = (compressionType, trackData) => {
     let version = 0;
     let contents;
     let sampleSizeInBits = 16;
+    let sampleEntrySampleRate = trackData.info.sampleRate;
+    let configurationBox = audioCodecToConfigurationBox(trackData.track.source._codec, trackData.muxer.isQuickTime)?.(trackData) ?? null;
     const isPcmCodec = PCM_AUDIO_CODECS.includes(trackData.track.source._codec);
-    if (trackData.track.source._codec === 'flac' &&
-        trackData.info.decoderConfig.description) {
-        // FLAC's STREAMINFO stores the actual sample depth in a 5-bit field.
-        // Keeping the old 16-bit fallback makes Chromium reject 24-bit FLAC
-        // when the generated FLACSpecificBox declares 24 bits.
-        const descriptionBitstream = new Bitstream(toUint8Array(trackData.info.decoderConfig.description));
-        descriptionBitstream.skipBits(103 + 64);
-        sampleSizeInBits = descriptionBitstream.readBits(5) + 1;
-    }
     if (isPcmCodec) {
         const codec = trackData.track.source._codec;
         const { sampleSize } = parsePcmCodec(codec);
         sampleSizeInBits = 8 * sampleSize;
-        if (sampleSizeInBits > 16) {
-            version = 1;
+    }
+    else if (trackData.track.source._codec === 'flac') {
+        const description = trackData.info.decoderConfig?.description;
+        assert(description);
+        const bitstream = new Bitstream(toUint8Array(description));
+        bitstream.skipBits(167); // 'fLaC', block header, block and frame sizes, sample rate and channel count
+        sampleSizeInBits = bitstream.readBits(5) + 1; // The sample entry must state STREAMINFO's bit depth
+        // The FLAC mapping asks us to halve the rate until it fits (weird but sure)
+        while (sampleEntrySampleRate >= 2 ** 16) {
+            sampleEntrySampleRate = Math.floor(sampleEntrySampleRate / 2);
         }
     }
-    if (trackData.muxer.isQuickTime) {
-        version = 1;
+    // TrueHD's sample entry is defined on top of version 0, with its own sample rate layout
+    if (trackData.muxer.isQuickTime && trackData.track.source._codec !== 'truehd') {
+        // Version 1 is only specified for mono and stereo, and can't represent sample rates of 2^16 and up
+        version = trackData.info.sampleRate < 2 ** 16 && trackData.info.numberOfChannels <= 2 ? 1 : 2;
     }
     if (version === 0) {
         contents = [
@@ -587,11 +718,15 @@ export const soundSampleDescription = (compressionType, trackData) => {
             u16(sampleSizeInBits), // Sample size (bits)
             u16(0), // Compression ID
             u16(0), // Packet size
-            u16(trackData.info.sampleRate < 2 ** 16 ? trackData.info.sampleRate : 0), // Sample rate (upper)
-            u16(0), // Sample rate (lower)
+            trackData.track.source._codec === 'truehd'
+                ? u32(trackData.info.sampleRate) // TrueHD stores the sample rate as a plain integer
+                : [
+                    u16(sampleEntrySampleRate < 2 ** 16 ? sampleEntrySampleRate : 0), // Sample rate (upper)
+                    u16(0), // Sample rate (lower)
+                ],
         ];
     }
-    else {
+    else if (version === 1) {
         const compressionId = isPcmCodec ? 0 : -2;
         contents = [
             Array(6).fill(0), // Reserved
@@ -619,10 +754,67 @@ export const soundSampleDescription = (compressionType, trackData) => {
             u32(2), // Bytes per sample (constant in FFmpeg)
         ];
     }
+    else if (version === 2) {
+        let formatSpecificFlags = 0;
+        if (isPcmCodec) {
+            const { dataType, littleEndian } = parsePcmCodec(trackData.track.source._codec);
+            if (dataType !== 'ulaw' && dataType !== 'alaw') {
+                // Linear PCM must use the lpcm format with version 2, which is fully described by these flags
+                compressionType = 'lpcm';
+                configurationBox = null;
+                formatSpecificFlags = (dataType === 'float' ? 1 : 0) // Float
+                    | (littleEndian ? 0 : 2) // Big-endian
+                    | (dataType === 'signed' ? 4 : 0) // Signed integer
+                    | 8; // Packed
+            }
+        }
+        contents = [
+            Array(6).fill(0), // Reserved
+            u16(1), // Data reference index
+            u16(version), // Version
+            u16(0), // Revision level
+            u32(0), // Vendor
+            u16(3), // Always 3
+            u16(16), // Always 16
+            i16(-2), // Always -2
+            u16(0), // Always 0
+            u32(0x10000), // Always 65536
+            u32(72), // Size of struct only
+            f64(trackData.info.sampleRate), // Sample rate
+            u32(trackData.info.numberOfChannels), // Number of channels
+            u32(0x7f000000), // Always 0x7f000000
+            isPcmCodec
+                ? [
+                    u32(sampleSizeInBits), // Constant bits per channel
+                    u32(formatSpecificFlags), // Format-specific flags
+                    u32(trackData.info.numberOfChannels * sampleSizeInBits / 8), // Constant bytes per audio packet
+                    u32(1), // Constant LPCM frames per audio packet
+                ]
+                : [
+                    u32(0), // Constant bits per channel (variable)
+                    u32(0), // Format-specific flags
+                    u32(0), // Constant bytes per audio packet (variable)
+                    u32(0), // Constant LPCM frames per audio packet (variable)
+                ],
+        ];
+    }
+    else {
+        assertNever(version);
+        assert(false);
+    }
     return box(compressionType, contents, [
-        audioCodecToConfigurationBox(trackData.track.source._codec, trackData.muxer.isQuickTime)?.(trackData) ?? null,
+        // For ipcm and fpcm, sample rates that don't fit into the sample entry go into their own box
+        (compressionType === 'ipcm' || compressionType === 'fpcm') && trackData.info.sampleRate >= 2 ** 16
+            ? srat(trackData)
+            : null,
+        configurationBox,
+        btrt(trackData),
     ]);
 };
+/** Sampling Rate Box */
+const srat = (trackData) => fullBox('srat', 0, 0, [
+    u32(trackData.info.sampleRate), // Sampling rate
+]);
 /** MPEG-4 Elementary Stream Descriptor Box. */
 export const esds = (trackData) => {
     // We build up the bytes in a layered way which reflects the nested structure
@@ -652,8 +844,8 @@ export const esds = (trackData) => {
         ...u8(objectTypeIndication), // Object type indication
         ...u8(0x15), // stream type(6bits)=5 audio, flags(2bits)=1
         ...u24(0), // 24bit buffer size
-        ...u32(0), // max bitrate
-        ...u32(0), // avg bitrate
+        ...u32(trackData.maxBitrate), // max bitrate
+        ...u32(trackData.avgBitrate), // avg bitrate
     ];
     if (trackData.info.decoderConfig.description) {
         const description = toUint8Array(trackData.info.decoderConfig.description);
@@ -685,13 +877,17 @@ export const esds = (trackData) => {
 export const wave = (trackData) => {
     return box('wave', undefined, [
         frma(trackData),
-        enda(trackData),
+        trackData.track.source._codec === 'ac3'
+            ? dac3(trackData)
+            : trackData.track.source._codec === 'eac3'
+                ? dec3(trackData)
+                : enda(trackData),
         box('\x00\x00\x00\x00'), // NULL tag at the end
     ]);
 };
 export const frma = (trackData) => {
     return box('frma', [
-        ascii(audioCodecToBoxName(trackData.track.source._codec, trackData.muxer.isQuickTime)),
+        ascii(audioCodecToBoxName(trackData.track.source._codec, trackData.info.decoderConfig.codec, trackData.muxer.isQuickTime)),
     ]);
 };
 // This box specifies PCM endianness
@@ -704,8 +900,7 @@ export const enda = (trackData) => {
 /** Opus Specific Box. */
 export const dOps = (trackData) => {
     let outputChannelCount = trackData.info.numberOfChannels;
-    // Default PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
-    let preSkip = 3840;
+    let preSkip = 312; // Default
     let inputSampleRate = trackData.info.sampleRate;
     let outputGain = 0;
     let channelMappingFamily = 0;
@@ -757,7 +952,8 @@ const pcmC = (trackData) => {
 };
 /** AC3SpecificBox */
 const dac3 = (trackData) => {
-    const frameInfo = parseAc3SyncFrame(trackData.info.firstPacket.data);
+    assert(trackData.info.primingPacket);
+    const frameInfo = parseAc3SyncFrame(trackData.info.primingPacket.data);
     if (!frameInfo) {
         throw new Error('Couldn\'t extract AC-3 frame info from the audio packet. '
             + 'Ensure the packets contain valid AC-3 sync frames (as specified in ETSI TS 102 366).');
@@ -775,7 +971,8 @@ const dac3 = (trackData) => {
 };
 /** EC3SpecificBox */
 const dec3 = (trackData) => {
-    const frameInfo = parseEac3SyncFrame(trackData.info.firstPacket.data);
+    assert(trackData.info.primingPacket);
+    const frameInfo = parseEac3SyncFrame(trackData.info.primingPacket.data);
     if (!frameInfo) {
         throw new Error('Couldn\'t extract E-AC-3 frame info from the audio packet. '
             + 'Ensure the packets contain valid E-AC-3 sync frames (as specified in ETSI TS 102 366).');
@@ -815,18 +1012,40 @@ const dec3 = (trackData) => {
     }
     return box('dec3', [...bytes]);
 };
-export const subtitleSampleDescription = (compressionType, trackData) => {
-    const configBox = SUBTITLE_CODEC_TO_CONFIGURATION_BOX[trackData.track.source._codec];
-    if (!configBox) {
-        throw new Error(`Subtitle codec '${trackData.track.source._codec}' is not supported in MP4/MOV. Only WebVTT is supported.`);
+/** DTSSpecificBox */
+const ddts = (trackData) => {
+    assert(trackData.info.primingPacket);
+    const frameInfo = parseDtsFrame(trackData.info.primingPacket.data);
+    if (!frameInfo) {
+        throw new Error('Couldn\'t extract DTS frame info from the audio packet. '
+            + 'Ensure the packets contain valid DTS frames as specified in ETSI TS 102 114.');
     }
-    return box(compressionType, [
-        Array(6).fill(0), // Reserved
-        u16(1), // Data reference index
-    ], [
-        configBox(trackData),
+    return box('ddts', [...buildDtsSpecificBox(frameInfo)]);
+};
+/** MLPSpecificBox */
+const dmlp = (trackData) => {
+    assert(trackData.info.primingPacket);
+    const data = trackData.info.primingPacket.data;
+    if (determineAudioPacketType('truehd', data) !== 'key') {
+        throw new Error('Couldn\'t extract TrueHD stream info from the audio packet. '
+            + 'Ensure the first packet is an access unit carrying a major sync.');
+    }
+    const view = toDataView(data);
+    const formatInfo = view.getUint32(8);
+    const peakDataRate = view.getUint16(18) & 0x7fff;
+    return box('dmlp', [
+        u32(formatInfo), // Format info
+        u16(peakDataRate << 1), // Peak data rate (15 bits) + reserved (1 bit)
+        u32(0), // Reserved
     ]);
 };
+export const subtitleSampleDescription = (compressionType, trackData) => box(compressionType, [
+    Array(6).fill(0), // Reserved
+    u16(1), // Data reference index
+], [
+    SUBTITLE_CODEC_TO_CONFIGURATION_BOX[trackData.track.source._codec](trackData),
+    btrt(trackData),
+]);
 export const vttC = (trackData) => box('vttC', [
     ...textEncoder.encode(trackData.info.config.description),
 ]);
@@ -921,12 +1140,15 @@ export const ctts = (trackData) => {
  * Composition to Decode Box: Stores information about the composition and display times of the media samples.
  */
 export const cslg = (trackData) => {
+    assert(trackData.compositionTimeOffsetTable.length > 0);
+    if (trackData.samples.length === 0) {
+        // Happens when the moov is measured before any samples have been added
+        return null;
+    }
     let leastDecodeToDisplayDelta = Infinity;
     let greatestDecodeToDisplayDelta = -Infinity;
     let compositionStartTime = Infinity;
     let compositionEndTime = -Infinity;
-    assert(trackData.compositionTimeOffsetTable.length > 0);
-    assert(trackData.samples.length > 0);
     for (let i = 0; i < trackData.compositionTimeOffsetTable.length; i++) {
         const entry = trackData.compositionTimeOffsetTable[i];
         leastDecodeToDisplayDelta = Math.min(leastDecodeToDisplayDelta, entry.sampleCompositionTimeOffset);
@@ -951,6 +1173,50 @@ export const cslg = (trackData) => {
         i32(compositionStartTime), // Composition start time
         i32(compositionEndTime), // Composition end time
     ]);
+};
+const sgpdAndSbgp = (samples, inTrackFragment) => {
+    const entries = [];
+    for (const sample of samples) {
+        if (entries.length === 0) {
+            entries.push({
+                sampleCount: 1,
+                prerollSamples: sample.prerollSamples,
+            });
+        }
+        else {
+            const lastEntry = entries[entries.length - 1];
+            if (lastEntry.prerollSamples === sample.prerollSamples) {
+                lastEntry.sampleCount++;
+            }
+            else {
+                entries.push({
+                    sampleCount: 1,
+                    prerollSamples: sample.prerollSamples,
+                });
+            }
+        }
+    }
+    const rollEntries = entries.filter(x => x.prerollSamples !== 0);
+    if (rollEntries.length === 0) {
+        return [];
+    }
+    let nextGroupIndex = inTrackFragment ? 0x10001 : 1;
+    return [
+        fullBox('sgpd', 1, 0, [
+            ascii('roll'), // Grouping type
+            u32(2), // Default length
+            u32(rollEntries.length), // Entry count
+            ...rollEntries.map(x => i16(x.prerollSamples)),
+        ]),
+        fullBox('sbgp', 0, 0, [
+            ascii('roll'), // Grouping type
+            u32(entries.length), // Entry count
+            ...entries.map(x => [
+                u32(x.sampleCount), // Sample count
+                u32(x.prerollSamples !== 0 ? nextGroupIndex++ : 0), // Samples with no preroll belong to no group
+            ]),
+        ]),
+    ];
 };
 /**
  * Movie Extends Box: This box signals to readers that the file is fragmented. Contains a single Track Extends Box
@@ -1007,6 +1273,7 @@ export const traf = (trackData) => {
         tfhd(trackData),
         tfdt(trackData),
         trun(trackData),
+        ...sgpdAndSbgp(trackData.currentChunk.samples, true),
     ]);
 };
 /** Track Fragment Header Box: Provides a reference to the extended track, and flags. */
@@ -1044,6 +1311,8 @@ export const tfdt = (trackData) => {
 /** Track Run Box: Specifies a run of contiguous samples for a given track. */
 export const trun = (trackData) => {
     assert(trackData.currentChunk);
+    const dataOffset = trackData.currentChunk.offset - trackData.currentChunk.moofOffset || 0;
+    assert(isI32(dataOffset));
     const allSampleDurations = trackData.currentChunk.samples.map(x => x.timescaleUnitsToNextSample);
     const allSampleSizes = trackData.currentChunk.samples.map(x => x.size);
     const allSampleFlags = trackData.currentChunk.samples.map(fragmentSampleFlags);
@@ -1053,7 +1322,8 @@ export const trun = (trackData) => {
     const uniqueSampleSizes = new Set(allSampleSizes);
     const uniqueSampleFlags = new Set(allSampleFlags);
     const uniqueSampleCompositionTimeOffsets = new Set(allSampleCompositionTimeOffsets);
-    const firstSampleFlagsPresent = uniqueSampleFlags.size === 2 && allSampleFlags[0] !== allSampleFlags[1];
+    const firstSampleFlagsPresent = uniqueSampleFlags.size === 2
+        && allSampleFlags.lastIndexOf(allSampleFlags[0]) === 0;
     const sampleDurationPresent = uniqueSampleDurations.size > 1;
     const sampleSizePresent = uniqueSampleSizes.size > 1;
     const sampleFlagsPresent = !firstSampleFlagsPresent && uniqueSampleFlags.size > 1;
@@ -1067,7 +1337,7 @@ export const trun = (trackData) => {
     flags |= 0x0800 * +sampleCompositionTimeOffsetsPresent; // Sample composition time offsets present
     return fullBox('trun', 1, flags, [
         u32(trackData.currentChunk.samples.length), // Sample count
-        u32(trackData.currentChunk.offset - trackData.currentChunk.moofOffset || 0), // Data offset
+        i32(dataOffset), // Data offset
         firstSampleFlagsPresent ? u32(allSampleFlags[0]) : [],
         trackData.currentChunk.samples.map((_, i) => [
             sampleDurationPresent ? u32(allSampleDurations[i]) : [], // Sample duration
@@ -1089,18 +1359,18 @@ export const mfra = (trackDatas) => {
     ]);
 };
 /** Track Fragment Random Access Box: Provides pointers to sync samples within the file for random access. */
-export const tfra = (trackData, trackIndex) => {
+export const tfra = (trackData) => {
     const version = 1; // Using this version allows us to use 64-bit time and offset values
     return fullBox('tfra', version, 0, [
         u32(trackData.track.id), // Track ID
         u32(0b111111), // This specifies that traf number, trun number and sample number are 32-bit ints
-        u32(trackData.finalizedChunks.length), // Number of entries
-        trackData.finalizedChunks.map(chunk => [
-            u64(intoTimescale(chunk.samples[0].timestamp, trackData.timescale)), // Time (in presentation time)
-            u64(chunk.moofOffset), // moof offset
-            u32(trackIndex + 1), // traf number
+        u32(trackData.tfraEntries.length), // Number of entries
+        trackData.tfraEntries.map(entry => [
+            u64(intoTimescale(entry.timestamp, trackData.timescale)), // Time (in presentation time)
+            u64(entry.moofOffset), // moof offset
+            u32(entry.trafIndex + 1), // traf number
             u32(1), // trun number
-            u32(1), // Sample number
+            u32(entry.sampleIndex + 1), // Sample number
         ]),
     ]);
 };
@@ -1216,10 +1486,17 @@ const addQuickTimeMetadataTagBoxes = (boxes, tags) => {
                 }
                 ;
                 break;
+            case 'creationTime':
+                {
+                    // Written in the header boxes
+                }
+                ;
+                break;
             case 'discNumber':
             case 'discsTotal':
             case 'trackNumber':
             case 'tracksTotal':
+            case 'beatsPerMinute':
             case 'images':
                 {
                     // Not written for QuickTime (common Apple L)
@@ -1257,6 +1534,9 @@ const DATA_BOX_MIME_TYPE_MAP = {
     'image/png': 14,
     'image/bmp': 27,
 };
+// FFmpeg parses these assuming a udta layout even when they're not in udta, so we simply skip these if we'd write them
+// to ilst metadata
+const ILST_UNSAFE_RAW_KEYS = new Set(['HMMT', 'loci', 'chpl']);
 /**
  * Generates key-value metadata for inclusion in the "meta" box.
  */
@@ -1305,6 +1585,18 @@ const generateMetadataPairs = (tags, isMdta) => {
             case 'genre':
                 {
                     pairs.push({ key: isMdta ? 'genre' : '©gen', value: dataStringBoxLong(value) });
+                }
+                ;
+                break;
+            case 'beatsPerMinute':
+                {
+                    if (!isMdta) {
+                        pairs.push({ key: 'tmpo', value: box('data', [
+                                u32(21), // Type indicator
+                                u32(0), // Locale indicator
+                                u16(value),
+                            ]) });
+                    }
                 }
                 ;
                 break;
@@ -1363,7 +1655,7 @@ const generateMetadataPairs = (tags, isMdta) => {
                 {
                     if (!isMdta) {
                         // Only written for mdir
-                        pairs.push({ key: 'disc', value: box('data', [
+                        pairs.push({ key: 'disk', value: box('data', [
                                 u32(0), // 8 bytes empty
                                 u32(0),
                                 u16(0), // Empty
@@ -1388,13 +1680,21 @@ const generateMetadataPairs = (tags, isMdta) => {
                 }
                 ;
                 break;
+            case 'creationTime':
+                {
+                    // Written in the header boxes
+                }
+                ;
+                break;
             default: assertNever(key);
         }
     }
     if (tags.raw) {
         for (const key in tags.raw) {
             const value = tags.raw[key];
-            if (value == null || (!isMdta && key.length !== 4) || pairs.some(x => x.key === key)) {
+            if (value == null
+                || (!isMdta && (key.length !== 4 || ILST_UNSAFE_RAW_KEYS.has(key)))
+                || pairs.some(x => x.key === key)) {
                 continue;
             }
             if (typeof value === 'string') {
@@ -1460,10 +1760,12 @@ const dataStringBoxLong = (value) => {
 const videoCodecToBoxName = (codec, fullCodecString) => {
     switch (codec) {
         case 'avc': return fullCodecString.startsWith('avc3') ? 'avc3' : 'avc1';
+        // Always hvc1, even for hev1 codec strings, since Apple's players refuse to play hev1
         case 'hevc': return 'hvc1';
         case 'vp8': return 'vp08';
         case 'vp9': return 'vp09';
         case 'av1': return 'av01';
+        case 'prores': return fullCodecString;
     }
 };
 const VIDEO_CODEC_TO_CONFIGURATION_BOX = {
@@ -1472,11 +1774,12 @@ const VIDEO_CODEC_TO_CONFIGURATION_BOX = {
     vp8: vpcC,
     vp9: vpcC,
     av1: av1C,
+    prores: null,
 };
-const audioCodecToBoxName = (codec, isQuickTime) => {
+const audioCodecToBoxName = (codec, fullCodecString, isQuickTime) => {
     switch (codec) {
         case 'aac': return 'mp4a';
-        case 'mp3': return 'mp4a';
+        case 'mp3': return isQuickTime ? '.mp3' : 'mp4a';
         case 'opus': return 'Opus';
         case 'vorbis': return 'mp4a';
         case 'flac': return 'fLaC';
@@ -1486,6 +1789,8 @@ const audioCodecToBoxName = (codec, isQuickTime) => {
         case 'pcm-s8': return 'sowt';
         case 'ac3': return 'ac-3';
         case 'eac3': return 'ec-3';
+        case 'dts': return fullCodecString;
+        case 'truehd': return 'mlpa';
     }
     // Logic diverges here
     if (isQuickTime) {
@@ -1520,12 +1825,14 @@ const audioCodecToBoxName = (codec, isQuickTime) => {
 const audioCodecToConfigurationBox = (codec, isQuickTime) => {
     switch (codec) {
         case 'aac': return esds;
-        case 'mp3': return esds;
+        case 'mp3': return isQuickTime ? null : esds;
         case 'opus': return dOps;
         case 'vorbis': return esds;
         case 'flac': return dfLa;
-        case 'ac3': return dac3;
-        case 'eac3': return dec3;
+        case 'ac3': return isQuickTime ? wave : dac3;
+        case 'eac3': return isQuickTime ? wave : dec3;
+        case 'dts': return ddts;
+        case 'truehd': return dmlp;
     }
     // Logic diverges here
     if (isQuickTime) {
@@ -1558,13 +1865,9 @@ const audioCodecToConfigurationBox = (codec, isQuickTime) => {
 };
 const SUBTITLE_CODEC_TO_BOX_NAME = {
     webvtt: 'wvtt',
-    tx3g: 'tx3g',
-    ttml: 'stpp',
 };
 const SUBTITLE_CODEC_TO_CONFIGURATION_BOX = {
     webvtt: vttC,
-    tx3g: () => null, // tx3g doesn't require a configuration box
-    ttml: () => null, // stpp configuration is optional
 };
 const getLanguageCodeInt = (code) => {
     assert(code.length === 3);
