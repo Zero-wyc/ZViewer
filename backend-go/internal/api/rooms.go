@@ -10,6 +10,7 @@ import (
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/realtime"
+	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/store"
 )
 
@@ -44,8 +45,10 @@ type roomDTO struct {
 	ViewerCount     int64   `json:"viewerCount"`
 	SharerOnline    bool    `json:"sharerOnline"`
 	Mode            string  `json:"mode"`
-	LastAccessedAt  string  `json:"lastAccessedAt"`
-	CreatedAt       string  `json:"createdAt"`
+	// MoviePermission 是房间级「允许成员点片」配置（默认关闭）。
+	MoviePermission room.MoviePermission `json:"moviePermission"`
+	LastAccessedAt  string               `json:"lastAccessedAt"`
+	CreatedAt       string               `json:"createdAt"`
 }
 
 type trackDTO struct {
@@ -151,6 +154,7 @@ func (s *Server) handleListRooms(w http.ResponseWriter, r *http.Request) {
 			ViewerCount:     counts.Viewers[room.RoomID],
 			SharerOnline:    sharerOnline,
 			Mode:            room.Mode,
+			MoviePermission: moviePermissionOf(room.MoviePermission),
 			LastAccessedAt:  isoMillis(room.LastAccessedAt),
 			CreatedAt:       isoMillis(room.CreatedAt),
 		})

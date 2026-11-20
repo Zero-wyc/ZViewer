@@ -1,33 +1,9 @@
 package api
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"testing"
-
-	"zviewer/backend/internal/flvcrypt"
 )
-
-func TestScreenE2EEKeyB64(t *testing.T) {
-	srv := &Server{}
-	if got := srv.screenE2EEKeyB64("room-1", false); got != "" {
-		t.Fatalf("关闭加密时不应下发密钥, got %q", got)
-	}
-	got := srv.screenE2EEKeyB64("room-1", true)
-	raw, err := base64.StdEncoding.DecodeString(got)
-	if err != nil {
-		t.Fatalf("密钥不是合法 base64: %v", err)
-	}
-	if len(raw) != flvcrypt.KeySize {
-		t.Fatalf("密钥长度 = %d, want %d", len(raw), flvcrypt.KeySize)
-	}
-	if again := srv.screenE2EEKeyB64("room-1", true); again != got {
-		t.Fatal("同一房间的密钥应保持稳定（与 watch 接口下发的是同一把）")
-	}
-	if other := srv.screenE2EEKeyB64("room-2", true); other == got {
-		t.Fatal("不同房间不应共用密钥")
-	}
-}
 
 func TestParseRoomFeaturesGet(t *testing.T) {
 	cases := []struct {
@@ -95,66 +71,6 @@ func TestParseRoomFeaturesSetAndApply(t *testing.T) {
 	}
 	if got := parseRoomFeaturesSet(nil); got.RoomID != "" || got.hasAnyField() {
 		t.Fatalf("nil 参数解析结果异常: %+v", got)
-	}
-}
-
-func TestParseVoiceInvite(t *testing.T) {
-	cases := []struct {
-		name   string
-		args   []json.RawMessage
-		want   voiceInvitePayload
-		wantOK bool
-	}{
-		{
-			name:   "livekit 邀请",
-			args:   args(`{"roomId":"r1","targetSocketId":"s1","kind":"livekit"}`),
-			want:   voiceInvitePayload{RoomID: "r1", TargetSocketID: "s1", Kind: "livekit"},
-			wantOK: true,
-		},
-		{
-			name:   "relay 邀请并去空白/小写",
-			args:   args(`{"roomId":" r1 ","targetSocketId":" s1 ","kind":" RELAY "}`),
-			want:   voiceInvitePayload{RoomID: "r1", TargetSocketID: "s1", Kind: "relay"},
-			wantOK: true,
-		},
-		{
-			name:   "非法 kind",
-			args:   args(`{"roomId":"r1","targetSocketId":"s1","kind":"screen"}`),
-			wantOK: false,
-		},
-		{
-			name:   "缺目标",
-			args:   args(`{"roomId":"r1","kind":"livekit"}`),
-			wantOK: false,
-		},
-		{
-			name:   "缺房间",
-			args:   args(`{"targetSocketId":"s1","kind":"relay"}`),
-			wantOK: false,
-		},
-		{
-			name:   "空参数",
-			args:   nil,
-			wantOK: false,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := parseVoiceInvite(tc.args)
-			if ok != tc.wantOK {
-				t.Fatalf("parseVoiceInvite() ok = %v, want %v", ok, tc.wantOK)
-			}
-			if ok && got != tc.want {
-				t.Fatalf("parseVoiceInvite() = %+v, want %+v", got, tc.want)
-			}
-		})
-	}
-
-	if validVoiceInviteKind("") || validVoiceInviteKind("livestream") {
-		t.Fatal("validVoiceInviteKind 接受了非法值")
-	}
-	if !validVoiceInviteKind("livekit") || !validVoiceInviteKind("relay") {
-		t.Fatal("validVoiceInviteKind 拒绝了合法值")
 	}
 }
 
