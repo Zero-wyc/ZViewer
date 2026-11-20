@@ -47,6 +47,8 @@ type Room struct {
 	// MusicEnabled 是房主的「一起听总开关」：关闭后所有 music:* 上行事件
 	// 一律拒绝，只保留房主重新开启的能力。
 	MusicEnabled bool
+	// MusicPermission 是一起听权限配置的原始 JSON（room 包负责解析/归一化）。
+	MusicPermission string
 	// MoviePermission 是点片权限配置的原始 JSON（room 包负责解析/归一化）。
 	MoviePermission string
 	OwnerUserID     *int64
@@ -67,7 +69,8 @@ const roomColumns = `"id", "roomId", "name", "status", "mode", "maxViewers",
 	"requireApproval", "password", "shareMethod", "streamKey",
 	"mutedViewers", "approvedViewers", "moderators", "voiceMuted",
 	"screenE2EEEnabled", "voiceEnabled", "voiceAutoJoin", "musicEnabled",
-	"moviePermission", "ownerUserId", "lastAccessedAt", "createdAt", "updatedAt"`
+	"musicPermission", "moviePermission", "ownerUserId", "lastAccessedAt",
+	"createdAt", "updatedAt"`
 
 // FindByRoomID 读取房间。
 func (r *Rooms) FindByRoomID(ctx context.Context, roomID string) (*Room, error) {
@@ -537,6 +540,17 @@ func (r *Rooms) SetMoviePermission(ctx context.Context, roomID, raw string) erro
 	return nil
 }
 
+// SetMusicPermission 覆盖一起听权限配置列（JSON 原文，由 room 包解析/归一化）。
+func (r *Rooms) SetMusicPermission(ctx context.Context, roomID, raw string) error {
+	_, err := r.conn.ExecContext(ctx,
+		`UPDATE "room" SET "musicPermission" = ?, "updatedAt" = ? WHERE "roomId" = ?`,
+		raw, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改一起听权限失败: %w", err)
+	}
+	return nil
+}
+
 // SetListColumns 覆盖三个 JSON 数组列（mutedViewers / approvedViewers / moderators）。
 //
 // 三列常常要一起改（例如转交房主时同时动 owner 与 moderators），
@@ -573,6 +587,7 @@ func scanRoom(row rowScanner) (*Room, error) {
 		voiceOn    sql.NullInt64
 		voiceAuto  sql.NullInt64
 		musicOn    sql.NullInt64
+		musicPerm  sql.NullString
 		moviePerm  sql.NullString
 		owner      sql.NullInt64
 		lastAccess sql.NullString
@@ -583,7 +598,7 @@ func scanRoom(row rowScanner) (*Room, error) {
 		&room.ID, &room.RoomID, &name, &status, &mode, &maxViewers,
 		&approval, &password, &shareMeth, &streamKey,
 		&muted, &approved, &moderators, &voiceMuted,
-		&screenE2EE, &voiceOn, &voiceAuto, &musicOn, &moviePerm,
+		&screenE2EE, &voiceOn, &voiceAuto, &musicOn, &musicPerm, &moviePerm,
 		&owner, &lastAccess, &createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -608,6 +623,7 @@ func scanRoom(row rowScanner) (*Room, error) {
 	room.VoiceEnabled = !voiceOn.Valid || voiceOn.Int64 != 0
 	room.VoiceAutoJoin = voiceAuto.Valid && voiceAuto.Int64 != 0
 	room.MusicEnabled = !musicOn.Valid || musicOn.Int64 != 0
+	room.MusicPermission = musicPerm.String
 	room.MoviePermission = moviePerm.String
 	if owner.Valid {
 		v := owner.Int64
