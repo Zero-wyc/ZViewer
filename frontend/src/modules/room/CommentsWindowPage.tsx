@@ -15,6 +15,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Text } from '@/components/ui/Typography'
 import { LoadingLine } from '@/components/ui/LoadingLine'
 import { Input } from '@/components/ui/Input'
@@ -54,6 +56,53 @@ export default function CommentsWindowPage() {
   const [joinState, setJoinState] = useState<JoinState>('connecting')
   const [errorMsg, setErrorMsg] = useState('')
   const [password, setPassword] = useState('')
+
+  // 桌面端独立窗口：壳程序用 iframe 加载本页（后端拼的 URL 带 desktopWindow=1），
+  // 此时页面要透出桌面背景，并把自己的鼠标活动/关闭动作转给外壳。
+  const isDesktopWindow =
+    new URLSearchParams(window.location.search).get('desktopWindow') === '1'
+
+  useEffect(() => {
+    if (!isDesktopWindow || window.parent === window) return undefined
+    let lastSent = 0
+    const post = (hover: boolean) => {
+      try {
+        window.parent.postMessage(
+          { type: 'zviewer:lyrics-pointer', hover },
+          '*'
+        )
+      } catch {
+        // 外壳未就绪，忽略
+      }
+    }
+    // 鼠标在页面内移动即通知外壳展开工具条（限频 1s，避免高频 postMessage）；
+    // 指针移出页面则通知外壳开始倒计时自动隐藏。
+    const onMove = () => {
+      const now = Date.now()
+      if (now - lastSent < 1000) return
+      lastSent = now
+      post(true)
+    }
+    const onLeave = () => post(false)
+    window.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerleave', onLeave)
+    window.addEventListener('blur', onLeave)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerleave', onLeave)
+      window.removeEventListener('blur', onLeave)
+    }
+  }, [isDesktopWindow])
+
+  const closeWindow = useCallback(() => {
+    try {
+      window.parent.postMessage({ type: 'zviewer:comments-close' }, '*')
+    } catch {
+      // 忽略
+    }
+    // 外壳未响应时兜底（例如普通浏览器里手改 URL 带参数打开）
+    window.setTimeout(() => window.close(), 300)
+  }, [])
 
   const setDanmakuTracks = useDanmakuStore((state) => state.setTracks)
   const setDanmakuMeta = useDanmakuStore((state) => state.setMeta)
@@ -155,7 +204,26 @@ export default function CommentsWindowPage() {
   }, [joinState, roomId, socket, setDanmakuTracks, setDanmakuMeta])
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[var(--md-sys-color-surface)] p-2">
+    <div
+      className={cn(
+        'relative flex h-[100dvh] flex-col overflow-hidden',
+        isDesktopWindow
+          ? 'bg-transparent'
+          : 'bg-[var(--md-sys-color-surface)] p-2'
+      )}
+    >
+      {/* 桌面独立窗口无系统边框，页面自己提供关闭入口（外壳收到消息后关窗） */}
+      {isDesktopWindow && (
+        <button
+          type="button"
+          aria-label={t('关闭')}
+          title={t('关闭')}
+          onClick={closeWindow}
+          className="absolute right-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white/90 opacity-60 backdrop-blur-sm transition-opacity hover:opacity-100"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
       {joinState === 'ready' && socket && roomId ? (
         <div className="flex min-h-0 flex-1 flex-col [&_.glass-card]:h-full [&_.glass-card]:flex-1">
           <CommentPanel socket={socket} roomId={roomId} />

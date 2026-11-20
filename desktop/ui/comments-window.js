@@ -167,6 +167,11 @@
       else scheduleHide();
       return;
     }
+    // 评论页里的「关闭」按钮：iframe 内拿不到 Wails 运行时，由外壳关掉整个独立窗口
+    if (data.type === 'zviewer:comments-close') {
+      Promise.resolve(api()?.Close()).catch(() => window.close());
+      return;
+    }
     // 评论页里按住空白处/文字拖动窗口：iframe 内拿不到 Wails 运行时，由外壳起拖
     if (data.type === 'zviewer:lyrics-drag') {
       try {

@@ -17,6 +17,7 @@ import { message } from '@/components/ui/message'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { useAuthStore } from '@/store/authStore'
 import { useCommentFloatingStore } from '@/store/commentFloatingStore'
+import { getDesktopCapabilities, openDesktopCommentsWindow } from '@/lib/desktopWindow'
 import { useRoomStore } from '@/store/roomStore'
 import { cn, formatIsoTime } from '@/lib/utils'
 import type { Socket } from 'socket.io-client'
@@ -85,9 +86,32 @@ export function CommentPanel({
 }: CommentPanelProps) {
   const currentUser = useAuthStore((state) => state.user)
   const openFloatingWindow = useCommentFloatingStore((state) => state.open)
-  /** 悬浮窗按钮：把评论区浮到应用内浮层（可拖动、可调大小），不打断播放 */
-  const handleOpenCommentsWindow = () => {
+  /**
+   * 桌面端独立窗口能力：由后端判定（桌面端托管 + 壳程序存在 + 浏览器与桌面端同机），
+   * 结果在 lib/desktopWindow 内缓存。普通浏览器只会得到 false，一次请求后不再重复。
+   */
+  const [desktopCommentsAvailable, setDesktopCommentsAvailable] = useState(false)
+  useEffect(() => {
+    if (!roomId || floating) return undefined
+    let alive = true
+    void getDesktopCapabilities().then((caps) => {
+      if (alive) setDesktopCommentsAvailable(caps.available)
+    })
+    return () => {
+      alive = false
+    }
+  }, [roomId, floating])
+
+  /**
+   * 独立窗口按钮：桌面端能开窗就走真正的桌面窗口（可置顶、无边框、可脱离标签页），
+   * 否则退回应用内悬浮浮层——浏览器里行为与之前完全一致。
+   */
+  const handleOpenCommentsWindow = async () => {
     if (!roomId) return
+    if (desktopCommentsAvailable) {
+      const opened = await openDesktopCommentsWindow(roomId)
+      if (opened) return
+    }
     openFloatingWindow(roomId)
   }
   // 读取 watch-together 模式下的当前播放进度，用于 send-danmaku 持久化实时弹幕记录
