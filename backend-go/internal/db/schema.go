@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// RequiredTables 是 Go 侧要求必须存在的 16 张表。
+// RequiredTables 是 Go 侧要求必须存在的 17 张表。
 //
 // 它与 schema.sql 是**互相校验**的关系（见 TestRequiredTablesMatchSchemaSQL）：
 // 往 schema.sql 加表必须同步改这里，否则测试会失败。两份清单里任意一份被
@@ -24,6 +24,7 @@ var RequiredTables = []string{
 	"ncm_credential",
 	"playback_states",
 	"room",
+	"room_account",
 	"room_danmaku_meta",
 	"server_folder",
 	"session",
