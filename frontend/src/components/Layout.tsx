@@ -28,6 +28,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const effectiveBlur =
     roomMode === 'listen-together' ? listenTogetherBlur : backgroundBlur
 
+  /**
+   * 桌面端独立评论窗（壳用 iframe 加载 /room/:roomId/comments-window?desktopWindow=1）：
+   * 整页要透出桌面，所以不画壁纸/遮罩层，body 的 surface 底色也临时设为透明，
+   * 否则壳里的「背景不透明度」滑杆完全没效果。
+   */
+  const desktopCommentsShell =
+    location.pathname.endsWith('/comments-window') &&
+    new URLSearchParams(location.search).get('desktopWindow') === '1'
+
+  useEffect(() => {
+    if (!desktopCommentsShell) return undefined
+    const prevColor = document.body.style.backgroundColor
+    document.body.style.backgroundColor = 'transparent'
+    return () => {
+      document.body.style.backgroundColor = prevColor
+    }
+  }, [desktopCommentsShell])
+
   // 将禁用 hover 位移的开关挂到 document.body，使通过 portal 渲染的
   // 组件（下拉、弹窗等）同样受控，实现全局生效。
   useEffect(() => {
@@ -52,10 +70,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         color: 'var(--md-sys-color-on-surface)',
       }}
     >
-      {/* 背景图片层：自定义背景或默认背景图，浅色/深色模式均显示 */}
+      {/* 背景图片层：自定义背景或默认背景图，浅色/深色模式均显示；
+          桌面端评论窗要透出桌面，整层不绘制 */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
+          display: desktopCommentsShell ? 'none' : undefined,
           zIndex: 0,
           backgroundImage: `url(${backgroundImage || '/Nacho3.jpg'})`,
           backgroundSize: 'cover',
@@ -74,7 +94,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* 白遮罩层：盖在背景图之上、内容层之下（玻璃卡片会采样到遮罩，
           视觉语义为「背景变亮」而非整页变亮）；强度 0 时不渲染 */}
-      {backgroundWhiteOverlay > 0 && (
+      {!desktopCommentsShell && backgroundWhiteOverlay > 0 && (
         <div
           className="fixed inset-0 pointer-events-none"
           style={{
@@ -85,7 +105,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       )}
       {/* 黑遮罩层：同白遮罩，视觉语义为「背景变暗」；强度 0 时不渲染。
           两层同时开启时按文档顺序叠加（白在下、黑在上） */}
-      {backgroundBlackOverlay > 0 && (
+      {!desktopCommentsShell && backgroundBlackOverlay > 0 && (
         <div
           className="fixed inset-0 pointer-events-none"
           style={{
