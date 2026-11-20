@@ -1,8 +1,8 @@
 /**
  * FlvPlayer —— HTTP-FLV 拉流播放器（ArtPlayer 壳 + 统一引擎路由版）。
  *
- * - ArtPlayer 仅承担 UI（isLive 模式 + 自定义玻璃拟态控制栏），与
- *   WebRTC 控制栏风格一致
+ * - ArtPlayer 只承担视频元素与解封装渲染；舞台、玻璃拟态控制栏、全屏
+ *   与分屏评论区统一由 PlayerChrome 提供（与 WebRTC 观众端同一套外壳）
  * - 拉流与 flv.js 实例管理走引擎层统一路由（selectEngine → flv-engine
  *   isLive 模式）：重连（指数退避 5 次）、延迟追赶、统计上报由引擎
  *   提供，本组件只消费 FlvRuntimeEvents 驱动连接状态机与统计展示
@@ -10,36 +10,13 @@
  *   stalled 定时器检测）、刷新重建
  * - props 契约与重构前完全一致（WatchPage / StreamPushPage 无需改动）
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Artplayer from 'artplayer'
 import type { Option } from 'artplayer'
-import {
-  Maximize,
-  Maximize2,
-  Minimize,
-  Minimize2,
-  Pause,
-  Play,
-  RefreshCw,
-  Volume2,
-  VolumeX,
-} from 'lucide-react'
-import { Spinner } from '@/components/ui/Spinner'
-import { Tag } from '@/components/ui/Tag'
-import { IconButton } from '@/components/VideoControls'
 import { configureArtStatics } from '@/modules/art-player'
 import { usePlayerSource } from '@/modules/player'
 import type { FlvRuntimeEvents, PlayerSource } from '@/modules/player'
-import { cn } from '@/lib/utils'
-import {
-  isIOSDevice,
-  supportsContainerFullscreen,
-  getFullscreenElement,
-  exitFullscreen,
-  requestFullscreen,
-  onFullscreenChange,
-} from '@/lib/fullscreen-utils'
-import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
+import { PlayerChrome, type PlayerChromeStatus } from './PlayerChrome'
 import '@/modules/art-player/art-overrides.css'
 import { t } from '@/i18n'
 
@@ -84,6 +61,10 @@ interface FlvPlayerProps {
   isWebFullscreen?: boolean
   /** 切换网页全屏 */
   onToggleWebFullscreen?: () => void
+  /** 全屏时可分屏显示的评论区 */
+  commentPanel?: ReactNode
+  /** 手机竖屏非全屏时「查看全部评论」入口 */
+  onOpenCommentSheet?: () => void
 }
 
 type StreamStatus = 'connecting' | 'playing' | 'error' | 'stopped'
@@ -98,22 +79,17 @@ export function FlvPlayer({
   onStatistics,
   isWebFullscreen = false,
   onToggleWebFullscreen,
+  commentPanel,
+  onOpenCommentSheet,
 }: FlvPlayerProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const stageRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [reloadVersion, setReloadVersion] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(muted)
-  const [isFullscreen, setIsFullscreen] = useState(false)
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('connecting')
-
-  // 控制栏自动隐藏（逻辑仿照 WatchTogetherCore）
-  const controlBarVisible = useControlBarAutoHide(stageRef, {
-    disabled: loading || !!errorMsg,
-  })
 
   // 用 ref 存储回调，避免内联函数引用变化导致 useEffect 重新执行（播放器闪烁）
   const onErrorRef = useRef(onError)
@@ -372,14 +348,6 @@ export function FlvPlayer({
     }
   }, [src, reloadVersion, attachSource, cleanup])
 
-  // ── 全屏状态跟踪 ──────────────────────────────────────
-  useEffect(() => {
-    const dispose = onFullscreenChange(() => {
-      setIsFullscreen(Boolean(getFullscreenElement()))
-    })
-    return dispose
-  }, [])
-
   // ── 控制栏操作 ─────────────────────────────────────────
   const handleTogglePlayPause = useCallback(() => {
     const video = videoRef.current
@@ -397,135 +365,30 @@ export function FlvPlayer({
     video.muted = !video.muted
   }, [])
 
-  const handleFullscreen = useCallback(() => {
-    // iOS 不支持容器全屏，降级为网页全屏（CSS 模拟全屏，保留控制栏等 UI）
-    if (isIOSDevice() || !supportsContainerFullscreen()) {
-      onToggleWebFullscreen?.()
-      return
-    }
-    const stage = stageRef.current
-    if (!stage) return
-    if (getFullscreenElement()) {
-      void exitFullscreen()
-    } else {
-      void requestFullscreen(stage).catch(() => {
-        onToggleWebFullscreen?.()
-      })
-    }
-  }, [onToggleWebFullscreen])
-
   const handleRefresh = useCallback(() => {
     setReloadVersion((v) => v + 1)
   }, [])
 
   return (
-    <div
-      ref={stageRef}
-      className={cn(
-        'zart-stage group',
-        isWebFullscreen && 'zart-web-fullscreen fixed inset-0 z-[100]',
-        className
-      )}
-      style={
-        isWebFullscreen ? { width: '100dvw', height: '100dvh' } : undefined
-      }
+    <PlayerChrome
+      className={className}
+      status={streamStatus as PlayerChromeStatus}
+      sourceLabel={t('OBS 推流')}
+      isPlaying={isPlaying}
+      isMuted={isMuted}
+      onTogglePlayPause={handleTogglePlayPause}
+      onToggleMute={handleToggleMute}
+      onRefresh={handleRefresh}
+      loading={loading}
+      errorMsg={errorMsg}
+      webFullscreen={isWebFullscreen}
+      onToggleWebFullscreen={() => onToggleWebFullscreen?.()}
+      commentPanel={commentPanel}
+      onOpenCommentSheet={onOpenCommentSheet}
+      canOpenCommentSheet={!isWebFullscreen}
+      overlayOwner="flv-player"
     >
       <div ref={containerRef} className="h-full w-full" />
-
-      {loading && !errorMsg && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-          <Spinner tip={t('正在连接直播流...')} size={32} />
-        </div>
-      )}
-      {errorMsg && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
-          <div className="text-base font-medium text-[var(--md-sys-color-error)]">
-            {errorMsg}
-          </div>
-          <div className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
-            {t('请检查网络连接或房主推流状态')}
-          </div>
-          <button
-            type="button"
-            className="mt-1 rounded-lg border border-white/20 px-4 py-1.5 text-sm text-white transition-colors hover:bg-white/10"
-            onClick={handleRefresh}
-          >
-            {t('重新连接')}
-          </button>
-        </div>
-      )}
-
-      {/* 自定义玻璃拟态控制栏（与 WebRTC 控制栏风格一致） */}
-      {!loading && !errorMsg && (
-        <div
-          className={cn(
-            'vc-container absolute bottom-0 left-0 right-0 z-20 p-2',
-            !controlBarVisible && 'pointer-events-none'
-          )}
-        >
-          <div
-            className={cn(
-              'glass-strong rounded-xl px-2.5 py-2 shadow-lg',
-              controlBarVisible
-                ? 'zart-controlbar-enter'
-                : 'zart-controlbar-exit'
-            )}
-          >
-            <div className="flex flex-wrap items-center vc-gap">
-              <IconButton
-                icon={isPlaying ? <Pause /> : <Play />}
-                label={isPlaying ? t('暂停') : t('播放')}
-                onClick={handleTogglePlayPause}
-              />
-              <IconButton
-                icon={isMuted ? <VolumeX /> : <Volume2 />}
-                label={isMuted ? t('取消静音') : t('静音')}
-                onClick={handleToggleMute}
-              />
-              <IconButton
-                icon={isWebFullscreen ? <Minimize /> : <Maximize />}
-                label={isWebFullscreen ? t('退出网页全屏') : t('网页全屏')}
-                onClick={onToggleWebFullscreen}
-              />
-              <IconButton
-                icon={isFullscreen ? <Minimize2 /> : <Maximize2 />}
-                label={isFullscreen ? t('退出全屏') : t('全屏')}
-                onClick={handleFullscreen}
-              />
-              <IconButton
-                icon={<RefreshCw />}
-                label={t('刷新连接')}
-                onClick={handleRefresh}
-              />
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Tag
-                color={
-                  streamStatus === 'playing'
-                    ? 'success'
-                    : streamStatus === 'error'
-                      ? 'danger'
-                      : 'primary'
-                }
-              >
-                {streamStatus === 'playing'
-                  ? t('直播中')
-                  : streamStatus === 'error'
-                    ? t('连接失败')
-                    : streamStatus === 'stopped'
-                      ? t('已停止')
-                      : t('连接中')}
-              </Tag>
-              <Tag color="primary">{t('OBS 推流')}</Tag>
-              {isMuted ? (
-                <Tag color="default">{t('静音中')}</Tag>
-              ) : (
-                <Tag color="cyan">{t('音频开启')}</Tag>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </PlayerChrome>
   )
 }
