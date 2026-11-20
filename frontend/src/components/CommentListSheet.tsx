@@ -6,6 +6,7 @@ import { CommentPanel } from '@/components/CommentPanel'
 import { useHorizontalSwipeGuard } from '@/hooks/useHorizontalSwipeGuard'
 import { useSocket } from '@/hooks/useSocket'
 import { t } from '@/i18n'
+import { usePortalHost } from '@/lib/portal-host'
 
 interface CommentListSheetProps {
   open: boolean
@@ -26,6 +27,8 @@ export function CommentListSheet({
   onClose,
 }: CommentListSheetProps) {
   const { socket } = useSocket()
+  // 播放器原生全屏时 body 级 portal 不可见，挂进 fullscreen 元素
+  const portalHost = usePortalHost()
   const panelRef = useRef<HTMLDivElement | null>(null)
   // 双状态做进/退场动画：mounted 控制 DOM 是否存在，visible 控制过渡目标值。
   // 关闭时先播退场动画再卸载，避免面板「啪」一下消失。
@@ -119,6 +122,6 @@ export function CommentListSheet({
         </div>
       </div>
     </div>,
-    document.body
+    portalHost
   )
 }

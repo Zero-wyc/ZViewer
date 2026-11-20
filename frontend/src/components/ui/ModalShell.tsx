@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { usePortalHost } from '@/lib/portal-host'
 
 const ANIMATION_DURATION = 220
 
@@ -54,6 +55,8 @@ export function ModalShell({
   container,
   children,
 }: ModalShellProps) {
+  // 全屏时自动挂进 fullscreen 元素（body 级 portal 在原生全屏下不可见）
+  const autoHost = usePortalHost()
   const [visible, setVisible] = useState(open)
   const [exiting, setExiting] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -168,6 +171,6 @@ export function ModalShell({
         {children}
       </div>
     </div>,
-    container ?? document.body
+    container ?? autoHost
   )
 }
