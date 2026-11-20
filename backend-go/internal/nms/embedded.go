@@ -26,15 +26,15 @@ type embeddedServer struct {
 	hub            *streamHub
 	logf           func(string, ...any)
 	publishAllowed func(context.Context, string) bool
-	// publishKeepAlive 是推流看门狗的续期校验（可为空，空则回落 publishAllowed）。
-	publishKeepAlive func(context.Context, string) bool
-	watchAllowed     func(context.Context, string, string) bool
+	watchAllowed   func(context.Context, string, string) bool
 
 	rtmpLn net.Listener
 
 	mu          sync.RWMutex
 	ready       bool
 	connections map[net.Conn]struct{}
+	// publishers 记录「推流码 → 发布连接」，用于切换模式时强制断开 OBS。
+	publishers map[string]net.Conn
 }
 
 func newEmbeddedServer(cfg Config, logf func(string, ...any)) *embeddedServer {
@@ -44,7 +44,13 @@ func newEmbeddedServer(cfg Config, logf func(string, ...any)) *embeddedServer {
 	cfg = Normalize(cfg)
 	hub := newStreamHub()
 	hub.offlineGrace = cfg.OfflineGrace
-	return &embeddedServer{cfg: cfg, hub: hub, logf: logf, connections: make(map[net.Conn]struct{})}
+	return &embeddedServer{
+		cfg:         cfg,
+		hub:         hub,
+		logf:        logf,
+		connections: make(map[net.Conn]struct{}),
+		publishers:  make(map[string]net.Conn),
+	}
 }
 
 func (s *embeddedServer) start() error {
@@ -116,6 +122,43 @@ func (s *embeddedServer) close(ctx context.Context) error {
 		_ = rtmpLn.Close()
 	}
 	return nil
+}
+
+// registerPublisher 记录某路推流的发布连接（onPublish 成功后调用）。
+func (s *embeddedServer) registerPublisher(key string, conn net.Conn) {
+	s.mu.Lock()
+	s.publishers[key] = conn
+	s.mu.Unlock()
+}
+
+// unregisterPublisher 在推流结束时清理记录（连接已关闭也安全）。
+func (s *embeddedServer) unregisterPublisher(key string, conn net.Conn) {
+	s.mu.Lock()
+	if current, ok := s.publishers[key]; ok && current == conn {
+		delete(s.publishers, key)
+	}
+	s.mu.Unlock()
+}
+
+// kickPublishing 强制断开指定推流码的发布端，并立即结束该路流。
+//
+// OBS 端会看到连接被服务器关闭，从而停止推流；观众侧的 FLV 订阅也会
+// 随 hub.stop 一起结束。返回 false 表示当前没有这路推流。
+func (s *embeddedServer) kickPublishing(key string) bool {
+	s.mu.Lock()
+	conn := s.publishers[key]
+	if conn != nil {
+		delete(s.publishers, key)
+	}
+	s.mu.Unlock()
+	if conn == nil {
+		return false
+	}
+	// 关闭连接会触发 serve 的 defer unpublish（hub.stop + 清理），
+	// 这里再显式 stop 一次，保证订阅者立刻收到结束而不是等一个读超时。
+	s.hub.stop(key)
+	_ = conn.Close()
+	return true
 }
 
 // ServeFLV 把 HTTP-FLV 流直接写进 w（不经过本地回环端口）。

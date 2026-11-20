@@ -132,6 +132,12 @@ func (s *Service) handleUpdateRoomMode(sc *sio.Socket, args []json.RawMessage, a
 		return
 	}
 
+	// 切离投屏模式时直接掐断 OBS 推流：否则 OBS 还能继续推、观众还能拉流，
+	// 前端会因为 streamStatus 仍为 live 而认为「推流停止不了」。
+	if payload.Mode != "screen-share" {
+		s.stopStreamPush(room)
+	}
+
 	if s.Hub != nil {
 		s.Hub.EmitRoom(payload.RoomID, "room-mode-changed", map[string]any{"mode": payload.Mode})
 	}

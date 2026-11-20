@@ -508,21 +508,6 @@ func (s *Server) authorizePublish(ctx context.Context, key string) bool {
 	return err == nil && count == 1
 }
 
-// authorizePublishKeepAlive 校验「已经在推的这条流还能不能继续推」。
-//
-// 与 authorizePublish 的差别是**不看** mode / shareMethod：房主在推流中切到
-// WebRTC 共享或一起看时房间字段会变，但 OBS 仍在推；若续期也跟着收紧，看门狗
-// 会在 5 秒内把连接掐掉，用户看到的就是「切模式打断 RTMP」。真正该断流的场景
-// （房间关闭、密钥被换掉）仍然体现在 status / streamKey 上。
-func (s *Server) authorizePublishKeepAlive(ctx context.Context, key string) bool {
-	if s.DB == nil || len(key) != nms.StreamKeyLength {
-		return false
-	}
-	var count int
-	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM room WHERE streamKey = ? AND status = 'active'`, key).Scan(&count)
-	return err == nil && count == 1
-}
-
 func (s *Server) authorizeFLV(ctx context.Context, key, ticket string) bool {
 	if s.Tokens == nil {
 		return false

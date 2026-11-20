@@ -241,6 +241,7 @@ func (c *rtmpConn) onPublish(streamID uint32, streamName string) {
 	c.key = key
 	c.publishing = true
 	c.publishStreamID = streamID
+	c.srv.registerPublisher(key, c.conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	c.publishCancel = cancel
 	go func(key string) {
@@ -251,10 +252,10 @@ func (c *rtmpConn) onPublish(streamID uint32, streamName string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// 续期校验与「能否开始推流」分开：房主在推流中切换到
-				// WebRTC 共享或一起看只改房间字段，这里仍应放行，否则
-				// OBS 会被服务端静默断开（用户看到的就是「切模式打断 RTMP」）。
-				if !c.srv.publishKeepAlive(ctx, key) {
+				// 房间切走（换共享方式 / 换模式 / 关闭）后这条流就不再被授权：
+				// 正常路径由 room 层主动 StopPublishing 立刻断开，这里只是兜底
+				// （例如直接改库、或前端没走切换接口）。
+				if !c.srv.publishAllowed(ctx, key) {
 					if c.srv.logf != nil {
 						c.srv.logf("[nms] 推流授权已失效，关闭连接（key=%s）", key)
 					}
@@ -281,6 +282,7 @@ func (c *rtmpConn) unpublish() {
 		return
 	}
 	c.publishing = false
+	c.srv.unregisterPublisher(c.key, c.conn)
 	if c.publishCancel != nil {
 		c.publishCancel()
 		c.publishCancel = nil

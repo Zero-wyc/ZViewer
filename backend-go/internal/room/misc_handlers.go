@@ -304,6 +304,12 @@ func (s *Service) handleUpdateShareMethod(sc *sio.Socket, args []json.RawMessage
 		return
 	}
 
+	// 从 OBS 推流切回 WebRTC 时直接断开 OBS：不再要求房主先手动停止推流，
+	// 否则 streamStatus 的离线宽限期会让切换在短时间内一直报「推流没有停止」。
+	if shareMethod != "stream-push" {
+		s.stopStreamPush(room)
+	}
+
 	streamKey := room.StreamKey
 	if newKey != nil {
 		streamKey = newKey
