@@ -2,7 +2,6 @@
   "bucket": "modules/voice-chat",
   "items": [
     "{{memberCount}} 人在线",
-    "成员",
     "单独音量",
     "点击加入即可与房间内其他观众语音交流",
     "断开",

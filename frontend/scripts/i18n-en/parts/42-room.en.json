@@ -1,6 +1,5 @@
 {
   "items": [
-    "{{length}} parts · click to choose",
     "{{value}} results",
     "Share your screen, camera or system audio; viewers watch live",
     "Sharing status",
@@ -41,7 +40,6 @@
     "CLI only",
     "Auto-start voice on join",
     "Cache the full video locally when joining, avoiding expired URLs and stutter",
-    "Mute",
     "Mute",
     "Invalid episode locator",
     "Invalid episode locator, search again",
@@ -112,13 +110,15 @@
     "Select a saved mount",
     "Add and play a movie below",
     "Cancel (keep the current episode)",
-    "Unmute",
     "Every member (including the host) must connect ZViewer CLI to watch; the stream is not relayed by the server. Viewers without the CLI see a setup guide.",
     "Permissions",
     "Transfer the host role to <highlight>{{name}}</highlight>? You will become a viewer and lose room management.",
-    "Clear everything?",
     "Clear everything? Click again to confirm",
     "Transfer",
-    "Appoint moderator"
+    "Appoint moderator",
+    "Copy anyway",
+    "Scan to sign in to Bilibili",
+    "Failed to delete the movie",
+    "Uplink bandwidth limited"
   ]
 }
