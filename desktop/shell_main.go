@@ -52,6 +52,16 @@ func resolveStateDir(exeDir string) string {
 	if value := os.Getenv("ZVIEWER_STATE_DIR"); value != "" {
 		return absolute(value)
 	}
+	// 分发版（exe 同级带 runtime/）的配置放在包内 profile/：绿色分享包
+	// 解压即用，同一台机器上如果装过别的版本，%APPDATA%\ZViewerDesktop
+	// 里的 settings.json 会让它读到别人的转发地址、密钥等服务器信息。
+	// exe 所在目录不可写（例如解压到 Program Files）时仍回退 %APPDATA%。
+	if packagedInstall(exeDir) {
+		profileDir := filepath.Join(exeDir, "profile")
+		if err := os.MkdirAll(profileDir, 0o700); err == nil {
+			return profileDir
+		}
+	}
 	if appData := os.Getenv("APPDATA"); appData != "" {
 		return filepath.Join(appData, "ZViewerDesktop")
 	}

@@ -67,18 +67,44 @@ function getStaggerDelay(): number {
   return pendingEnterCount * STAGGER_DELAY_MS
 }
 
+/** 原生全屏时浏览器只渲染全屏元素的子树，挂在 body 上的提示窗看不见，
+ *  所以有全屏元素时把容器搬进全屏元素内部（video/img 等媒体元素不能承载子节点，退回 body）。 */
+const MEDIA_TAG_NAMES = new Set(['VIDEO', 'AUDIO', 'IMG', 'CANVAS', 'IFRAME'])
+
+function resolveMessageHost(): HTMLElement {
+  const fullscreenElement = document.fullscreenElement as HTMLElement | null
+  if (!fullscreenElement) return document.body
+  if (MEDIA_TAG_NAMES.has(fullscreenElement.tagName)) return document.body
+  return fullscreenElement
+}
+
 function createContainer(): HTMLDivElement {
+  const host = resolveMessageHost()
   let container = document.getElementById(
     'message-container'
   ) as HTMLDivElement | null
+  // 进入/退出全屏后容器可能挂在不渲染的宿主上，跟随迁移（已有提示条一起搬过去）
+  if (container && container.parentElement !== host) {
+    host.appendChild(container)
+  }
   if (!container) {
     container = document.createElement('div')
     container.id = 'message-container'
     container.className =
       'fixed top-4 left-1/2 z-[9999] flex -translate-x-1/2 flex-col items-center gap-2 pointer-events-none'
-    document.body.appendChild(container)
+    host.appendChild(container)
   }
   return container
+}
+
+// 全屏切换时即使没有新提示，也要把已显示的提示条搬到当前可见的宿主里
+if (typeof document !== 'undefined') {
+  document.addEventListener('fullscreenchange', () => {
+    const container = document.getElementById('message-container')
+    if (!container) return
+    const host = resolveMessageHost()
+    if (container.parentElement !== host) host.appendChild(container)
+  })
 }
 
 const EXIT_TRANSITION_MS = 320 // 略大于 0.28s transition，确保过渡完成后再移除节点
