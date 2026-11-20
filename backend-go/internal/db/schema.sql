@@ -25,10 +25,23 @@ CREATE TABLE IF NOT EXISTS "room" (
   "approvedViewers" text NOT NULL DEFAULT ('[]'),
   "moderators" text NOT NULL DEFAULT ('[]'),
   "voiceMuted" text NOT NULL DEFAULT ('[]'),
+  "screenE2EEEnabled" integer NOT NULL DEFAULT (1),
+  "voiceEnabled" integer NOT NULL DEFAULT (1),
+  "voiceAutoJoin" integer NOT NULL DEFAULT (0),
+  "musicEnabled" integer NOT NULL DEFAULT (1),
   "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
   "updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
   "lastAccessedAt" datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  "moviePermission" text NOT NULL DEFAULT ('{}'),
   CONSTRAINT "UQ_45770efde052e41dee06d89c85c" UNIQUE ("roomId")
+);
+
+CREATE TABLE IF NOT EXISTS "room_account" (
+  "provider" TEXT NOT NULL,
+  "roomId" TEXT NOT NULL,
+  "userId" INTEGER NOT NULL,
+  "updatedAt" TEXT NOT NULL,
+  PRIMARY KEY ("provider", "roomId")
 );
 
 CREATE TABLE IF NOT EXISTS "user" (
