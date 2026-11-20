@@ -169,6 +169,7 @@ const enUS: Record<string, string> = {
   '内嵌字幕轨道': 'Embedded subtitle tracks',
   '批注工具': 'Annotation tools',
   '评论区': 'Comments',
+  '查看全部评论': 'View all comments',
   '屏幕共享、语音聊天等需要安全上下文的功能已被浏览器禁用。其他功能（房间管理、视频播放、弹幕、OBS 推流）可正常使用。配置 HTTPS 后可解锁全部功能。': 'Screen sharing, voice chat and other features that need a secure context are blocked by your browser. Everything else (room management, video playback, danmaku, OBS streaming) still works. Configure HTTPS to unlock them all.',
   '普通用户': 'Regular user',
   '启用字幕': 'Enable subtitles',

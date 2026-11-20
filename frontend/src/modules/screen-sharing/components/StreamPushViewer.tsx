@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { type StreamStatus } from '@/store/roomStore'
 import { CommentPanel } from '@/components/CommentPanel'
+import { CommentListSheet } from '@/components/CommentListSheet'
 import { CinemaLayout } from '@/modules/room/components/CinemaLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useSocket } from '@/hooks/useSocket'
@@ -27,6 +28,8 @@ interface StreamPushViewerProps {
 function StreamPushViewer({ roomId, streamStatus }: StreamPushViewerProps) {
   const { socket } = useSocket()
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
+  // 手机竖屏非全屏：控制栏「查看全部评论」弹出大评论列表
+  const [commentSheetOpen, setCommentSheetOpen] = useState(false)
   const { url: flvUrl, error: watchError } = useWatchPlayback(roomId)
 
   // 网页全屏模式下按 ESC 退出
@@ -77,18 +80,27 @@ function StreamPushViewer({ roomId, streamStatus }: StreamPushViewerProps) {
           autoPlay
           isWebFullscreen={isWebFullscreen}
           onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
+          commentPanel={chatPanel}
+          onOpenCommentSheet={() => setCommentSheetOpen(true)}
         />
       )}
     </div>
   )
 
   return (
-    <CinemaLayout
-      children={playerContent}
-      roomInfoPanel={roomInfoPanel}
-      chatPanel={chatPanel}
-      webFullscreen={isWebFullscreen}
-    />
+    <>
+      <CinemaLayout
+        children={playerContent}
+        roomInfoPanel={roomInfoPanel}
+        chatPanel={chatPanel}
+        webFullscreen={isWebFullscreen}
+      />
+      <CommentListSheet
+        open={commentSheetOpen}
+        roomId={roomId}
+        onClose={() => setCommentSheetOpen(false)}
+      />
+    </>
   )
 }
 
