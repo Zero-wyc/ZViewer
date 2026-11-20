@@ -64,16 +64,21 @@ function evaluateDirectOption(option, media, capabilities) {
         });
         return makeEvaluation(option, 'unknown', diagnostics);
     }
-    if (!media.videoCodec) {
+    if (!media.videoCodec && !media.audioCodec) {
         diagnostics.push({
             code: 'direct-missing-video-codec',
-            message: 'Direct playback evaluation requires the parsed video codec string.',
+            message: 'Direct playback evaluation requires the parsed video (or audio) codec string.',
         });
         return makeEvaluation(option, 'unknown', diagnostics);
     }
-    const codecList = media.audioCodec
-        ? `${media.videoCodec}, ${media.audioCodec}`
-        : media.videoCodec;
+    // [本地补丁] 纯音频容器没有视频编码：只拼音频 codec，交给
+    // canPlayType('audio/mp4; codecs="mp4a.40.2"') 判定。这样本地 .m4a
+    // 能走直通（零重封装），而不是被这条前置检查逼到 HLS 管线。
+    const codecList = media.videoCodec
+        ? media.audioCodec
+            ? `${media.videoCodec}, ${media.audioCodec}`
+            : media.videoCodec
+        : media.audioCodec;
     const fullMime = `${option.mimeType}; codecs="${codecList}"`;
     const result = normalizeCanPlayType(capabilities.canPlayType(fullMime));
     if (result === 'maybe' || result === 'probably') {
@@ -106,24 +111,40 @@ function evaluateHlsOption(option, media, capabilities) {
         return makeEvaluation(option, 'blocked', diagnostics);
     }
     if (!media.sourceVideoCodec) {
+        // [本地补丁] 纯音频容器（.m4a / .mp3 / .flac / 音频-only MKV）：
+        // 「没有视频轨」不是能力缺失。原逻辑在这里直接返回 unknown
+        // （`hls-missing-video-codec`）→ recommended 为 null → 引擎报
+        // 「Playback selection failed」，纯音频源永远起不来。改为按
+        // 音频-only 继续评估；真正完全没轨时才判不可播。
+        if (!media.sourceAudioCodec) {
+            diagnostics.push({
+                code: 'hls-no-tracks',
+                message: 'Source has neither a video nor a playable audio track.',
+            });
+            return makeEvaluation(option, 'blocked', diagnostics);
+        }
         diagnostics.push({
-            code: 'hls-missing-video-codec',
-            message: 'HLS evaluation requires the parsed source video codec.',
+            code: 'hls-audio-only',
+            message: 'Source has no video track; evaluating as audio-only playback.',
         });
-        return makeEvaluation(option, 'unknown', diagnostics);
     }
-    const pipelineVideoSupported = capabilities.pipelineProbe.canPlayVideo(media.sourceVideoCodec, media.videoCodec ?? undefined);
-    if (!pipelineVideoSupported) {
+    const hasVideo = !!media.sourceVideoCodec;
+    const pipelineVideoSupported = hasVideo
+        ? capabilities.pipelineProbe.canPlayVideo(media.sourceVideoCodec, media.videoCodec ?? undefined)
+        : null;
+    if (hasVideo && !pipelineVideoSupported) {
         diagnostics.push({
             code: 'hls-video-unsupported',
             message: 'The remux/HLS path cannot play the source video codec in this environment.',
         });
         return makeEvaluation(option, 'blocked', diagnostics, { pipelineVideoSupported });
     }
-    diagnostics.push({
-        code: 'hls-video-supported',
-        message: 'The remux/HLS path can play the source video codec.',
-    });
+    if (hasVideo) {
+        diagnostics.push({
+            code: 'hls-video-supported',
+            message: 'The remux/HLS path can play the source video codec.',
+        });
+    }
     if (!media.sourceAudioCodec) {
         diagnostics.push({
             code: 'hls-no-audio-track',

@@ -580,8 +580,10 @@ export function usePlayerSource(
       // 格式预检：浏览器 <video> 仅原生支持 mp4/webm/mov/mkv，DASH 通过 MSE 支持。
       // mkv 需 Chrome 91+ 且编码为 H.264/AAC。avi/wmv/ts 等容器直接赋值会抛 NotSupportedError。
       //
-      // 但 avi/ts/wmv 可由 playsvideo 重封装为 fMP4 播放，因此不能一律拒绝——
-      // 仅当「playsvideo 不会接管本源」时才判定为不可播。
+      // 但 ts 可由 playsvideo 重封装为 fMP4 播放，因此不能一律拒绝——
+      // 仅当「playsvideo 不会接管本源」时才判定为不可播。avi/wmv 不在
+      // 接管范围内（mediabunny 无这两个容器的解析器，见 engine-selector
+      // 的 REMUX_ONLY_FORMATS 注释），会走到下面的拒绝分支。
       // 预检放在更新 appliedSourceUrlRef 之前，失败时不污染"已应用"标记。
       if (
         source.format &&

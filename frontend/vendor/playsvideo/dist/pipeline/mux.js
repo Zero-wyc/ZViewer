@@ -33,8 +33,16 @@ export async function muxToFmp4(input) {
         }),
         target: new NullTarget(),
     });
-    const videoSource = new EncodedVideoPacketSource(input.videoCodec);
-    output.addVideoTrack(videoSource);
+    // [本地补丁] 视频轨同样按「有包 + 有 codec + 有 decoderConfig」才建：
+    // 纯音频容器（.m4a/.mp3/.flac）没有视频轨，input.videoCodec 为 null，
+    // `new EncodedVideoPacketSource(null)` 会抛 TypeError。
+    const hasVideo = input.videoPackets.length > 0 && !!input.videoCodec && !!input.videoDecoderConfig;
+    const videoSource = hasVideo
+        ? new EncodedVideoPacketSource(input.videoCodec)
+        : null;
+    if (videoSource) {
+        output.addVideoTrack(videoSource);
+    }
     // [本地补丁] 只有在「有音频包 且 有 decoderConfig」时才建音轨。
     // mediabunny 在建轨时用 decoderConfig 生成 mp4a/avcC 之类的 box，
     // 缺 metadata 会抛 `TypeError: Audio chunk metadata must be provided.`
@@ -47,13 +55,20 @@ export async function muxToFmp4(input) {
     if (audioSource) {
         output.addAudioTrack(audioSource);
     }
+    if (!videoSource && !audioSource) {
+        // 空容器：不能让 muxer finalize 出没有任何轨的 fMP4（minf 缺 stbl
+        // 会抛内部错误），在这里给可读原因。
+        throw new Error('该分段没有可封装的音视频轨（编码不支持或无数据）');
+    }
     await output.start();
     // Feed video packets — pass decoder config on first packet
-    const videoMeta = {
-        decoderConfig: input.videoDecoderConfig,
-    };
-    for (let i = 0; i < input.videoPackets.length; i++) {
-        await videoSource.add(input.videoPackets[i], i === 0 ? videoMeta : undefined);
+    if (videoSource) {
+        const videoMeta = {
+            decoderConfig: input.videoDecoderConfig,
+        };
+        for (let i = 0; i < input.videoPackets.length; i++) {
+            await videoSource.add(input.videoPackets[i], i === 0 ? videoMeta : undefined);
+        }
     }
     // Feed audio packets — pass decoder config on first packet
     if (audioSource) {

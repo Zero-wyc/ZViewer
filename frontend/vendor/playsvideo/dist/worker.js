@@ -4,7 +4,7 @@ import { audioNeedsTranscode, createBrowserProber } from './pipeline/codec-probe
 import { demuxBlob, demuxUrl, getKeyframeIndex } from './pipeline/demux.js';
 import { buildMkvKeyframeIndexFromBlob, buildMkvKeyframeIndexFromUrl, } from './pipeline/mkv-keyframe-index.js';
 import { generateVodPlaylist } from './pipeline/playlist.js';
-import { buildSegmentPlan } from './pipeline/segment-plan.js';
+import { buildSegmentPlan, synthesizeSegmentBoundaries } from './pipeline/segment-plan.js';
 import { processSegmentWithAbort } from './pipeline/segment-processor.js';
 import { extractSubtitleData, subtitleDataToWebVTT, } from './pipeline/subtitle.js';
 function wlog(msg) {
@@ -406,7 +406,7 @@ async function handleProbe(demuxFn) {
         type: 'probed',
         sourceVideoCodec: demux.videoCodec,
         sourceAudioCodec: demux.audioCodec,
-        videoCodec: demux.videoDecoderConfig.codec,
+        videoCodec: demux.videoDecoderConfig?.codec ?? null,
         audioCodec: demux.audioDecoderConfig?.codec ?? null,
         audioTrackCount: demux.audioTrackCount ?? 0,
         audioDropped: demux.audioDropped ?? null,
@@ -430,11 +430,13 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
     }
     else {
         const tIndex = performance.now();
-        const mkvIndex = currentBlob
-            ? await withHeartbeat('index', () => buildMkvKeyframeIndexFromBlob(currentBlob, demux.videoTrack.id))
-            : currentUrl
-                ? await withHeartbeat('index', () => buildMkvKeyframeIndexFromUrl(currentUrl, demux.videoTrack.id))
-                : null;
+        const mkvIndex = demux.videoTrack
+            ? currentBlob
+                ? await withHeartbeat('index', () => buildMkvKeyframeIndexFromBlob(currentBlob, demux.videoTrack.id))
+                : currentUrl
+                    ? await withHeartbeat('index', () => buildMkvKeyframeIndexFromUrl(currentUrl, demux.videoTrack.id))
+                    : null
+            : null;
         if (mkvIndex) {
             index = mkvIndex;
             wlog(`mkv-cues done ${elapsed(tIndex)} keyframes=${index.keyframes.length}`);
@@ -446,8 +448,12 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
         builtKeyframeIndex = index;
     }
     const tPlan = performance.now();
+    // [本地补丁] 纯音频容器没有视频关键帧：按目标时长合成边界，否则整首歌
+    // 会退化成单个 segment（seek 要重取全长）。
     plan = buildSegmentPlan({
-        keyframeTimestampsSec: index.keyframes.map((k) => k.timestamp),
+        keyframeTimestampsSec: index.keyframes.length > 0
+            ? index.keyframes.map((k) => k.timestamp)
+            : synthesizeSegmentBoundaries(index.duration, targetSegDuration),
         durationSec: index.duration,
         targetSegmentDurationSec: targetSegDuration,
     });
@@ -487,13 +493,13 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
         totalSegments: plan.length,
         durationSec: demux.duration,
         sourceVideoCodec: demux.videoCodec,
-        sourceVideoCodecFull: demux.videoDecoderConfig.codec,
+        sourceVideoCodecFull: demux.videoDecoderConfig?.codec ?? null,
         sourceAudioCodec: demux.audioCodec,
         sourceAudioCodecFull: demux.audioDecoderConfig?.codec ?? null,
         audioTrackCount: demux.audioTrackCount ?? 0,
         audioDropped: demux.audioDropped ?? null,
         outputVideoCodec: demux.videoCodec,
-        outputVideoCodecFull: demux.videoDecoderConfig.codec,
+        outputVideoCodecFull: demux.videoDecoderConfig?.codec ?? null,
         outputAudioCodec: doTranscode ? 'aac' : demux.audioCodec,
         outputAudioCodecFull: audioDecoderConfig?.codec ?? null,
         subtitleTracks: demux.subtitleTracks,

@@ -58,12 +58,21 @@ function selectDirectEngine(): PlayerEngine {
 }
 
 /**
- * 浏览器完全不支持的容器，必须经 playsvideo 重封装为 fMP4 才能播放。
+ * 浏览器完全不支持、但确实能被 playsvideo 重封装为 fMP4 的容器。
  *
- * 这些格式在旧版中会被 usePlayerSource 的格式预检直接拒绝（黑屏 + 提示
- * 「不被浏览器原生支持」），playsvideo 让它们变为可播。
+ * 目前只有 TS：mediabunny 的 `ALL_FORMATS` 含 `MPEG_TS`，实测
+ * H.264/AAC 与 HEVC/AAC 的 TS 都能完整走通 demux → fMP4 → MSE。
+ * （TS 内的 MPEG-2 video，即 `stream_type 0x2`，mediabunny 明确不支持，
+ * 会退化为「无视频轨」，由 demux 层给出对应报错。）
+ *
+ * 曾经的 avi / wmv 已从这里移除：mediabunny 对这两个容器**没有任何解析
+ * 能力**——`WaveInputFormat` 只认 `RIFF....WAVE`，AVI 的 `RIFF....AVI `
+ * 与 ASF 的魔数都匹配不上，`Input` 直接抛
+ * `UnsupportedInputFormatError: Input has an unsupported or unrecognizable
+ * format.`。把它们列在这里只会让用户通过预检、进管线、再吃到一句英文
+ * 内部错误。现在由 usePlayerSource 的格式预检前置拒绝并给出可操作提示。
  */
-const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
+const REMUX_ONLY_FORMATS = ['ts']
 
 /**
  * 判断该源是否应交给 playsvideo 引擎。
@@ -73,7 +82,7 @@ const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
  * 也不启动未启用的引擎）。之后只要浏览器具备运行条件（MSE + Worker）
  * 即生效：
  *
- * 1. **avi / ts / wmv** —— 浏览器无法原生打开，只能重封装。
+ * 1. **ts** —— 浏览器无法原生打开，只能重封装（H.264/HEVC 片源）。
  * 2. **mkv** —— 一律交给 playsvideo，无原生快速路径。理由有二：浏览器
  *    对 MKV 的原生支持仅限 H.264/AAC 组合，容错面窄；且 DTS/AC3 等音轨
  *    需要浏览器端转码。（注意：playsvideo 的直通模式——保持 `video.src`

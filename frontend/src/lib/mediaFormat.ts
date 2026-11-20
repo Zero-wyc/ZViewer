@@ -104,12 +104,24 @@ export function isBrowserPlayableFormat(
 
 /**
  * 生成不支持的格式提示文案。
+ *
+ * avi / wmv 单独给文案：这两个容器不是「浏览器暂不支持、以后可能开」，
+ * 而是**浏览器原生与浏览器转码引擎（playsvideo）双双无法解析**——
+ * mediabunny 只有 MP4/MOV/Matroska/WebM/TS/WAVE/OGG/FLAC/MP3/ADTS 的
+ * 解析器，AVI 与 ASF 的魔数不在其中。笼统提示「请选择 MP4/WebM/MOV/MKV」
+ * 会让用户以为是编码问题，实际必须换容器。
  */
 export function getUnsupportedFormatMessage(
   format?: MediaFormat | string | null
 ): string {
   if (!format || format === 'unknown') {
     return t('该文件格式未知，浏览器无法播放')
+  }
+  if (format === 'avi' || format === 'wmv') {
+    return t(
+      '暂不支持 {{format}} 容器（浏览器与浏览器转码引擎都无法解析），请先转换为 MP4 或 MKV',
+      { format: format.toUpperCase() }
+    )
   }
   return t(
     '该文件格式（{{format}}）不被浏览器原生支持，请选择 MP4/WebM/MOV/MKV 文件',

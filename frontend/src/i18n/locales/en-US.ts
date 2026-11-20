@@ -321,6 +321,7 @@ const enUS: Record<string, string> = {
   '橙': 'Orange',
   '粉': 'Pink',
   '该文件格式（{{format}}）不被浏览器原生支持，请选择 MP4/WebM/MOV/MKV 文件': 'The browser cannot play {{format}} natively, choose an MP4/WebM/MOV/MKV file',
+  '暂不支持 {{format}} 容器（浏览器与浏览器转码引擎都无法解析），请先转换为 MP4 或 MKV': '{{format}} containers are not supported yet (neither the browser nor the browser transcoding engine can parse them), convert to MP4 or MKV first',
   '该文件格式未知，浏览器无法播放': 'Unknown file format, the browser cannot play it',
   '刚刚': 'Just now',
   '黑': 'Black',

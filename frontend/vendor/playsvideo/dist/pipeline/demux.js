@@ -95,9 +95,6 @@ export async function pickPlayableAudioTrack(tracks) {
 }
 async function demuxInput(input) {
     const videoTrack = await input.getPrimaryVideoTrack();
-    if (!videoTrack) {
-        throw new Error('No video track found');
-    }
     // [本地补丁] 音轨择优 + 不可处理音轨的显式降级。
     //
     // 上游只取 primary 音轨，并假定「轨道存在 ⇒ codec 与 decoderConfig 可用」。
@@ -133,15 +130,39 @@ async function demuxInput(input) {
             codecIds: picked.unsupportedCodecIds,
         }
         : null;
-    const videoCodec = videoTrack.codec;
-    if (!videoCodec) {
-        throw new Error('Could not determine video codec');
+    // [本地补丁] 纯音频容器（.m4a / .mp3 / .flac / 音频-only MKV）支持。
+    //
+    // 上游第一行就 `if (!videoTrack) throw new Error('No video track found')`，
+    // 把「没有视频轨」当成致命错误。但整条管线是 track-agnostic 的：
+    // 分段按时间切、mux 按存在的轨道建轨、MSE 认纯音频 fMP4，缺的只是
+    // 各处对 null videoTrack 的处理。ZViewer 允许把纯音频文件当影片源
+    // 挂载（一起看投一个播客/有声书、音乐 mv 库里混入 m4a），硬报错会让
+    // 这类源完全不可播。
+    //
+    // 这里保留视频轨可选，但**视频轨存在而编码不认识**依旧是硬错误——
+    // 那种情况画面根本出不来，静默降级只会黑屏。
+    if (!videoTrack && !audioTrack) {
+        // 区分「容器里压根没轨」与「有音轨但编码不支持」：后者是用户
+        // 最可能撞到的（Vorbis/ALAC/WavPack 等），必须说清为什么不播。
+        if (audioTracks.length > 0) {
+            const ids = picked.unsupportedCodecIds.filter(Boolean).join(', ');
+            throw new Error(`不支持的音轨编码${ids ? `（${ids}）` : ''}，目前仅支持 AAC / Opus / MP3 / FLAC / AC-3 / E-AC-3 / DTS`);
+        }
+        throw new Error('No video or audio track found');
     }
-    const videoSink = new EncodedPacketSink(videoTrack);
+    const videoCodec = videoTrack ? videoTrack.codec : null;
+    if (videoTrack && !videoCodec) {
+        // 带上容器原始 CodecID：用户反馈「这个片子播不了」时，这是唯一能
+        // 定位到具体编码（VVC / MPEG-2 / VC-1 / Theora…）的线索。
+        const rawId = videoTrack.internalCodecId;
+        throw new Error(`不支持的视频编码${rawId ? `（${rawId}）` : ''}，目前支持 H.264 / H.265 / VP8 / VP9 / AV1 / ProRes`);
+    }
+    const videoSink = videoTrack ? new EncodedPacketSink(videoTrack) : null;
     const audioSink = audioTrack ? new EncodedPacketSink(audioTrack) : null;
-    const duration = Number(await videoTrack.computeDuration());
-    const videoDecoderConfig = await videoTrack.getDecoderConfig();
-    if (!videoDecoderConfig) {
+    // 时长以「存在的那条轨」为准：纯音频容器没有视频轨可问。
+    const duration = Number(await (videoTrack ?? audioTrack).computeDuration());
+    const videoDecoderConfig = videoTrack ? await videoTrack.getDecoderConfig() : null;
+    if (videoTrack && !videoDecoderConfig) {
         throw new Error('Could not get video decoder config');
     }
     let subtitleTracks = [];
@@ -172,6 +193,11 @@ async function demuxInput(input) {
 }
 export async function getKeyframeIndex(videoSink, duration) {
     const keyframes = [];
+    // [本地补丁] 纯音频容器没有视频 sink：返回空索引，由上层的分段规划
+    // 自行合成边界（音频包每一帧都是同步点，按固定间隔切即可）。
+    if (!videoSink) {
+        return { duration, keyframes };
+    }
     // getKeyPacket(0) returns null if the first keyframe has PTS > 0 (non-zero
     // initial offset). Fall back to getFirstPacket() which always works.
     let packet = await videoSink.getKeyPacket(0, { metadataOnly: true });
@@ -196,6 +222,11 @@ export async function getKeyframeIndex(videoSink, duration) {
 }
 export async function collectPacketsInRange(sink, startSec, endSec, opts) {
     const packets = [];
+    // [本地补丁] 纯音频容器没有视频 sink：该 track 的包集合为空，
+    // 而不是抛 TypeError（`Cannot read properties of null`）。
+    if (!sink) {
+        return packets;
+    }
     let packet = null;
     if (opts?.startFromKeyframe) {
         packet = await sink.getKeyPacket(startSec);

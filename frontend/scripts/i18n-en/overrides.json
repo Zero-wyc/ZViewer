@@ -17,5 +17,6 @@
   "确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one": "Delete the <strong>{{count}}</strong> selected room? This cannot be undone.",
   "[playsvideo] 音轨不可用，已降级为静音播放：{{value}}": "[playsvideo] Audio track unusable, falling back to silent playback: {{value}}",
   "未知编码": "Unknown codec",
-  "该片音轨（{{codec}}）无法在浏览器端解码，已静音播放。可切换其它音轨，或改用服务器中转 / CLI 客户端播放": "This file's audio track ({{codec}}) cannot be decoded in the browser, so playback continues muted. Switch to another audio track, or use server relay / the CLI client."
+  "该片音轨（{{codec}}）无法在浏览器端解码，已静音播放。可切换其它音轨，或改用服务器中转 / CLI 客户端播放": "This file's audio track ({{codec}}) cannot be decoded in the browser, so playback continues muted. Switch to another audio track, or use server relay / the CLI client.",
+  "暂不支持 {{format}} 容器（浏览器与浏览器转码引擎都无法解析），请先转换为 MP4 或 MKV": "{{format}} containers are not supported yet (neither the browser nor the browser transcoding engine can parse them), convert to MP4 or MKV first"
 }
