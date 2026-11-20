@@ -50,6 +50,9 @@ export type {
   NcmAlbumCard,
   NcmToplistCard,
   NcmNewSongCard,
+  MusicPermission,
+  MusicPermissionUpdate,
+  MusicPermissionChangedPayload,
 } from './types'
 
 // Store
@@ -81,6 +84,10 @@ export type { MusicAppShellProps } from './components/MusicAppShell'
 export { ListenTogetherPanel } from './components/ListenTogetherPanel'
 export type { ListenTogetherPanelProps } from './components/ListenTogetherPanel'
 export { MusicBetaNotice } from './components/MusicBetaNotice'
+export { MusicControlPanel } from './components/MusicControlPanel'
+export type { MusicControlPanelProps } from './components/MusicControlPanel'
+export { MusicQueueSearchModal } from './components/MusicQueueSearchModal'
+export type { MusicQueueSearchModalProps } from './components/MusicQueueSearchModal'
 export { SongRow, EqBars } from './components/SongRow'
 export type { SongRowProps } from './components/SongRow'
 

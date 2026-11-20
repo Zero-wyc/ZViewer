@@ -13,11 +13,12 @@ import (
 	"zviewer/backend/internal/store"
 )
 
-// 一起听（listen-together）的 11 个上行事件。
+// 一起听（listen-together）的上行事件（music:queue-changed 是其中的下行广播）。
 //
 // 事件契约与前端 `modules/music/hooks/useListenTogether.ts` 完全对齐，
 // 字段名一律不可改动：
 //   - music:queue-upsert    房主/房管加歌（append 尾部；afterCurrent 插当前曲目之后）
+//   - music:queue-add-many  批量点歌（一次最多 200 首；权限/位次与 queue-upsert 一致）
 //   - music:queue-remove    删除条目（order 压实为 1..n）
 //   - music:queue-reorder   拖拽排序（ids 必须与队列多重集一致）
 //   - music:queue-clear     清空队列
@@ -29,6 +30,7 @@ import (
 //   - music:control-response 房主应答 → 定向转给申请者
 //   - music:sync-ack        观众切歌回执 → 只转给房主
 //   - music:get-state       查询队列 + 最新状态（ack 附 serverTs / hostOnline）
+//   - music:update-permission 房主修改房间点歌权限（下行 music:permission-changed）
 //
 // 权限模型复刻一起看：房主控制、观众观看、房管可管队列、观众控制需申请。
 
@@ -81,6 +83,8 @@ type musicGetStateOK struct {
 	SyncState  *MusicSyncState         `json:"syncState"`
 	ServerTs   int64                   `json:"serverTs"`
 	HostOnline bool                    `json:"hostOnline"`
+	// Permission 是当前房间的点歌权限（Normalized，至少含 allowMembers）。
+	Permission MusicPermission `json:"permission"`
 }
 
 // musicCheckStatusData 是 music:check-status 的 data 载荷。
@@ -160,6 +164,9 @@ func (s *Service) bindMusic(sc *sio.Socket) {
 	sc.On("music:queue-upsert", func(args []json.RawMessage, ack func(...any)) {
 		s.handleMusicQueueUpsert(sc, args, ack)
 	})
+	sc.On("music:queue-add-many", func(args []json.RawMessage, ack func(...any)) {
+		s.handleMusicQueueAddMany(sc, args, ack)
+	})
 	sc.On("music:queue-remove", func(args []json.RawMessage, ack func(...any)) {
 		s.handleMusicQueueRemove(sc, args, ack)
 	})
@@ -189,6 +196,9 @@ func (s *Service) bindMusic(sc *sio.Socket) {
 	})
 	sc.On("music:get-state", func(args []json.RawMessage, ack func(...any)) {
 		s.handleMusicGetState(sc, args, ack)
+	})
+	sc.On("music:update-permission", func(args []json.RawMessage, ack func(...any)) {
+		s.handleMusicUpdatePermission(sc, args, ack)
 	})
 }
 
@@ -330,6 +340,51 @@ func (s *Service) musicRoomID(sc *sio.Socket, raw map[string]json.RawMessage, ac
 	return roomID
 }
 
+// musicFeatureAllowed 读取房间的「一起听」总开关。
+//
+// 单独抽出来是为了让所有 music:* 处理器共用同一处判定，恢复开关只走
+// room-features-set（api 包），不依赖任何 music 事件。
+func (s *Service) musicFeatureAllowed(ctx context.Context, roomID string) (bool, error) {
+	room, err := s.Rooms.FindByRoomID(ctx, roomID)
+	if err != nil {
+		return false, err
+	}
+	return room.MusicEnabled, nil
+}
+
+// requireMusicEnabled 校验一起听总开关；关闭/读库失败时已 ack 并返回 false。
+func (s *Service) requireMusicEnabled(ctx context.Context, roomID string, ack func(...any)) bool {
+	allowed, err := s.musicFeatureAllowed(ctx, roomID)
+	if err != nil {
+		s.Logger.Printf("[music] 读取房间功能开关失败 room=%s: %v", roomID, err)
+		ackFail(ack, "读取房间功能开关失败，请稍后重试")
+		return false
+	}
+	if !allowed {
+		ackFail(ack, "房主已关闭一起听功能")
+		return false
+	}
+	return true
+}
+
+// requireMusicRequest 校验当前连接能否管理本房间的播放队列（增删与清空）。
+//
+// 判定与点歌完全一致：房主/root/房管/矩阵放行者，或房间级点歌权限允许的成员。
+// 失败时已 ack 并返回 false。
+func (s *Service) requireMusicRequest(ctx context.Context, ack func(...any), sc *sio.Socket, roomID string) bool {
+	allowed, err := s.CanRequestMusic(ctx, sc, roomID)
+	if err != nil {
+		s.Logger.Printf("[music] 权限判定失败: %v", err)
+		ackFail(ack, "权限判定失败")
+		return false
+	}
+	if !allowed {
+		ackFail(ack, "无权限：房主未允许你管理播放队列")
+		return false
+	}
+	return true
+}
+
 func (s *Service) handleMusicQueueUpsert(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
 	ctx, cancel := handlerCtx()
 	defer cancel()
@@ -339,7 +394,17 @@ func (s *Service) handleMusicQueueUpsert(sc *sio.Socket, args []json.RawMessage,
 	if roomID == "" {
 		return
 	}
-	if !s.canPerform(ctx, ack, sc, roomID, "musicQueue", "无权限：没有队列管理权限") {
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
+		return
+	}
+	canRequest, err := s.CanRequestMusic(ctx, sc, roomID)
+	if err != nil {
+		s.Logger.Printf("[music:queue-upsert] 权限判定失败: %v", err)
+		ackFail(ack, "添加歌曲失败")
+		return
+	}
+	if !canRequest {
+		ackFail(ack, "无权限：房主未允许你点歌")
 		return
 	}
 
@@ -351,48 +416,135 @@ func (s *Service) handleMusicQueueUpsert(sc *sio.Socket, args []json.RawMessage,
 		ackFail(ack, "歌曲信息不完整")
 		return
 	}
-	item := payload.Item
-
-	items, err := s.musicLoadQueue(ctx, roomID)
-	if err != nil {
-		s.Logger.Printf("[music:queue-upsert] 读取队列失败: %v", err)
+	if _, err := s.musicInsertItems(ctx, roomID, []*musicUpsertItem{payload.Item}, payload.AfterCurrent, socketUID(sc)); err != nil {
+		s.Logger.Printf("[music:queue-upsert] 写入失败: %v", err)
 		ackFail(ack, "添加歌曲失败")
 		return
 	}
 
-	// 默认追加到队尾。afterCurrent 时按房间最新基线定位当前曲目，插到它后面。
-	order := int64(1)
-	if len(items) > 0 {
-		order = items[len(items)-1].Order + 1
+	s.musicBroadcastQueue(ctx, roomID)
+	ackOK(ack, nil)
+}
+
+// musicQueueAddManyLimit 是 music:queue-add-many 单次最多接受的条目数。
+//
+// 上限同时是「拖拽/推荐一次加入」的体验边界与写库批量的安全阀：整批在一个
+// handler 内串行 Insert，数量太大时没有事务，失败会留下已写入的前半批。
+const musicQueueAddManyLimit = 200
+
+// handleMusicQueueAddMany 处理批量点歌（music:queue-add-many）。
+//
+// 与单条 queue-upsert 共用同一套权限/位次/写库逻辑，区别只有三点：
+// 一次最多 200 首、任一曲目非法就整批拒绝、最后只广播一次完整队列。
+func (s *Service) handleMusicQueueAddMany(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
+	ctx, cancel := handlerCtx()
+	defer cancel()
+
+	raw := firstObject(args)
+	roomID := s.musicRoomID(sc, raw, ack)
+	if roomID == "" {
+		return
 	}
-	insertAfter := -1
-	if payload.AfterCurrent {
-		state, err := s.Music.GetRawState(ctx, roomID)
-		if err != nil {
-			s.Logger.Printf("[music:queue-upsert] 读取基线失败: %v", err)
-		}
-		insertAfter = musicFindCurrentIndex(items, state)
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
+		return
 	}
-	if insertAfter >= 0 {
-		// 新条目位次 = 当前条目 order+1；右移从当前条目的**下一个**开始。
-		//
-		// 从当前条目自身开始右移会让它与新条目 order 相同，连续插入时整批
-		// order 全部平局，队列排序退化成 rowid 随机序——表现就是「点下一首
-		// 跳到推荐批次里的任意一首」。前端连续插入是倒序逐条调用的
-		// （fresh.reverse()），修正后每条都精确落在当前条目之后一位。
-		moved := make([]store.MusicOrderPair, 0, len(items)-insertAfter)
-		for i := insertAfter + 1; i < len(items); i++ {
-			items[i].Order++
-			moved = append(moved, store.MusicOrderPair{ID: items[i].ID, Order: items[i].Order})
-		}
-		if err := s.MusicQueue.SetOrders(ctx, moved); err != nil {
-			s.Logger.Printf("[music:queue-upsert] 右移位次失败: %v", err)
-			ackFail(ack, "添加歌曲失败")
-			return
-		}
-		order = items[insertAfter].Order + 1
+	canRequest, err := s.CanRequestMusic(ctx, sc, roomID)
+	if err != nil {
+		s.Logger.Printf("[music:queue-add-many] 权限判定失败: %v", err)
+		ackFail(ack, "添加歌曲失败")
+		return
+	}
+	if !canRequest {
+		ackFail(ack, "无权限：房主未允许你点歌")
+		return
 	}
 
+	var payload struct {
+		Items        []*musicUpsertItem `json:"items"`
+		AfterCurrent bool               `json:"afterCurrent"`
+	}
+	if len(args) == 0 || json.Unmarshal(args[0], &payload) != nil {
+		ackFail(ack, "歌曲信息不完整")
+		return
+	}
+	if len(payload.Items) == 0 {
+		ackFail(ack, "没有可添加的歌曲")
+		return
+	}
+	if len(payload.Items) > musicQueueAddManyLimit {
+		ackFail(ack, "一次最多添加 "+strconv.Itoa(musicQueueAddManyLimit)+" 首歌曲")
+		return
+	}
+	for _, item := range payload.Items {
+		if !item.valid() {
+			ackFail(ack, "歌曲信息不完整")
+			return
+		}
+	}
+
+	added, err := s.musicInsertItems(ctx, roomID, payload.Items, payload.AfterCurrent, socketUID(sc))
+	if err != nil {
+		s.Logger.Printf("[music:queue-add-many] 写入失败: %v", err)
+		ackFail(ack, "添加歌曲失败")
+		return
+	}
+
+	s.musicBroadcastQueue(ctx, roomID)
+	// 批量点歌的 ack 把 added 放顶层（前端读 ack.added 提示「已添加 n 首」）。
+	ackRaw(ack, map[string]any{"success": true, "added": added})
+}
+
+// musicInsertItems 把一批曲目写入队列：默认追加到队尾，afterCurrent 时
+// 整批插到当前曲目之后（只右移一次现有队列，再按顺序分配递增 order）。
+//
+// 单条 upsert 也走这里（items 长度为 1），保证两条上行事件的位次语义一致。
+func (s *Service) musicInsertItems(ctx context.Context, roomID string, items []*musicUpsertItem, afterCurrent bool, addedBy int64) (int, error) {
+	queue, err := s.musicLoadQueue(ctx, roomID)
+	if err != nil {
+		return 0, err
+	}
+	order := int64(1)
+	if len(queue) > 0 {
+		order = queue[len(queue)-1].Order + 1
+	}
+	if afterCurrent {
+		state, err := s.Music.GetRawState(ctx, roomID)
+		if err != nil {
+			s.Logger.Printf("[music] 读取基线失败 room=%s: %v", roomID, err)
+		}
+		if insertAfter := musicFindCurrentIndex(queue, state); insertAfter >= 0 {
+			// 新条目位次 = 当前条目 order+1；右移从当前条目的**下一个**开始。
+			//
+			// 从当前条目自身开始右移会让它与新条目 order 相同，连续插入时整批
+			// order 全部平局，队列排序退化成 rowid 随机序——表现就是「点下一首
+			// 跳到推荐批次里的任意一首」。前端连续插入是倒序逐条调用的
+			// （fresh.reverse()），修正后每条都精确落在当前条目之后一位。
+			moved := make([]store.MusicOrderPair, 0, len(queue)-insertAfter-1)
+			for i := insertAfter + 1; i < len(queue); i++ {
+				queue[i].Order++
+				moved = append(moved, store.MusicOrderPair{ID: queue[i].ID, Order: queue[i].Order})
+			}
+			if err := s.MusicQueue.SetOrders(ctx, moved); err != nil {
+				return 0, err
+			}
+			order = queue[insertAfter].Order + 1
+		}
+	}
+	added := 0
+	for _, item := range items {
+		row := musicQueueRow(roomID, item, order)
+		row.AddedBy = addedBy
+		if _, err := s.MusicQueue.Insert(ctx, row); err != nil {
+			return added, err
+		}
+		order++
+		added++
+	}
+	return added, nil
+}
+
+// musicQueueRow 把一条上行曲目转换成待写入的队列行（order 由调用方递推）。
+func musicQueueRow(roomID string, item *musicUpsertItem, order int64) *store.MusicQueueItem {
 	row := &store.MusicQueueItem{
 		RoomID:     roomID,
 		Source:     "ncm",
@@ -410,26 +562,23 @@ func (s *Service) handleMusicQueueUpsert(sc *sio.Socket, args []json.RawMessage,
 	if item.SongID != nil {
 		row.SongID = *item.SongID
 	}
-	if uid := socketUserID(sc); uid != nil {
-		row.AddedBy = *uid
-	}
 	if sourceID := item.biliSourceID(); sourceID != "" {
 		row.Source = "bili"
 		row.SourceID = &sourceID
 	}
-
 	if row.Cover != nil {
 		cover := portableMusicCover(*row.Cover)
 		row.Cover = &cover
 	}
-	if _, err := s.MusicQueue.Insert(ctx, row); err != nil {
-		s.Logger.Printf("[music:queue-upsert] 写入失败: %v", err)
-		ackFail(ack, "添加歌曲失败")
-		return
-	}
+	return row
+}
 
-	s.musicBroadcastQueue(ctx, roomID)
-	ackOK(ack, nil)
+// socketUID 返回连接的 userId，游客（未登录）返回 0。
+func socketUID(sc *sio.Socket) int64 {
+	if uid := socketUserID(sc); uid != nil {
+		return *uid
+	}
+	return 0
 }
 
 // musicFindCurrentIndex 按基线定位「当前播放条目」在队列中的下标（-1 = 未找到）。
@@ -478,7 +627,12 @@ func (s *Service) handleMusicQueueRemove(sc *sio.Socket, args []json.RawMessage,
 	if roomID == "" {
 		return
 	}
-	if !s.canPerform(ctx, ack, sc, roomID, "musicQueue", "无权限：没有队列管理权限") {
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
+		return
+	}
+	// 删除与点歌共用同一套权限：被允许点歌的成员也能删掉队列里的歌曲
+	// （否则成员加错一首就再也删不掉了）。
+	if !s.requireMusicRequest(ctx, ack, sc, roomID) {
 		return
 	}
 
@@ -532,7 +686,11 @@ func (s *Service) handleMusicQueueClear(sc *sio.Socket, args []json.RawMessage, 
 	if roomID == "" {
 		return
 	}
-	if !s.canPerform(ctx, ack, sc, roomID, "musicQueue", "无权限：没有队列管理权限") {
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
+		return
+	}
+	// 一键清空同样按点歌权限放行（能删单曲就能清空，避免"能删不敢清"的割裂）。
+	if !s.requireMusicRequest(ctx, ack, sc, roomID) {
 		return
 	}
 
@@ -552,6 +710,9 @@ func (s *Service) handleMusicQueueReorder(sc *sio.Socket, args []json.RawMessage
 	raw := firstObject(args)
 	roomID := s.musicRoomID(sc, raw, ack)
 	if roomID == "" {
+		return
+	}
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
 		return
 	}
 	if !s.canPerform(ctx, ack, sc, roomID, "musicQueue", "无权限：没有队列管理权限") {
@@ -628,6 +789,9 @@ func (s *Service) handleMusicSyncState(sc *sio.Socket, args []json.RawMessage, a
 	if roomID == "" {
 		return
 	}
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
+		return
+	}
 	host, err := s.IsRoomHost(ctx, sc.ID, roomID)
 	if err != nil {
 		s.Logger.Printf("[music:sync-state] 权限判定失败: %v", err)
@@ -667,6 +831,9 @@ func (s *Service) handleMusicHostHeartbeat(sc *sio.Socket, args []json.RawMessag
 	raw := firstObject(args)
 	roomID := s.musicRoomID(sc, raw, ack)
 	if roomID == "" {
+		return
+	}
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
 		return
 	}
 	host, err := s.IsRoomHost(ctx, sc.ID, roomID)
@@ -714,6 +881,9 @@ func (s *Service) handleMusicCheckStatus(sc *sio.Socket, args []json.RawMessage,
 	raw := firstObject(args)
 	roomID := s.musicRoomID(sc, raw, ack)
 	if roomID == "" {
+		return
+	}
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
 		return
 	}
 
@@ -767,6 +937,9 @@ func (s *Service) handleMusicControlRequest(sc *sio.Socket, args []json.RawMessa
 	raw := firstObject(args)
 	roomID := s.musicRoomID(sc, raw, ack)
 	if roomID == "" {
+		return
+	}
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
 		return
 	}
 
@@ -825,6 +998,16 @@ func (s *Service) handleMusicControlRequest(sc *sio.Socket, args []json.RawMessa
 		"action": action,
 		"from":   sc.ID,
 	}
+	// 播放控制（播放/暂停/上一首/下一首/进度）沿用「点歌权限」：能点歌即视为
+	// 允许控制播放，房主可用同一份总开关/白黑名单限制（见 music:update-permission）。
+	// 房主端据此免审批直接执行，避免每次播放/暂停都要手点通过。
+	if action == "play" || action == "pause" || action == "next" || action == "prev" || action == "seek" {
+		allowed, permErr := s.CanRequestMusic(ctx, sc, roomID)
+		if permErr != nil {
+			s.Logger.Printf("[music:control-request] 权限判定失败: %v", permErr)
+		}
+		forward["controlAllowed"] = allowed
+	}
 	switch action {
 	case "addQueue":
 		// 用原始 JSON 转发，不用解析后的结构体：结构体序列化会把
@@ -838,7 +1021,7 @@ func (s *Service) handleMusicControlRequest(sc *sio.Socket, args []json.RawMessa
 		pos, _ := jsNumber(raw["positionSec"])
 		forward["positionSec"] = pos
 	}
-	if name := socketUsername(sc); name != nil {
+	if name := socketDisplayName(sc); name != nil {
 		forward["username"] = *name
 	}
 	s.Hub.EmitTo(sharer.SocketID, "music:control-request", forward)
@@ -852,6 +1035,9 @@ func (s *Service) handleMusicControlResponse(sc *sio.Socket, args []json.RawMess
 	raw := firstObject(args)
 	roomID := s.musicRoomID(sc, raw, ack)
 	if roomID == "" {
+		return
+	}
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
 		return
 	}
 	host, err := s.IsRoomHost(ctx, sc.ID, roomID)
@@ -892,6 +1078,9 @@ func (s *Service) handleMusicSyncAck(sc *sio.Socket, args []json.RawMessage, ack
 	if roomID == "" {
 		return
 	}
+	if !s.requireMusicEnabled(ctx, roomID, ack) {
+		return
+	}
 
 	sharer, err := s.Sessions.FindActiveByRoomRole(ctx, roomID, store.SessionRoleSharer)
 	if err != nil {
@@ -906,7 +1095,7 @@ func (s *Service) handleMusicSyncAck(sc *sio.Socket, args []json.RawMessage, ack
 	}
 
 	forward := map[string]any{"roomId": roomID}
-	if name := socketUsername(sc); name != nil {
+	if name := socketDisplayName(sc); name != nil {
 		forward["username"] = *name
 	}
 	s.Hub.EmitTo(sharer.SocketID, "music:sync-ack", forward)
@@ -925,6 +1114,19 @@ func (s *Service) handleMusicGetState(sc *sio.Socket, args []json.RawMessage, ac
 	roomID := s.musicRoomID(sc, raw, ack)
 	if roomID == "" {
 		return
+	}
+	// 一起听总开关与点歌权限来自同一行 room 记录，一次读出：关闭时直接拒绝，
+	// 读失败时退回默认权限（成员可点）并照常返回队列/状态。
+	permission := ParseMusicPermission("")
+	room, roomErr := s.Rooms.FindByRoomID(ctx, roomID)
+	if roomErr != nil {
+		s.Logger.Printf("[music:get-state] 读取房间功能开关失败: %v", roomErr)
+	} else {
+		if !room.MusicEnabled {
+			ackFail(ack, "房主已关闭一起听功能")
+			return
+		}
+		permission = ParseMusicPermission(room.MusicPermission)
 	}
 
 	queue, err := s.musicQueuePayload(ctx, roomID)
@@ -948,12 +1150,15 @@ func (s *Service) handleMusicGetState(sc *sio.Socket, args []json.RawMessage, ac
 		s.Logger.Printf("[music:get-state] 查询房主失败: %v", err)
 	}
 
+	// permission 已在上方与总开关一起从 room 行读出，附在初始状态里，
+	// 前端首屏即可正确渲染「点歌」按钮。
 	ackRaw(ack, musicGetStateOK{
 		Success:    true,
 		Queue:      queue,
 		SyncState:  syncState,
 		ServerTs:   nowMillis(),
 		HostOnline: hostOnline,
+		Permission: permission,
 	})
 }
 

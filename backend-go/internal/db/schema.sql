@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS "room" (
   "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
   "updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
   "lastAccessedAt" datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  "musicPermission" text NOT NULL DEFAULT ('{}'),
   "moviePermission" text NOT NULL DEFAULT ('{}'),
   CONSTRAINT "UQ_45770efde052e41dee06d89c85c" UNIQUE ("roomId")
 );

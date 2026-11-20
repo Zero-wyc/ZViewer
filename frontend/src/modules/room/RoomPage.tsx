@@ -40,7 +40,8 @@ import {
 } from '@/modules/screen-sharing'
 import type { ShareEdgeStats } from '@/modules/screen-sharing/core/edge-stats'
 import type { MediaFormat } from '@/lib/mediaFormat'
-import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
+import { MusicControlPanel, MusicPlayerProvider } from '@/modules/music'
+import { ListenTogetherLyrics } from '@/modules/music/components/ListenTogetherLyrics'
 import { dispatchRoomMediaTeardown } from '@/lib/mediaTeardown'
 
 // 悬浮层按需加载：pixi + Cubism 引擎约 1MB，只有房间页用得上。
@@ -491,17 +492,8 @@ function RoomPage() {
   )
 
   // 左下角流量统计（本机 HTTP 流量；root 额外展示服务端网卡流量）。
-  // 一起听模式：房间状态面板不在下方控制卡片行，改为悬浮按钮
-  // （经 topSlot 渲染在流量按钮上方，房主/观众两侧共用本定义）
-  const trafficPanel = (
-    <TrafficPanel
-      topSlot={
-        mode === 'listen-together' ? (
-          <RoomInfoFab roomId={roomId} isHost={isHost} />
-        ) : undefined
-      }
-    />
-  )
+  // 房间状态面板统一在下方控制卡片行，流量按钮不再叠加 topSlot。
+  const trafficPanel = <TrafficPanel />
 
   // 三种模式收敛成一个 pageBody，Live2D 宿主挂在最外层：
   // 一起听整树卸载 RoomLayout、换片按 playerRemountKey 重挂播放器，
@@ -510,161 +502,127 @@ function RoomPage() {
 
   // 房主：使用 RoomLayout，根据模式渲染对应播放器
   if (isHost) {
-    // 一起听模式：MusicAppShell 作为整页底板直接渲染（默认可用，无需
-    // Beta 开关）；语音/流量悬浮面板照常叠加
-    const isListenTogether = mode === 'listen-together'
+    // 一起听已独立于房间模式：不再是整页底板。历史房间残留的
+    // listen-together 记录按一起看路径兼容处理；播放引擎与悬浮控制面板
+    // 在页面最外层统一挂载（房主/观众共用同一份实现）。
+    const effectiveMode = mode === 'listen-together' ? 'watch-together' : mode
 
-    // 一起听：Hydrogen 应用框架升级为整页底板——不再套 RoomLayout
-    // 外框（玻璃卡片 + 顶部工具栏）
-    if (isListenTogether) {
-      pageBody = (
-        <>
-          {/* Provider 包裹底板与完整播放器覆盖层，共享同一音频引擎 */}
-          <MusicPlayerProvider
-            socket={socket}
+    const mainContent =
+      effectiveMode === 'watch-together' ? (
+        // 等待 register-host 回调完成后再渲染 WatchTogetherPanel，
+        // 确保 useWatchTogether 挂载时 initialPlayback 已可用，
+        // 避免 fetchMovies/current-movie 先到达导致 loadMovie effect
+        // 在 initialPlayback=null 时执行而丢失播放进度恢复。
+        hostRegistered ? (
+          <WatchTogetherPanel
+            key={playerRemountKey}
             roomId={roomId}
             isHost
-            username={roomDisplayName}
-          >
-            <MusicAppShell
-              socket={socket}
-              roomId={roomId}
-              isHost
-              username={roomDisplayName}
-              // 房主天然拥有队列管理权限（添加/切歌/删除）
-              canManage
-              // 房间模式切换已收入账户菜单（M3 menu 内「房间模式」分组）
-              roomModeMenu={{
-                isHost: true,
-                onSwitch: handleSwitchMode,
-                isSwitching: isModeSwitching,
-              }}
-              isModeSwitching={isModeSwitching}
-            />
-          </MusicPlayerProvider>
-        </>
-      )
-    }
-
-    // 一起看 / 投屏：套 RoomLayout
-    if (!isListenTogether) {
-      const mainContent =
-        mode === 'watch-together' ? (
-          // 等待 register-host 回调完成后再渲染 WatchTogetherPanel，
-          // 确保 useWatchTogether 挂载时 initialPlayback 已可用，
-          // 避免 fetchMovies/current-movie 先到达导致 loadMovie effect
-          // 在 initialPlayback=null 时执行而丢失播放进度恢复。
-          hostRegistered ? (
-            <WatchTogetherPanel
-              key={playerRemountKey}
-              roomId={roomId}
-              isHost
-              isWebFullscreen={isWebFullscreen}
-              onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
-              initialPlayback={
-                playerRemountKey === 'init' ? recoveredPlayback : null
-              }
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <Spinner tip={t('正在恢复房间...')} size={32} />
-            </div>
-          )
-        ) : (
-          <SharePage
-            onStatsEdgesChange={setHostStatsEdges}
-            onCaptureFpsChange={setHostCaptureFps}
-            onSharingModeChange={setHostSharingMode}
+            isWebFullscreen={isWebFullscreen}
+            onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
+            initialPlayback={
+              playerRemountKey === 'init' ? recoveredPlayback : null
+            }
           />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <Spinner tip={t('正在恢复房间...')} size={32} />
+          </div>
         )
-
-      const controls =
-        mode === 'screen-share' ? (
-          <>
-            <RoomInfoPanel roomId={roomId} isHost />
-            {/* 共享中才出：未共享时「开始共享」卡片里已有同一份设置。
-              观众端不渲染 WebrtcSharePage，桥里没有绑定，卡片自然不出现。 */}
-            {storeIsSharing && <ShareSettingsPanel />}
-          </>
-        ) : isListenTogether ? undefined : ( // 房间状态改为左下角悬浮按钮（见 trafficPanel 的 topSlot） // 一起听：搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗），
-          <>
-            <RoomInfoPanel roomId={roomId} isHost />
-            <MovieListPanel isHost />
-            <MoviePushPanel isHost />
-          </>
-        )
-
-      const controlLabels =
-        mode === 'screen-share'
-          ? // 共享中的第三张卡片是 RoomLayout 追加的评论区（rightPanel）
-            [t('房间状态'), t('共享设置'), t('评论区')]
-          : isListenTogether
-            ? // 一起听：下方无控制卡片行
-              undefined
-            : [t('房间状态'), t('影片列表'), t('添加影片')]
-
-      const roomLayout = (
-        <RoomLayout
-          isHost
-          mainContent={mainContent}
-          rightPanel={
-            <CommentPanel
-              socket={socket}
-              roomId={roomId}
-              commentsOnly={mode === 'screen-share'}
-            />
-          }
-          edges={hostStatsEdges}
-          captureFps={hostCaptureFps}
-          sharingMode={hostSharingMode}
-          controls={controls}
-          controlLabels={controlLabels}
-          webFullscreen={isWebFullscreen}
-          onSwitchMode={handleSwitchMode}
-          isModeSwitching={isModeSwitching}
+      ) : (
+        <SharePage
+          onStatsEdgesChange={setHostStatsEdges}
+          onCaptureFpsChange={setHostCaptureFps}
+          onSharingModeChange={setHostSharingMode}
         />
       )
 
-      // 到达此处的听模式只剩 Beta 关闭降级（提示页，不依赖音乐引擎），无需 Provider
-      pageBody = (
+    const controls =
+      effectiveMode === 'screen-share' ? (
         <>
-          {roomLayout}
-          {showVoiceChatButton && voiceChatPanel}
-          {showTrafficPanel && trafficPanel}
+          <RoomInfoPanel roomId={roomId} isHost />
+          {/* 共享中才出：未共享时「开始共享」卡片里已有同一份设置。
+            观众端不渲染 WebrtcSharePage，桥里没有绑定，卡片自然不出现。 */}
+          {storeIsSharing && <ShareSettingsPanel />}
+        </>
+      ) : (
+        <>
+          <RoomInfoPanel roomId={roomId} isHost />
+          <MovieListPanel isHost />
+          <MoviePushPanel isHost />
         </>
       )
-    }
+
+    const controlLabels =
+      effectiveMode === 'screen-share'
+        ? // 共享中的第三张卡片是 RoomLayout 追加的评论区（rightPanel）
+          [t('房间状态'), t('共享设置'), t('评论区')]
+        : [t('房间状态'), t('影片列表'), t('添加影片')]
+
+    const roomLayout = (
+      <RoomLayout
+        isHost
+        mainContent={mainContent}
+        rightPanel={
+          <CommentPanel
+            socket={socket}
+            roomId={roomId}
+            commentsOnly={effectiveMode === 'screen-share'}
+          />
+        }
+        edges={hostStatsEdges}
+        captureFps={hostCaptureFps}
+        sharingMode={hostSharingMode}
+        controls={controls}
+        controlLabels={controlLabels}
+        webFullscreen={isWebFullscreen}
+        onSwitchMode={handleSwitchMode}
+        isModeSwitching={isModeSwitching}
+      />
+    )
+
+    pageBody = (
+      <>
+        {roomLayout}
+        {showVoiceChatButton && voiceChatPanel}
+        {showTrafficPanel && trafficPanel}
+      </>
+    )
   }
 
-  // 观众：统一由 WatchPage 处理加入与模式切换
-  // - 一起听模式：WatchPage 渲染 MusicAppShell，其内嵌的
-  //   MusicSideDock（右缘竖线把手 hover 滑出）已包含语音聊天 / 房间状态 /
-  //   流量统计三面板，不再额外叠加（默认可用，无需 Beta 开关）
-  // - 一起看 / 投屏：与房主端同形态——左下角流量监控 + 右下角语音聊天
-  //   独立悬浮面板（此前用 MusicSideDock 右缘竖线把手，观众难以发现入口）
+  // 观众：统一由 WatchPage 处理加入与模式切换；一起听已独立为悬浮面板，
+  // 不再占用房间模式，因此语音 / 流量悬浮面板在所有模式下照常叠加。
   if (!isHost) {
-    const audienceInMusic = mode === 'listen-together'
-    // 观众（一起看/投屏）的流量面板：topSlot 挂房间状态悬浮按钮，
-    // 保住原 MusicSideDock 工具坞中的房间状态入口
+    // 观众流量面板：topSlot 挂房间状态悬浮按钮，保留房间状态入口
     const audienceTrafficPanel = (
       <TrafficPanel topSlot={<RoomInfoFab roomId={roomId} isHost={isHost} />} />
     )
     pageBody = (
       <>
         <WatchPage />
-        {!audienceInMusic && (
-          <>
-            {showVoiceChatButton && voiceChatPanel}
-            {showTrafficPanel && audienceTrafficPanel}
-          </>
-        )}
+        {showVoiceChatButton && voiceChatPanel}
+        {showTrafficPanel && audienceTrafficPanel}
       </>
     )
   }
 
   return (
-    <>
+    // 一起听已独立于房间模式：播放引擎与悬浮控制面板对所有房间模式统一挂载。
+    <MusicPlayerProvider
+      socket={socket}
+      roomId={roomId}
+      isHost={isHost}
+      username={roomDisplayName}
+    >
       {pageBody}
+      {/* 一起听悬浮层：房主与观众共用同一份实现，音频引擎实例跨面板共享 */}
+      <ListenTogetherLyrics />
+      <MusicControlPanel
+        socket={socket}
+        roomId={roomId}
+        username={roomDisplayName}
+        isHost={isHost}
+      />
       {/* 房间内显示名：游客首次进房弹一次设置框（登录用户/已设置过不弹） */}
       <RoomDisplayNameDialog roomId={roomId} />
       {/* 独立悬浮层：不随模式/换片卸载，房主与观众共用同一份实现。
@@ -681,7 +639,7 @@ function RoomPage() {
           />
         </Suspense>
       )}
-    </>
+    </MusicPlayerProvider>
   )
 }
 

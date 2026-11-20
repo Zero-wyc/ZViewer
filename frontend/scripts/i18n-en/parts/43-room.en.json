@@ -1,10 +1,5 @@
 {
   "items": [
-    "Copy anyway",
-    "Scan to sign in to Bilibili",
-    "Scan to sign in to Bilibili",
-    "Failed to delete the movie",
-    "Uplink bandwidth limited",
     "Upload bitrate",
     "Upstream link",
     "Failed to set “CLI only”",
@@ -119,6 +114,11 @@
     "Mount selected. Use “Browse the {{name}} library” to drill down to a movie or show; multi-select adds in bulk.",
     "Join request allowed",
     "Paused",
-    "The browser does not support {{value}} audio; the browser transcoding engine is converting it to AAC live"
+    "The browser does not support {{value}} audio; the browser transcoding engine is converting it to AAC live",
+    "The browser does not support {{value}} audio; the media server transcoded it to AAC",
+    "The browser does not support {{value}} audio and the browser transcoding engine is off, so playback will have no sound; enable it in the movie's resolution settings and retry",
+    "Audio",
+    "Concealed {{value}}",
+    "Hide the control bar"
   ]
 }

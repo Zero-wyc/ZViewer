@@ -1,5 +1,5 @@
 {
-  "total": 2844,
+  "total": 2912,
   "chunk": 120,
   "parts": [
     {
@@ -170,7 +170,7 @@
     {
       "id": "34-music",
       "bucket": "modules/music",
-      "count": 5
+      "count": 81
     },
     {
       "id": "35-openlist",
@@ -220,7 +220,7 @@
     {
       "id": "44-room",
       "bucket": "modules/room",
-      "count": 115
+      "count": 109
     },
     {
       "id": "45-screen-sharing",
@@ -235,7 +235,7 @@
     {
       "id": "47-server-files",
       "bucket": "modules/server-files",
-      "count": 90
+      "count": 89
     },
     {
       "id": "48-subtitles",
@@ -250,7 +250,7 @@
     {
       "id": "50-voice-chat",
       "bucket": "modules/voice-chat",
-      "count": 28
+      "count": 27
     },
     {
       "id": "51-webdav",
