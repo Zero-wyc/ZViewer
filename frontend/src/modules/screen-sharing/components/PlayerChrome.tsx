@@ -179,6 +179,8 @@ export function PlayerChrome({
   overlayOwner,
 }: PlayerChromeProps) {
   const stageRef = useRef<HTMLDivElement | null>(null)
+  // 控制栏容器：全屏浮层要按实测高度抬到它上方（窄屏按钮换行时高度会变）
+  const controlBarRef = useRef<HTMLDivElement | null>(null)
   const controlBarVisibleRef = useRef(false)
   // 本次按下时控制栏是否隐藏：隐藏时第一次点画面只唤醒控制栏，不关分屏
   const barHiddenAtTapRef = useRef(false)
@@ -264,6 +266,7 @@ export function PlayerChrome({
     stageRef,
     active: isFullscreen || webFullscreen,
     controlBarVisible,
+    barRef: controlBarRef,
   })
 
   const handleFullscreen = useCallback(() => {
@@ -354,6 +357,8 @@ export function PlayerChrome({
 
         {!loading && !errorMsg && !warming && (
           <div
+            ref={controlBarRef}
+            data-player-control-bar=""
             className={cn(
               'vc-container absolute bottom-0 left-0 right-0 z-20 p-2',
               !controlBarVisible && 'pointer-events-none'
