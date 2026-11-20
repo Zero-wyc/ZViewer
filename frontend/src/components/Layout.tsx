@@ -4,6 +4,7 @@ import { useThemeStore } from '@/store/themeStore'
 import { useRoomStore } from '@/store/roomStore'
 import { Header } from './Header'
 import { InsecureContextBanner } from './InsecureContextBanner'
+import { CommentFloatingWindow } from './CommentFloatingWindow'
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
@@ -107,6 +108,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* HTTP 非安全上下文提示横幅：仅在生产环境 HTTP 访问时显示 */}
       <InsecureContextBanner />
+
+      {/* 评论悬浮窗：全局只挂一次，按 store 里的 roomId 显示 */}
+      {!location.pathname.endsWith('/comments-window') && (
+        <CommentFloatingWindow />
+      )}
     </div>
   )
 }
