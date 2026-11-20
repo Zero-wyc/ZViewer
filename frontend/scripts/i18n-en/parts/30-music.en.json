@@ -1,6 +1,5 @@
 {
   "items": [
-    "Back",
     "Chinese",
     "Slider settings",
     "Reset to default",
@@ -119,6 +118,7 @@
     "Missing Bilibili video info",
     "Missing banner info",
     "Turn on",
-    "Confirm and turn on"
+    "Confirm and turn on",
+    "Delete?"
   ]
 }

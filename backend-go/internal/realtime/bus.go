@@ -15,9 +15,12 @@ type Bus interface {
 
 // Node 版存在的事件名。集中定义，避免手写字符串出现拼写漂移。
 const (
-	EventRoomNameUpdated     = "room-name-updated"
-	EventDanmakuTracksUpdate = "danmaku-tracks-updated"
-	EventDanmakuMetaUpdated  = "danmaku-meta-updated"
+	EventRoomNameUpdated        = "room-name-updated"
+	EventDanmakuTracksUpdate    = "danmaku-tracks-updated"
+	EventDanmakuMetaUpdated     = "danmaku-meta-updated"
+	EventMoviePermissionChanged = "movie:permission-changed"
+	// EventRoomAccountChanged 是房间共享账号（网易云 / B站）绑定变更。
+	EventRoomAccountChanged = "room-account-changed"
 )
 
 // Noop 丢弃所有事件。

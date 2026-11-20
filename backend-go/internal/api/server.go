@@ -54,6 +54,9 @@ type Deps struct {
 	Mounts   *store.Mounts
 	Tracks   *store.Tracks
 	Metas    *store.Metas
+	// RoomAccounts 是房间共享账号绑定（网易云 / B站 凭证按房间共享）。
+	// 未注入时由 DB 兜底构造：单测只要给 DB 就能覆盖 /accounts 路由。
+	RoomAccounts *store.RoomAccounts
 	// Bus 是房间事件广播器（生产由 realtime.SocketHub 实现）。
 	// 未注入时退化为 realtime.Noop：只为「最小装配」的场景兜底，生产路径不会是 Noop。
 	Bus realtime.Bus
@@ -138,6 +141,9 @@ func New(deps Deps) *Server {
 		// 未启动 / 外部服务不可达时只是报告不可用（不影响其它路由）。
 		deps.NMS = nms.New(nms.ConfigFromEnv())
 	}
+	if deps.RoomAccounts == nil && deps.DB != nil {
+		deps.RoomAccounts = store.NewRoomAccounts(deps.DB)
+	}
 	if deps.OpenList == nil {
 		// 客户端自带 token / raw_url 缓存，全进程共用一个实例；
 		// 单测构造 Server 时不显式注入，避免每个用例都要记得传。
@@ -183,6 +189,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerProxyRoutes(mux)
 	s.registerMovieRoutes(mux)
 	s.registerRoomRoutes(mux)
+	// 房间共享账号（网易云 / B站）：/api/rooms/{roomId}/accounts。
+	s.registerRoomAccountRoutes(mux)
 	// 房间级 Live2D 模型库（上传/列表/删除），与实时同步的 live2d-* 事件配套。
 	s.registerLive2DModelRoutes(mux)
 	s.registerWebDAVRoutes(mux)
@@ -208,6 +216,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerDanmakuRoutes(mux)
 	s.registerMusicRoutes(mux)
 	s.registerUpdaterRoutes(mux)
+	// 前端产物版本探测：页面加载后比对入口脚本名，产物更新时提示刷新。
+	s.registerWebVersionRoutes(mux)
 	s.registerVoiceRoutes(mux)
 	// 爬虫引擎代理：网页端经此转发本机桌面引擎，无引擎时接口返回 503。
 	s.registerCrawlerRoutes(mux)

@@ -153,6 +153,12 @@ type Service struct {
 	// admitMu 串行化「人数校验 + 插入会话」，避免并发进房时超员。
 	admitMu sync.Mutex
 	perm    *permCache
+
+	// guestMods 记录游客房管：roomID -> socketId 集合。
+	// 游客没有 userId（恒为 0），房管身份只能按连接记账，不落库；
+	// 懒初始化（第一次任命时才建 map），见 moderator_guest.go。
+	guestModsMu sync.RWMutex
+	guestMods   map[string]map[string]struct{}
 }
 
 // Deps 是房间服务的依赖集合。

@@ -305,7 +305,9 @@ type adminRoomDTO struct {
 	// CanManage 复刻 adminCanManageRoom 的结果：前端据此禁用按钮，
 	// 避免 admin 点开别家的房间再吃 403。
 	CanManage      bool   `json:"canManage"`
-	LastAccessedAt string `json:"lastAccessedAt"`
+	// MoviePermission 是房间级「允许成员点片」配置（默认关闭）。
+	MoviePermission roompkg.MoviePermission `json:"moviePermission"`
+	LastAccessedAt  string                  `json:"lastAccessedAt"`
 	CreatedAt      string `json:"createdAt"`
 	UpdatedAt      string `json:"updatedAt"`
 }
@@ -348,6 +350,7 @@ func (s *Server) handleAdminListRooms(w http.ResponseWriter, r *http.Request) {
 			OwnerUserID:     room.OwnerUserID,
 			ModeratorCount:  len(parseModeratorIDs(room.Moderators)),
 			CanManage:       adminCanManageRoom(r, room),
+			MoviePermission: moviePermissionOf(room.MoviePermission),
 			LastAccessedAt:  isoMillis(room.LastAccessedAt),
 			CreatedAt:       isoMillis(room.CreatedAt),
 			UpdatedAt:       isoMillis(room.UpdatedAt),

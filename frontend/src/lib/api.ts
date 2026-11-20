@@ -20,6 +20,7 @@ import {
   saveAuthTokens,
   buildAuthHeaders,
 } from './authTransport'
+import { getApiRoomContext } from './roomContext'
 export {
   isHttpsContext,
   getAccessToken,
@@ -315,11 +316,16 @@ export async function apiFetch(
   // Cache-Control: private, max-age=3600 之类的缓存头，覆盖后端下发的 no-store，
   // 导致浏览器把 API 结果缓存一小时；API 响应永不复用，默认绕过 HTTP 缓存
   // （调用方仍可通过 options.cache 覆盖）。
+  // 房间上下文：后端据此把账号类请求（网易云 / B站）解析到房间共享账号。
+  // 调用方显式传的同名 header 优先（允许单次请求覆盖）。
+  const roomContextId = getApiRoomContext()
+
   const res = await fetch(url, {
     cache: 'no-store',
     ...rest,
     credentials: 'include',
     headers: {
+      ...(roomContextId ? { 'X-Room-Id': roomContextId } : {}),
       ...(headers || {}),
       // 分离式鉴权：HTTPS 走 cookie（自动携带），HTTP 走 Bearer 头
       ...buildAuthHeaders(),
