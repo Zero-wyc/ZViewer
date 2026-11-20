@@ -51,6 +51,45 @@ func ParseMoviePermission(raw string) MoviePermission {
 	return perm.Normalized()
 }
 
+// idInList 判断归一化后的 ID 列表是否含目标用户。
+func idInList(ids []int64, userID int64) bool {
+	for _, id := range ids {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// removeID 返回移除目标 ID 后的新切片（不改原切片，空列表保持非 nil）。
+func removeID(ids []int64, userID int64) []int64 {
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id != userID {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// normalizeIDList 去掉非法 ID 与重复项，保持首次出现顺序；空结果返回 [] 而非 nil
+// （JSON 里必须是数组，不能是 null）。
+func normalizeIDList(ids []int64) []int64 {
+	out := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 // Normalized 归一化：去掉非法 ID（<=0）、去重、保证切片非 nil，
 // 并让黑名单优先——同一个 ID 同时出现在两份名单时只保留在 denied 里。
 func (p MoviePermission) Normalized() MoviePermission {

@@ -2,12 +2,12 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"log"
 	"strings"
 	"time"
 
+	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 )
@@ -15,7 +15,7 @@ import (
 // 房间功能开关（屏幕加密 / 语音 / 自动入语音 / 一起听）。
 //
 // 四个开关都持久化在 room 表上：读取任何房间成员都可以，修改只允许房主。
-// 语音与一起听的实际门禁在各自的服务端入口处（voice.go / voicerelay.go /
+// 语音与一起听的实际门禁在各自的服务端入口处（voice.go /
 // room/music_handlers.go），这里只负责读写与广播。
 const roomFeaturesEvent = "room-features"
 
@@ -102,59 +102,55 @@ func parseRoomFeaturesGet(args []json.RawMessage) (string, bool) {
 	return roomID, roomID != ""
 }
 
-// voiceInvitePayload 是 voice-invite 的解析结果。
-type voiceInvitePayload struct {
-	RoomID         string
-	TargetSocketID string
-	Kind           string
+// roomFeaturesAck 回应 socket 调用方：成功只给 success，失败带 message。
+func roomFeaturesAck(ack func(...any), ok bool, message string) {
+	if ack == nil {
+		return
+	}
+	if ok {
+		ack(map[string]any{"success": true})
+		return
+	}
+	ack(map[string]any{"success": false, "message": message})
 }
 
-// validVoiceInviteKind 只接受 livekit / relay 两种邀请方式。
-func validVoiceInviteKind(kind string) bool {
-	return kind == "livekit" || kind == "relay"
-}
-
-// parseVoiceInvite 解析 voice-invite 参数（纯函数，便于单测）。
-// ok 为 false 表示缺字段或 kind 非法；调用方据此回 ack。
-func parseVoiceInvite(args []json.RawMessage) (voiceInvitePayload, bool) {
-	raw := struct {
-		RoomID         string `json:"roomId"`
-		TargetSocketID string `json:"targetSocketId"`
-		Kind           string `json:"kind"`
-	}{}
-	if len(args) > 0 && len(args[0]) > 0 {
-		_ = json.Unmarshal(args[0], &raw)
-	}
-	invite := voiceInvitePayload{
-		RoomID:         strings.TrimSpace(raw.RoomID),
-		TargetSocketID: strings.TrimSpace(raw.TargetSocketID),
-		Kind:           strings.ToLower(strings.TrimSpace(raw.Kind)),
-	}
-	if invite.RoomID == "" || invite.TargetSocketID == "" || !validVoiceInviteKind(invite.Kind) {
-		return invite, false
-	}
-	return invite, true
-}
-
-// screenE2EEKeyB64 返回房间的媒体密钥（base64 标准编码），开关关闭时为空串。
+// socketAuthClaims 从连接数据还原鉴权 claims，供需要复用 HTTP 侧权限判定
+// （canReadRoom）的 socket 事件使用。
 //
-// 密钥直接随广播下发，观众不必再请求 /api/stream-push/watch：那条 HTTP 请求
-// 会经过用户的反向代理（会覆盖 Cache-Control），一旦被缓存一小时，观众就会
-// 拿着旧的「加密 + 旧密钥」去解已经切成明文的流，表现为永久黑屏。
-// socket 广播走同一条已鉴权的长连接，没有缓存层，且观众本来就能通过 watch
-// 接口拿到同一把密钥，信任边界不变。
-//
-// 密钥与加密上行（relayuplink）、watch 接口共用 mediaKey，因此广播里的值
-// 一定和当前链路匹配；关闭时给空串，避免前端继续用解密 loader 解明文。
-func (s *Server) screenE2EEKeyB64(roomID string, enabled bool) string {
-	if !enabled {
-		return ""
+// 握手成功时 socketAuth 已把同一份 claims 的各个字段写进 socket.data，
+// 逐包复核（socketPacketAuth）在事件之前执行，因此这里读到的身份与
+// REST 侧一致。
+func socketAuthClaims(sc *sio.Socket) *auth.Claims {
+	if sc == nil {
+		return nil
 	}
-	key := s.mediaKey(roomID)
-	if len(key) == 0 {
-		return ""
+	claims := &auth.Claims{}
+	if value, ok := sc.GetData("userId"); ok {
+		if id, ok := value.(int64); ok {
+			claims.UserID = id
+		}
 	}
-	return base64.StdEncoding.EncodeToString(key)
+	if value, ok := sc.GetData("role"); ok {
+		if role, ok := value.(string); ok {
+			claims.Role = role
+		}
+	}
+	if value, ok := sc.GetData("username"); ok {
+		if username, ok := value.(string); ok {
+			claims.Username = username
+		}
+	}
+	if value, ok := sc.GetData("guestId"); ok {
+		if guestID, ok := value.(string); ok {
+			claims.GuestID = guestID
+		}
+	}
+	if value, ok := sc.GetData("issuedAtMs"); ok {
+		if issuedAt, ok := value.(int64); ok {
+			claims.IssuedAtMs = issuedAt
+		}
+	}
+	return claims
 }
 
 // emitRoomFeatures 把完整开关值广播给整个房间（含尚未进入语音/一起听的人）。
@@ -168,7 +164,6 @@ func (s *Server) emitRoomFeatures(roomID string, state roomFeatureState) {
 		"voiceAutoJoin":     state.VoiceAutoJoin,
 		"musicEnabled":      state.MusicEnabled,
 		"screenE2EEEnabled": state.ScreenE2EEEnabled,
-		"screenE2EEKey":     s.screenE2EEKeyB64(roomID, state.ScreenE2EEEnabled),
 	})
 }
 
@@ -180,16 +175,13 @@ func (s *Server) attachRoomFeatures(sc *sio.Socket) {
 	sc.On("room-features-set", func(args []json.RawMessage, ack func(...any)) {
 		s.handleRoomFeaturesSet(sc, args, ack)
 	})
-	sc.On("voice-invite", func(args []json.RawMessage, ack func(...any)) {
-		s.handleVoiceInvite(sc, args, ack)
-	})
 }
 
 // handleRoomFeaturesGet 读取四个开关：房间成员可读。
 func (s *Server) handleRoomFeaturesGet(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
 	roomID, ok := parseRoomFeaturesGet(args)
 	if !ok {
-		voiceRelayAck(ack, false, "roomId 为必填项")
+		roomFeaturesAck(ack, false, "roomId 为必填项")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -197,11 +189,11 @@ func (s *Server) handleRoomFeaturesGet(sc *sio.Socket, args []json.RawMessage, a
 
 	room, err := s.Rooms.FindByRoomID(ctx, roomID)
 	if err != nil || room == nil || room.Status != "active" {
-		voiceRelayAck(ack, false, "房间不存在或已关闭")
+		roomFeaturesAck(ack, false, "房间不存在或已关闭")
 		return
 	}
-	if allowed, err := s.canReadRoom(ctx, roomID, voiceRelayClaims(sc)); err != nil || !allowed {
-		voiceRelayAck(ack, false, "无权限：不在房间内")
+	if allowed, err := s.canReadRoom(ctx, roomID, socketAuthClaims(sc)); err != nil || !allowed {
+		roomFeaturesAck(ack, false, "无权限：不在房间内")
 		return
 	}
 	state := roomFeatureStateOf(room)
@@ -213,7 +205,6 @@ func (s *Server) handleRoomFeaturesGet(sc *sio.Socket, args []json.RawMessage, a
 			"voiceAutoJoin":     state.VoiceAutoJoin,
 			"musicEnabled":      state.MusicEnabled,
 			"screenE2EEEnabled": state.ScreenE2EEEnabled,
-			"screenE2EEKey":     s.screenE2EEKeyB64(roomID, state.ScreenE2EEEnabled),
 		})
 	}
 }
@@ -222,11 +213,11 @@ func (s *Server) handleRoomFeaturesGet(sc *sio.Socket, args []json.RawMessage, a
 func (s *Server) handleRoomFeaturesSet(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
 	payload := parseRoomFeaturesSet(args)
 	if payload.RoomID == "" {
-		voiceRelayAck(ack, false, "roomId 为必填项")
+		roomFeaturesAck(ack, false, "roomId 为必填项")
 		return
 	}
 	if !payload.hasAnyField() {
-		voiceRelayAck(ack, false, "参数不完整：至少提供一个开关")
+		roomFeaturesAck(ack, false, "参数不完整：至少提供一个开关")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -235,17 +226,17 @@ func (s *Server) handleRoomFeaturesSet(sc *sio.Socket, args []json.RawMessage, a
 	host, err := s.RoomSvc.IsRoomHost(ctx, sc.ID, payload.RoomID)
 	if err != nil {
 		log.Printf("[room-features] 校验房主失败: %v", err)
-		voiceRelayAck(ack, false, "校验房主失败")
+		roomFeaturesAck(ack, false, "校验房主失败")
 		return
 	}
 	if !host {
-		voiceRelayAck(ack, false, "无权限：仅房主可设置房间功能")
+		roomFeaturesAck(ack, false, "无权限：仅房主可设置房间功能")
 		return
 	}
 
 	room, err := s.Rooms.FindByRoomID(ctx, payload.RoomID)
 	if err != nil || room == nil {
-		voiceRelayAck(ack, false, "房间不存在或已关闭")
+		roomFeaturesAck(ack, false, "房间不存在或已关闭")
 		return
 	}
 
@@ -257,7 +248,7 @@ func (s *Server) handleRoomFeaturesSet(sc *sio.Socket, args []json.RawMessage, a
 	}
 	if err := s.Rooms.PatchSettings(ctx, payload.RoomID, patch); err != nil {
 		log.Printf("[room-features] 保存房间功能开关失败: %v", err)
-		voiceRelayAck(ack, false, "保存房间功能设置失败")
+		roomFeaturesAck(ack, false, "保存房间功能设置失败")
 		return
 	}
 
@@ -271,79 +262,6 @@ func (s *Server) handleRoomFeaturesSet(sc *sio.Socket, args []json.RawMessage, a
 			"voiceAutoJoin":     state.VoiceAutoJoin,
 			"musicEnabled":      state.MusicEnabled,
 			"screenE2EEEnabled": state.ScreenE2EEEnabled,
-			"screenE2EEKey":     s.screenE2EEKeyB64(payload.RoomID, state.ScreenE2EEEnabled),
-		})
-	}
-}
-
-// handleVoiceInvite 让房主邀请房间里的某个成员加入语音。
-//
-// 只转发事件，不代替对方加入：是否接受由被邀请人决定，真正的加入仍然走
-// /api/voice/token（livekit）或 voice-relay-join（relay），所以语音总开关
-// 关闭时这里直接拒绝，避免发出必然失败的邀请。
-func (s *Server) handleVoiceInvite(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
-	invite, ok := parseVoiceInvite(args)
-	if !ok {
-		voiceRelayAck(ack, false, "参数不完整或邀请类型无效")
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	host, err := s.RoomSvc.IsRoomHost(ctx, sc.ID, invite.RoomID)
-	if err != nil {
-		log.Printf("[room-features] 校验房主失败: %v", err)
-		voiceRelayAck(ack, false, "校验房主失败")
-		return
-	}
-	if !host {
-		voiceRelayAck(ack, false, "无权限：仅房主可邀请成员加入语音")
-		return
-	}
-
-	room, err := s.Rooms.FindByRoomID(ctx, invite.RoomID)
-	if err != nil || room == nil || room.Status != "active" {
-		voiceRelayAck(ack, false, "房间不存在或已关闭")
-		return
-	}
-	if !room.VoiceEnabled {
-		voiceRelayAck(ack, false, "房主已关闭本房间语音")
-		return
-	}
-	if invite.Kind == "relay" && !room.VoiceRelayEnabled {
-		voiceRelayAck(ack, false, "房主已关闭中继语音")
-		return
-	}
-	if s.Socket == nil || !s.Socket.Connected(invite.TargetSocketID) {
-		voiceRelayAck(ack, false, "目标成员不在线")
-		return
-	}
-	inRoom, err := s.RoomSvc.IsInRoom(ctx, invite.TargetSocketID, invite.RoomID)
-	if err != nil {
-		log.Printf("[room-features] 校验目标成员房间失败: %v", err)
-		voiceRelayAck(ack, false, "校验目标成员失败")
-		return
-	}
-	if !inRoom {
-		voiceRelayAck(ack, false, "目标成员不在房间内")
-		return
-	}
-
-	from := voiceRelayUsername(sc)
-	if from == "" {
-		from = "房主"
-	}
-	s.Socket.To(invite.TargetSocketID).Emit("voice-invite-received", map[string]any{
-		"roomId": invite.RoomID,
-		"kind":   invite.Kind,
-		"from":   from,
-	})
-	if ack != nil {
-		ack(map[string]any{
-			"success":        true,
-			"roomId":         invite.RoomID,
-			"targetSocketId": invite.TargetSocketID,
-			"kind":           invite.Kind,
 		})
 	}
 }
