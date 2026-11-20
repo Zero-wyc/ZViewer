@@ -20,8 +20,6 @@ export interface RoomFeaturesPayload extends Partial<RoomFeatures> {
   message?: string
 }
 
-export type VoiceInviteKind = 'livekit' | 'relay'
-
 export function useRoomFeatures(
   socket: Socket | null | undefined,
   roomId: string | undefined
@@ -44,11 +42,6 @@ export function useRoomFeatures(
           : {}),
         ...(typeof payload.screenE2EEEnabled === 'boolean'
           ? { screenE2EEEnabled: payload.screenE2EEEnabled }
-          : {}),
-        // 解密密钥随广播一起下发：观众拿到开关的同时就拿到了密钥，
-        // 不需要再请求 watch 接口（那条请求会被反代缓存，是黑屏的根因）。
-        ...(typeof payload.screenE2EEKey === 'string'
-          ? { screenE2EEKey: payload.screenE2EEKey }
           : {}),
       })
     }
@@ -111,14 +104,6 @@ export function useRoomFeatures(
           }
         }
       )
-    },
-    /**
-     * 房主邀请某个成员加入语音。
-     * kind=livekit 走 LiveKit，kind=relay 走中继语音（隧道场景兜底）。
-     */
-    inviteVoice: (targetSocketId: string, kind: VoiceInviteKind) => {
-      if (!socket || !roomId || !targetSocketId) return
-      socket.emit('voice-invite', { roomId, targetSocketId, kind })
     },
   }
 }

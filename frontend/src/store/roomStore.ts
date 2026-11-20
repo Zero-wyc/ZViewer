@@ -10,7 +10,12 @@ import type { WatchTogetherState } from '@/modules/sync-playback/types'
 import type { AniSubsEpisode } from '@/modules/anisubs/types'
 import type { CmsSourceMeta } from '@/modules/cms/types'
 import { useMusicStore } from '@/modules/music/store'
+import {
+  DEFAULT_MOVIE_PERMISSION,
+  type MoviePermission,
+} from './moviePermission'
 import { t } from '@/i18n'
+import { setApiRoomContext } from '@/lib/roomContext'
 
 /**
  * ani-subs 番剧源元数据。
@@ -65,6 +70,28 @@ export interface RoomSettings {
   password: string | null
   maxViewers: number
   requireApproval: boolean
+}
+
+/**
+ * 房间功能开关（房主在「成员管理 → 设置」里调整，全员实时同步）。
+ * 后端字段同名，通过 socket 事件 room-features-get / room-features 下发。
+ */
+export interface RoomFeatures {
+  /** 房间语音总开关：关闭后成员无法加入语音 */
+  voiceEnabled: boolean
+  /** 进房后自动加入语音（仅当 voiceEnabled 为 true 时生效） */
+  voiceAutoJoin: boolean
+  /** 一起听功能开关：关闭后成员无法打开一起听窗口，服务端拒绝队列/同步事件 */
+  musicEnabled: boolean
+  /** 屏幕共享端到端加密开关：切换后房主与观众自动重建连接 */
+  screenE2EEEnabled: boolean
+}
+
+export const DEFAULT_ROOM_FEATURES: RoomFeatures = {
+  voiceEnabled: true,
+  voiceAutoJoin: false,
+  musicEnabled: true,
+  screenE2EEEnabled: true,
 }
 
 export type MovieSourceType =
@@ -273,8 +300,21 @@ interface RoomState {
    */
   moderators: number[]
   setModerators: (moderators: number[]) => void
+  /**
+   * 游客房管的 socketId 列表（全员同步）。
+   *
+   * 游客没有 userId（恒为 0），后端把游客房管按连接身份记在内存里，
+   * 随 moderators-changed 事件用 guestModerators 字段一起下发；
+   * 游客离开房间 / 断线即失效。前端判定房管要同时看两份名单。
+   */
+  guestModerators: string[]
+  setGuestModerators: (socketIds: string[]) => void
   // 房间运行时设置（密码/上限/审批开关）
   roomSettings: RoomSettings
+  /** 房间功能开关（语音/一起听/画面加密/自动进语音） */
+  roomFeatures: RoomFeatures
+  /** 一起看「允许成员点片」房间级权限（房主设置，全员同步） */
+  moviePermission: MoviePermission
   isSharing: boolean
   isPaused: boolean
   watchTogether: WatchTogetherState
@@ -390,11 +430,15 @@ interface RoomState {
   setShareMethod: (method: ShareMethod) => void
   addViewer: (viewer: Viewer) => void
   removeViewer: (viewerSocketId: string) => void
+  /** 观众在房间内改了昵称：就地更新显示名（不新增/不重排） */
+  renameViewer: (viewerSocketId: string, username: string) => void
   setViewers: (viewers: Viewer[]) => void
   setMutedViewerIds: (ids: number[]) => void
   addMutedViewer: (userId: number) => void
   removeMutedViewer: (userId: number) => void
   setRoomSettings: (settings: Partial<RoomSettings>) => void
+  setRoomFeatures: (features: Partial<RoomFeatures>) => void
+  setMoviePermission: (permission: MoviePermission) => void
   setIsSharing: (value: boolean) => void
   setIsPaused: (value: boolean) => void
   setWatchTogether: (state: Partial<WatchTogetherState>) => void
@@ -519,11 +563,14 @@ const defaultState = {
   viewers: [],
   mutedViewerIds: [] as number[],
   moderators: [] as number[],
+  guestModerators: [] as string[],
   roomSettings: {
     password: null as string | null,
     maxViewers: 10,
     requireApproval: true,
   } as RoomSettings,
+  roomFeatures: { ...DEFAULT_ROOM_FEATURES },
+  moviePermission: { ...DEFAULT_MOVIE_PERMISSION },
   isSharing: false,
   isPaused: false,
   watchTogether: {
@@ -562,6 +609,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setRoomId: (id) => set({ roomId: id }),
   setRoomName: (name) => set({ roomName: name }),
   setModerators: (moderators) => set({ moderators }),
+  setGuestModerators: (guestModerators) => set({ guestModerators }),
   setPassword: (password) => set({ password }),
   setMaxViewers: (max) => set({ maxViewers: max }),
   setMode: (mode) => set({ mode }),
@@ -582,6 +630,12 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   removeViewer: (socketId) =>
     set((state) => ({
       viewers: state.viewers.filter((v) => v.socketId !== socketId),
+    })),
+  renameViewer: (socketId, username) =>
+    set((state) => ({
+      viewers: state.viewers.map((v) =>
+        v.socketId === socketId ? { ...v, username } : v
+      ),
     })),
   setViewers: (viewers) =>
     set((state) => ({
@@ -634,6 +688,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         ? { password: settings.password ?? '' }
         : {}),
     })),
+  setRoomFeatures: (features) =>
+    set((state) => ({
+      roomFeatures: { ...state.roomFeatures, ...features },
+    })),
+  setMoviePermission: (permission) => set({ moviePermission: permission }),
   setIsSharing: (value) => set({ isSharing: value }),
   setIsPaused: (value) => set({ isPaused: value }),
   setWatchTogether: (updates) =>
@@ -667,14 +726,20 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     set((state) => ({ autoApproveRequests: !state.autoApproveRequests })),
   setAutoContinueEnabled: (enabled) => set({ autoContinueEnabled: enabled }),
   setHostOffline: (offline) => set({ hostOffline: offline }),
-  setActiveRoomId: (id) => set({ activeRoomId: id }),
+  setActiveRoomId: (id) => {
+    // 同步底层 API 请求头：进房后账号类请求要带上房间上下文（房间共享账号）
+    setApiRoomContext(id)
+    set({ activeRoomId: id })
+  },
   exitRoom: () => {
+    setApiRoomContext(null)
     set({ ...defaultState })
     // 离开房间时同步重置一起听模块状态（队列/播放镜像/提示等），
     // 避免进入下一个房间时残留上一房间的音乐状态
     useMusicStore.getState().reset()
   },
   reset: () => {
+    setApiRoomContext(null)
     set({ ...defaultState })
     // 同上：roomStore 重置（切换房间/创建新房间）时联动清理音乐状态
     useMusicStore.getState().reset()

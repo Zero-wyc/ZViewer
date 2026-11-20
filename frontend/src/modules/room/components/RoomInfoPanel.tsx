@@ -16,6 +16,9 @@ import {
   Lock,
   UserCheck,
   Zap,
+  Mic,
+  Music2,
+  ShieldCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
@@ -23,8 +26,15 @@ import { Text, Paragraph } from '@/components/ui/Typography'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
+import { Switch } from '@/components/ui/Switch'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { useRoomDisplayName } from '@/modules/room/hooks/useRoomDisplayName'
+import { useRoomFeatures } from '@/modules/room/hooks/useRoomFeatures'
+import {
+  DISPLAY_NAME_MAX,
+  isValidDisplayName,
+} from '@/modules/room/lib/displayName'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
@@ -77,10 +87,12 @@ export function RoomInfoPanel({
   const roomName = useRoomStore((state) => state.roomName)
   const roomMode = useRoomStore((state) => state.mode)
   const roomSettings = useRoomStore((state) => state.roomSettings)
+  const roomFeatures = useRoomStore((state) => state.roomFeatures)
   const addMutedViewer = useRoomStore((state) => state.addMutedViewer)
   const removeMutedViewer = useRoomStore((state) => state.removeMutedViewer)
   const setRoomSettings = useRoomStore((state) => state.setRoomSettings)
   const moderators = useRoomStore((state) => state.moderators)
+  const guestModerators = useRoomStore((state) => state.guestModerators)
   const autoApproveRequests = useRoomStore((state) => state.autoApproveRequests)
   const toggleAutoApproveRequests = useRoomStore(
     (state) => state.toggleAutoApproveRequests
@@ -88,6 +100,7 @@ export function RoomInfoPanel({
   const currentUserId = useAuthStore((state) => state.user?.id)
   const role = useAuthStore((state) => state.user?.role)
   const matrix = useSystemSettingsStore((state) => state.roomPermissionMatrix)
+  const { updateFeature } = useRoomFeatures(socket, roomId)
 
   const [showUsers, setShowUsers] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -97,6 +110,13 @@ export function RoomInfoPanel({
   const [savingName, setSavingName] = useState(false)
   /** 内网地址分享提示：确认后才复制 */
   const [showLinkWarning, setShowLinkWarning] = useState(false)
+
+  // 我的房间昵称（房间内显示名，随时可改）
+  const { name: roomDisplayName, rename: renameDisplayName } =
+    useRoomDisplayName(roomId)
+  const [nicknameOpen, setNicknameOpen] = useState(false)
+  const [nicknameDraft, setNicknameDraft] = useState('')
+  const [nicknameError, setNicknameError] = useState('')
 
   // 房间设置表单
   const [passwordValue, setPasswordValue] = useState('')
@@ -119,9 +139,10 @@ export function RoomInfoPanel({
   }, [isHostProp])
 
   // 当前用户是否为房管（房主身份由 sessionStorage 标记判定，
-  // 房管身份由服务器同步的 moderators 列表判定）
+  // 房管身份由服务器同步的 moderators / guestModerators 列表判定）
   const isModerator =
-    currentUserId != null && moderators.includes(Number(currentUserId))
+    (currentUserId != null && moderators.includes(Number(currentUserId))) ||
+    (!!socket?.id && guestModerators.includes(socket.id))
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 同步 roomName 到编辑框
@@ -332,19 +353,25 @@ export function RoomInfoPanel({
     )
   }
 
-  // 房主任命/撤销房管（仅房主可操作）
-  const handleToggleModerator = (userId: number, username?: string) => {
+  // 房主任命/撤销房管（仅房主可操作）。游客 userId 恒为 0，改按 socketId 任命。
+  const handleToggleModerator = (
+    userId: number,
+    username?: string,
+    targetSocketId?: string
+  ) => {
     if (!socket?.connected) {
       message.error(t('未连接到房间'))
       return
     }
-    const isModerator = moderators.includes(userId)
+    const isModerator =
+      moderators.includes(userId) ||
+      (!!targetSocketId && guestModerators.includes(targetSocketId))
     const event = isModerator ? 'dismiss-moderator' : 'appoint-moderator'
     socket
       .timeout(5000)
       .emit(
         event,
-        { roomId, userId },
+        { roomId, userId, socketId: targetSocketId ?? '' },
         (
           error: Error | null,
           response?: { success: boolean; message?: string }
@@ -424,7 +451,8 @@ export function RoomInfoPanel({
       currentUserId != null &&
       String(viewer.userId) === String(currentUserId)
     const viewerIsModerator =
-      viewer.userId != null && moderators.includes(Number(viewer.userId))
+      (viewer.userId != null && moderators.includes(Number(viewer.userId))) ||
+      guestModerators.includes(viewer.socketId)
     // 管理权限（禁言/踢出/房管任命）：房主，或权限矩阵允许的观众
     const canManage =
       withActions &&
@@ -526,11 +554,15 @@ export function RoomInfoPanel({
                 )}
               </button>
             )}
-            {/* 房管任命/撤销：仅房主可见（仅登录用户可被任命） */}
-            {isHost && viewer.userId != null && viewer.userId > 0 && (
+            {/* 房管任命/撤销：仅房主可见（登录用户按 userId、游客按 socketId） */}
+            {isHost && (
               <button
                 onClick={() =>
-                  handleToggleModerator(Number(viewer.userId), viewer.username)
+                  handleToggleModerator(
+                    Number(viewer.userId) || 0,
+                    viewer.username,
+                    viewer.socketId
+                  )
                 }
                 className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)]"
                 style={{ color: 'var(--md-sys-color-tertiary)' }}
@@ -752,6 +784,33 @@ export function RoomInfoPanel({
               </button>
             </div>
 
+            {/* 我的昵称（房间内显示名，随时可改） */}
+            <div className="flex flex-col gap-1">
+              <Text
+                type="secondary"
+                className="text-[10px] uppercase tracking-wide"
+              >
+                {t('我的昵称')}
+              </Text>
+              <div className="flex items-center gap-1.5">
+                <Text className="truncate text-xs font-medium">
+                  {roomDisplayName || t('未设置')}
+                </Text>
+                <button
+                  onClick={() => {
+                    setNicknameDraft(roomDisplayName)
+                    setNicknameError('')
+                    setNicknameOpen(true)
+                  }}
+                  className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:scale-110 hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)] active:scale-95"
+                  title={t('修改昵称')}
+                  aria-label={t('修改昵称')}
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+
             {/* 操作按钮组 */}
             <div className="flex flex-wrap items-center gap-1.5">
               <Button
@@ -868,6 +927,45 @@ export function RoomInfoPanel({
                         {viewer.username || viewer.socketId.slice(0, 8)}
                       </Text>
                       <RoleBadge role={viewer.role} />
+                      {isHost && (
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            handleToggleModerator(
+                              Number(viewer.userId) || 0,
+                              viewer.username,
+                              viewer.socketId
+                            )
+                          }}
+                          className="rounded-[var(--md-sys-shape-corner)] p-0.5 transition-all hover:scale-110 active:scale-95"
+                          title={
+                            (viewer.userId != null &&
+                              moderators.includes(Number(viewer.userId))) ||
+                            guestModerators.includes(viewer.socketId)
+                              ? t('撤销房管')
+                              : t('任命房管')
+                          }
+                          aria-label={
+                            (viewer.userId != null &&
+                              moderators.includes(Number(viewer.userId))) ||
+                            guestModerators.includes(viewer.socketId)
+                              ? t('撤销房管')
+                              : t('任命房管')
+                          }
+                        >
+                          <Shield
+                            className={cn(
+                              'h-3 w-3 shrink-0',
+                              (viewer.userId != null &&
+                                moderators.includes(Number(viewer.userId))) ||
+                                guestModerators.includes(viewer.socketId)
+                                ? 'opacity-100'
+                                : 'opacity-40'
+                            )}
+                            style={{ color: 'var(--md-sys-color-primary)' }}
+                          />
+                        </button>
+                      )}
                       {viewer.muted && (
                         <VolumeX
                           className="h-3 w-3 shrink-0"
@@ -991,6 +1089,87 @@ export function RoomInfoPanel({
                     disabled={!isHost || savingSettings}
                   />
                 </div>
+              </div>
+
+              {/* 房间功能开关：语音 / 进房自动语音 / 一起听 / 画面加密 */}
+              <div className="glass flex flex-col gap-3 rounded-[var(--md-sys-shape-corner)] p-3">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                    style={{
+                      backgroundColor: 'var(--md-sys-color-primary-container)',
+                      color: 'var(--md-sys-color-on-primary-container)',
+                    }}
+                  >
+                    <Zap className="h-4 w-4" />
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <Text className="text-sm font-medium">{t('房间功能')}</Text>
+                    <Text
+                      type="secondary"
+                      className="text-[10px] uppercase tracking-wide"
+                    >
+                      ROOM FEATURES
+                    </Text>
+                  </div>
+                </div>
+
+                {[
+                  {
+                    key: 'voiceEnabled' as const,
+                    icon: <Mic className="h-3.5 w-3.5" />,
+                    label: t('语音功能'),
+                    hint: t('关闭后本房间成员无法加入语音。'),
+                    checked: roomFeatures.voiceEnabled,
+                    disabled: !isHost,
+                  },
+                  {
+                    key: 'voiceAutoJoin' as const,
+                    icon: <Mic className="h-3.5 w-3.5" />,
+                    label: t('进房自动开启语音'),
+                    hint: t('成员进入房间后自动加入语音。'),
+                    checked: roomFeatures.voiceAutoJoin,
+                    disabled: !isHost || !roomFeatures.voiceEnabled,
+                  },
+                  {
+                    key: 'musicEnabled' as const,
+                    icon: <Music2 className="h-3.5 w-3.5" />,
+                    label: t('一起听功能'),
+                    hint: t('关闭后成员端无法打开一起听窗口。'),
+                    checked: roomFeatures.musicEnabled,
+                    disabled: !isHost,
+                  },
+                  {
+                    key: 'screenE2EEEnabled' as const,
+                    icon: <ShieldCheck className="h-3.5 w-3.5" />,
+                    label: t('屏幕共享端到端加密'),
+                    hint: t('关闭后屏幕共享不启用端到端加密。'),
+                    checked: roomFeatures.screenE2EEEnabled,
+                    disabled: !isHost,
+                  },
+                ].map((item) => (
+                  <div key={item.key} className="flex items-start gap-2">
+                    <span className="mt-0.5 shrink-0 text-[var(--md-sys-color-primary)]">
+                      {item.icon}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Text className="text-xs font-medium">{item.label}</Text>
+                        <Switch
+                          className="ml-auto"
+                          checked={item.checked}
+                          disabled={item.disabled}
+                          onChange={(event) =>
+                            updateFeature({ [item.key]: event.target.checked })
+                          }
+                        />
+                      </div>
+                      <Text type="secondary" className="mt-0.5 text-[10px]">
+                        {item.hint}
+                      </Text>
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {/* 保存按钮 */}
@@ -1198,6 +1377,67 @@ export function RoomInfoPanel({
               </div>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* 修改房间昵称 Modal */}
+      <Modal
+        open={nicknameOpen}
+        onClose={() => setNicknameOpen(false)}
+        title={t('修改昵称')}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setNicknameOpen(false)}
+            >
+              {t('取消')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                const trimmed = nicknameDraft.trim()
+                if (!isValidDisplayName(trimmed) || !renameDisplayName(trimmed)) {
+                  setNicknameError(t('昵称需为 1~20 个字符'))
+                  return
+                }
+                setNicknameOpen(false)
+                message.success(t('昵称已更新'))
+              }}
+            >
+              {t('保存')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Paragraph className="text-sm">
+            {t('昵称会显示在成员列表、评论区与语音中，仅对当前房间生效。')}
+          </Paragraph>
+          <Input
+            value={nicknameDraft}
+            maxLength={DISPLAY_NAME_MAX}
+            autoFocus
+            placeholder={t('请输入昵称')}
+            error={nicknameError}
+            onChange={(event) => {
+              setNicknameDraft(event.target.value)
+              if (nicknameError) setNicknameError('')
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              const trimmed = nicknameDraft.trim()
+              if (!isValidDisplayName(trimmed) || !renameDisplayName(trimmed)) {
+                setNicknameError(t('昵称需为 1~20 个字符'))
+                return
+              }
+              setNicknameOpen(false)
+              message.success(t('昵称已更新'))
+            }}
+          />
         </div>
       </Modal>
 

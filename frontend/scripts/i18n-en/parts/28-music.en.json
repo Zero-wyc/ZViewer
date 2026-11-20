@@ -90,7 +90,6 @@
     "Edit genre order (use the arrows in edit mode)",
     "Tags",
     "Title",
-    "Standard",
     "Play",
     "Play/pause",
     "Queue",
@@ -119,6 +118,7 @@
     "View album",
     "Scene recommendations",
     "Hi-Res master",
-    "Immersive surround"
+    "Immersive surround",
+    "Failed to create the playlist"
   ]
 }
