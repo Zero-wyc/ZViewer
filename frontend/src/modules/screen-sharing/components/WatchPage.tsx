@@ -33,6 +33,8 @@ import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
 import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
+import { useRoomMoviePermission } from '@/modules/room/hooks/useRoomMoviePermission'
+import { canRequestMovie } from '@/store/moviePermission'
 import { useJoinRoom } from '../hooks/useJoinRoom'
 import { useStreamStatus } from '../hooks/useStreamStatus'
 import { useShareMethod } from '../hooks/useShareMethod'
@@ -47,6 +49,8 @@ function WatchPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { socket, connected } = useSocket()
+  // 一起看「允许成员点片」权限：进房拉取一次 + 跟随 movie:permission-changed 实时更新
+  useRoomMoviePermission(socket, roomId)
 
   // 从房间列表进入时携带的 state：{ fromList, hasPassword, name }
   // - hasPassword=true：显示密码输入框，不自动 requestJoin（避免空密码触发"密码错误"）
@@ -79,18 +83,29 @@ function WatchPage() {
   const streamKey = useRoomStore((state) => state.streamKey)
   const exitRoom = useRoomStore((state) => state.exitRoom)
   const moderators = useRoomStore((state) => state.moderators)
+  const guestModerators = useRoomStore((state) => state.guestModerators)
   const currentUserId = useAuthStore((state) => state.user?.id)
   const role = useAuthStore((state) => state.user?.role)
   const matrix = useSystemSettingsStore((state) => state.roomPermissionMatrix)
   const username = useAuthStore((state) => state.user?.username)
-  // 房管观众：可管理影片与成员（含语音），由服务器同步的 moderators 判定
+  // 房管观众：可管理影片与成员（含语音）。登录用户按 userId、游客按 socketId。
   const isModerator =
-    currentUserId != null && moderators.includes(Number(currentUserId))
+    (currentUserId != null && moderators.includes(Number(currentUserId))) ||
+    (!!socket?.id && guestModerators.includes(socket.id))
   // 权限矩阵 UI 门控（与后端 canViewerPerform 同语义）：普通用户勾选后
   // 也能见到对应的影片/队列按钮；真正的校验仍由后端执行
   const movieOpts = { isHost: false, isModerator, role }
   const canManageMovie = canRoomViewerPerform(matrix, 'manageMovie', movieOpts)
-  const canAddMovie = canRoomViewerPerform(matrix, 'addMovie', movieOpts)
+  // 点片能力 = 全局矩阵 addMovie/房管 放行，或房主在房间内单独授权（总开关/白名单）
+  const moviePermission = useRoomStore((state) => state.moviePermission)
+  const canAddMovie =
+    canRoomViewerPerform(matrix, 'addMovie', movieOpts) ||
+    canRequestMovie(moviePermission, {
+      isHost: false,
+      isModerator,
+      canManageMovie,
+      userId: currentUserId == null ? 0 : Number(currentUserId),
+    })
   const canManageQueue = canRoomViewerPerform(matrix, 'musicQueue', movieOpts)
 
   // 切换影片时强制整个播放器重挂载（与房主端一致，跨引擎切换彻底清理）
@@ -127,7 +142,7 @@ function WatchPage() {
           </>
         }
         controlLabels={
-          canManageMovie
+          canAddMovie
             ? [t('房间状态'), t('影片列表'), t('添加影片')]
             : [t('房间状态'), t('影片列表')]
         }
