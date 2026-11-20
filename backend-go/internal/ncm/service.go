@@ -3,6 +3,8 @@ package ncm
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"log"
 	"strconv"
 
 	"zviewer/backend/internal/store"
@@ -17,14 +19,20 @@ type Service struct {
 	api   *api
 	Creds *store.NcmCredentials
 	Rooms *store.Rooms
+	// RoomAccounts 是房间共享账号绑定（房间内任意成员登录后全房复用）。
+	RoomAccounts *store.RoomAccounts
 }
+
+// roomAccountProviderNCM 是 room_account 表里网易云平台的取值。
+const roomAccountProviderNCM = "ncm"
 
 // NewService 构造服务。
 func NewService(conn *sql.DB) *Service {
 	return &Service{
-		api:   newAPI(),
-		Creds: store.NewNcmCredentials(conn),
-		Rooms: store.NewRooms(conn),
+		api:          newAPI(),
+		Creds:        store.NewNcmCredentials(conn),
+		Rooms:        store.NewRooms(conn),
+		RoomAccounts: store.NewRoomAccounts(conn),
 	}
 }
 
@@ -36,29 +44,42 @@ func (s *Service) LoadCredential(ctx context.Context, userID int64) (*store.NcmC
 	return s.Creds.FindByUserID(ctx, userID)
 }
 
-// CredentialForRequest 是凭证回退链：当前用户 → 房主（请求带 roomId 时）。
+// CredentialForRequest 是凭证回退链：房间共享账号 → 房主 → 请求者自己。
 //
-// 实现 spec「房主登录网易云后全房间可播 VIP」：观众自己没登录/没凭证时，
-// 借用房主的持久化凭证解析直链。`/stream` 与 `/song-quality` 共用。
+// 实现 spec「房间内任意成员登录网易云后全房间可播」：请求带 roomId 且该房间
+// 绑定过共享账号时优先用绑定者的持久化凭证；没有绑定则沿用旧链（房主凭证
+// 兜底观众，最后才是请求者本人）。`/stream` 与 `/song-quality` 共用。
 func (s *Service) CredentialForRequest(ctx context.Context, userID int64, roomID string) (*store.NcmCredential, error) {
-	credential, err := s.LoadCredential(ctx, userID)
-	if err != nil || credential != nil {
-		return credential, err
-	}
-	if roomID == "" {
-		return nil, nil
-	}
-	room, err := s.Rooms.FindByRoomID(ctx, roomID)
-	if err != nil {
-		if err == store.ErrRoomNotFound {
-			return nil, nil
+	if roomID != "" && s.RoomAccounts != nil {
+		binderID, ok, err := s.RoomAccounts.GetRoomAccount(ctx, roomAccountProviderNCM, roomID)
+		if err != nil {
+			// 绑定表读失败不该让播放整体失败：降级到旧链（没有共享账号时的行为）。
+			log.Printf("[ncm] 读取房间共享账号失败 room=%s: %v", roomID, err)
+		} else if ok && binderID > 0 {
+			credential, loadErr := s.LoadCredential(ctx, binderID)
+			if loadErr != nil || credential != nil {
+				return credential, loadErr
+			}
+			// 绑定者已经清掉凭证：继续走旧链，避免整房间突然不可播。
 		}
-		return nil, err
 	}
-	if room.OwnerUserID == nil {
-		return nil, nil
+
+	if roomID != "" {
+		room, err := s.Rooms.FindByRoomID(ctx, roomID)
+		if err != nil {
+			if errors.Is(err, store.ErrRoomNotFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		if room.OwnerUserID != nil {
+			credential, err := s.LoadCredential(ctx, *room.OwnerUserID)
+			if err != nil || credential != nil {
+				return credential, err
+			}
+		}
 	}
-	return s.LoadCredential(ctx, *room.OwnerUserID)
+	return s.LoadCredential(ctx, userID)
 }
 
 // CookieHeaderFor 取凭证的请求头 cookie（无凭证时为空串）。

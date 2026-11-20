@@ -273,6 +273,22 @@ var routes = map[string]route{
 			"includeVideo": true,
 		}
 	}},
+	// 关注列表。uid 是要查看的用户；order=true 按关注时间倒序。
+	"/user/follows": {crypto: cryptoWeapi, build: func(p params) (string, map[string]any) {
+		return "/api/user/getfollows/" + p.S("uid"), map[string]any{
+			"offset": p.I("offset", 0),
+			"limit":  p.I("limit", 30),
+			"order":  p.B("order", true),
+		}
+	}},
+	// 粉丝列表。上游参数名是 userId（不是 uid），这里做一次转换。
+	"/user/followeds": {crypto: cryptoWeapi, build: func(p params) (string, map[string]any) {
+		return "/api/user/getfolloweds", map[string]any{
+			"userId": p.S("uid"),
+			"offset": p.I("offset", 0),
+			"limit":  p.I("limit", 30),
+		}
+	}},
 	"/user/cloud": {crypto: cryptoWeapi, build: func(p params) (string, map[string]any) {
 		return "/api/v1/cloud/get", map[string]any{"limit": p.I("limit", 30), "offset": p.I("offset", 0)}
 	}},
