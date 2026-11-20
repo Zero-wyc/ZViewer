@@ -24,6 +24,7 @@ import {
   MoreHorizontal,
   Eye,
   EyeOff,
+  MessageSquare,
 } from 'lucide-react'
 import { cn, formatDuration } from '@/lib/utils'
 import {
@@ -32,6 +33,7 @@ import {
 } from '@/modules/player/services/pause-intent'
 import { DanmakuInput } from '@/components/VideoPlayer/parts/DanmakuInput'
 import { IconButton } from '@/components/VideoControls/IconButton'
+import { RotateButton } from '@/components/VideoControls'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
 import { t as translate } from '@/i18n'
 
@@ -220,6 +222,12 @@ interface PlayerControlBarProps {
   onToggleFullscreen?: () => void
   isWebFullscreen?: boolean
   onToggleWebFullscreen?: () => void
+  /** 是否显示横竖屏旋转按钮（触屏设备全屏时） */
+  canRotate?: boolean
+  /** 当前是否已强制横屏 */
+  forcedLandscape?: boolean
+  /** 切换横屏 / 竖屏 */
+  onToggleRotate?: () => void
   danmakuEnabled: boolean
   onToggleDanmaku: () => void
   onSendDanmaku: (text: string) => void
@@ -228,14 +236,28 @@ interface PlayerControlBarProps {
   settingsOpen: boolean
   onToggleSettings: () => void
   settingsButtonRef?: React.Ref<HTMLButtonElement>
+  /** 清晰度选项（超过 1 项时显示下拉；来源：B站 acceptQuality 或爬虫规则 qualities） */
+  qualityOptions?: Array<{ value: string; label: string }>
+  /** 当前清晰度选项的 value（须存在于 qualityOptions 中） */
+  currentQualityValue?: string | null
+  /** 切换清晰度（仅房主可操作，观众端下拉禁用） */
+  onQualityChange?: (value: string) => void
+  /** 正在切换清晰度（解析新地址 / 重挂载中） */
+  qualitySwitching?: boolean
   onRequestSeek?: (time: number) => void
   onRequestPause?: () => void
   onRequestPlay?: () => void
   pausePending?: boolean
   playPending?: boolean
+  /** 全屏评论区侧边栏是否展开（按钮在弹幕输入框右侧） */
+  commentPanelOpen?: boolean
+  /** 切换全屏评论区侧边栏 */
+  onToggleCommentPanel?: () => void
   controlBarVisible?: boolean
   controlBarHideMode?: boolean
   onToggleHideMode?: () => void
+  /** 控制栏容器 ref：播放器据此实测高度，供全屏浮层抬到控制栏上方 */
+  containerRef?: React.Ref<HTMLDivElement>
 }
 
 export function PlayerControlBar({
@@ -248,6 +270,9 @@ export function PlayerControlBar({
   onToggleFullscreen,
   isWebFullscreen,
   onToggleWebFullscreen,
+  canRotate = false,
+  forcedLandscape = false,
+  onToggleRotate,
   danmakuEnabled,
   onToggleDanmaku,
   onSendDanmaku,
@@ -256,14 +281,21 @@ export function PlayerControlBar({
   settingsOpen,
   onToggleSettings,
   settingsButtonRef,
+  qualityOptions = [],
+  currentQualityValue = null,
+  onQualityChange,
+  qualitySwitching = false,
   onRequestSeek,
   onRequestPause,
   onRequestPlay,
   pausePending,
   playPending,
+  commentPanelOpen = false,
+  onToggleCommentPanel,
   controlBarVisible = true,
   controlBarHideMode = false,
   onToggleHideMode,
+  containerRef,
 }: PlayerControlBarProps) {
   const currentTime = useVideoCurrentTime(videoRef)
   const duration = useVideoDuration(videoRef, watchTogether.duration)
@@ -281,6 +313,11 @@ export function PlayerControlBar({
 
   // 可直接控制播放：房主或房主离线后的观众
   const canControl = isHost || hostOffline
+
+  // 全屏时在控制栏提供评论区入口（与推流页一致；非全屏房间右侧已有评论面板）
+  const showCommentButton =
+    Boolean(onToggleCommentPanel) &&
+    (Boolean(isFullscreen) || Boolean(isWebFullscreen))
 
   // 本地进度与服务器/房主进度的时间差（秒），用于动态调整同步线视觉强度
   const serverTimeDiff =
@@ -376,6 +413,30 @@ export function PlayerControlBar({
     document.addEventListener('mousedown', handleMouseDown)
     return () => document.removeEventListener('mousedown', handleMouseDown)
   }, [rateOpen])
+
+  // 清晰度下拉：显示当前档位，点击展开可选档位
+  const [qualityOpen, setQualityOpen] = useState(false)
+  const qualityContainerRef = useRef<HTMLDivElement>(null)
+  const currentQualityLabel =
+    qualityOptions.find((option) => option.value === currentQualityValue)
+      ?.label ??
+    qualityOptions[0]?.label ??
+    ''
+
+  useEffect(() => {
+    if (!qualityOpen) return
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (
+        qualityContainerRef.current &&
+        !qualityContainerRef.current.contains(target)
+      ) {
+        setQualityOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [qualityOpen])
 
   // 点击外部关闭移动端“更多”菜单
   useEffect(() => {
@@ -542,8 +603,11 @@ export function PlayerControlBar({
 
   return (
     <div
+      ref={containerRef}
+      data-player-control-bar=""
       className={cn(
-        'absolute bottom-0 left-0 right-0 z-[80] p-2 md:p-3',
+        // vc-container：全屏二分屏时点击控制栏不触发「点画面收起评论区」
+        'vc-container absolute bottom-0 left-0 right-0 z-[80] p-2 md:p-3',
         !controlBarVisible && 'pointer-events-none'
       )}
     >
@@ -636,10 +700,24 @@ export function PlayerControlBar({
 
         {/* 移动端弹幕输入行：放在进度条与按钮行之间，避免与按钮竞争空间 */}
         <div className="flex items-center gap-1 md:hidden">
-          <DanmakuInput
-            onSend={onSendDanmaku}
-            placeholder={translate('发弹幕')}
-          />
+          {!(showCommentButton && commentPanelOpen) && (
+            <DanmakuInput
+              onSend={onSendDanmaku}
+              placeholder={translate('发弹幕')}
+            />
+          )}
+          {showCommentButton && (
+            <IconButton
+              size="bar"
+              stopPropagation
+              label={
+                commentPanelOpen ? translate('关闭评论区') : translate('评论区')
+              }
+              active={commentPanelOpen}
+              onClick={onToggleCommentPanel}
+              icon={<MessageSquare size={18} />}
+            />
+          )}
         </div>
 
         {/* 控制按钮行 */}
@@ -683,6 +761,55 @@ export function PlayerControlBar({
             </div>
           )}
 
+          {/* 清晰度：仅当影片有多档清晰度时出现（B站 acceptQuality / 爬虫站点规则 qualities） */}
+          {qualityOptions.length > 1 && (
+            <div ref={qualityContainerRef} className="relative">
+              <IconButton
+                size="bar"
+                stopPropagation
+                label={translate('选择清晰度')}
+                disabled={!canControl || qualitySwitching}
+                active={qualityOpen}
+                onClick={() =>
+                  canControl && !qualitySwitching && setQualityOpen((v) => !v)
+                }
+                icon={
+                  <span className="min-w-[2ch] text-xs font-semibold">
+                    {currentQualityLabel}
+                  </span>
+                }
+              />
+              {qualityOpen && canControl && (
+                <div className="glass absolute bottom-full left-1/2 z-30 mb-2 max-h-64 -translate-x-1/2 overflow-y-auto rounded-xl p-1 shadow-lg">
+                  {qualityOptions.map((option) => {
+                    const active = option.value === currentQualityValue
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          setQualityOpen(false)
+                          if (!active) onQualityChange?.(option.value)
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-xs transition-colors',
+                          active
+                            ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                            : 'text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                        )}
+                      >
+                        <span className="whitespace-nowrap">
+                          {option.label}
+                        </span>
+                        {active && <Check size={12} />}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 弹幕开关：开启时不显示底色，通过图标是否带斜线区分状态 */}
           <IconButton
             size="bar"
@@ -694,12 +821,28 @@ export function PlayerControlBar({
             icon={<DanmakuIcon off={!danmakuEnabled} />}
           />
 
-          {/* 弹幕输入框（桌面端显示） */}
+          {/* 弹幕输入框（桌面端显示）；打开评论区后收起，避免两个输入框并存 */}
           <div className="hidden min-w-0 flex-1 items-center gap-1 md:flex">
-            <DanmakuInput
-              onSend={onSendDanmaku}
-              placeholder={translate('发个友善的弹幕')}
-            />
+            {!(showCommentButton && commentPanelOpen) && (
+              <DanmakuInput
+                onSend={onSendDanmaku}
+                placeholder={translate('发个友善的弹幕')}
+              />
+            )}
+            {showCommentButton && (
+              <IconButton
+                size="bar"
+                stopPropagation
+                label={
+                  commentPanelOpen
+                    ? translate('关闭评论区')
+                    : translate('评论区')
+                }
+                active={commentPanelOpen}
+                onClick={onToggleCommentPanel}
+                icon={<MessageSquare size={18} />}
+              />
+            )}
           </div>
 
           {/* 倍速：直播源隐藏（直播流倍速会让延迟无限拉大） */}
@@ -835,7 +978,7 @@ export function PlayerControlBar({
             icon={<Settings size={18} />}
           />
 
-          {/* 网页全屏：桌面端直接显示 */}
+          {/* 网页全屏：桌面端直接显示，移动端收进「更多」菜单 */}
           <div className="hidden md:block">
             <IconButton
               size="bar"
@@ -912,6 +1055,15 @@ export function PlayerControlBar({
               </div>
             )}
           </div>
+
+          {/* 横竖屏切换（触屏设备全屏时） */}
+          {canRotate && onToggleRotate && (
+            <RotateButton
+              forcedLandscape={forcedLandscape}
+              onToggle={onToggleRotate}
+              stopPropagation
+            />
+          )}
 
           {/* 全屏 */}
           <IconButton
