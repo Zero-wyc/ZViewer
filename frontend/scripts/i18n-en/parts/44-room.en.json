@@ -1,8 +1,5 @@
 {
   "items": [
-    "Add and play a movie below",
-    "Complete the verification in the page below (e.g. drag the slider, enter the code); the search continues automatically when done.",
-    "Cancel (keep the current episode)",
     "Unmute",
     "All sites",
     "Every member (including the host) must connect ZViewer CLI to watch; the stream is not relayed by the server. Viewers without the CLI see a setup guide.",
@@ -55,13 +52,6 @@
     "Search movies",
     "Search movies…",
     "Failed to kick",
-    "Submit",
-    "After submission, the room owner generates site rules with the Agent in the desktop console; once the rules take effect, this site can be searched in the room.",
-    "Submission failed",
-    "Submission failed; please try again later",
-    "Submit a movie/TV site you want",
-    "Submit movie/TV site",
-    "Submit site",
     "Add movie",
     "Add movie permission: off",
     "Add movie permission: on",
@@ -94,7 +84,6 @@
     "Download bitrate",
     "Download",
     "Show the control bar",
-    "Movie you want to watch (optional)",
     "Change the room name",
     "Change nickname",
     "Needs resolution",
@@ -119,6 +108,17 @@
     "Removed {{value}}'s moderator role",
     "Signed in, high-quality video is available",
     "Disconnected",
-    "Resume request sent, waiting for the host"
+    "Resume request sent, waiting for the host",
+    "Seek request sent, waiting for the host",
+    "Pause request sent, waiting for the host",
+    "Danmaku text copied",
+    "“CLI only” turned off",
+    "Members can no longer add movies",
+    "Host approval turned off",
+    "Auto-approve turned off",
+    "Restored to {{value}} (paused)",
+    "Transferred the host role to {{value}}",
+    "Removed that viewer from the room",
+    "Unmuted"
   ]
 }

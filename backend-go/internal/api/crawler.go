@@ -1,5 +1,5 @@
 /**
- * 爬虫引擎代理：把网页端成员提交的站点转给本机爬虫引擎。
+ * 爬虫引擎代理：把网页端的搜片请求转给本机爬虫引擎。
  *
  * 引擎（crawler/engine，Python）只在桌面端本机运行，监听 127.0.0.1:3789；
  * 浏览器无法直连，所以由这里的 HTTP 层转发。部署到无引擎的服务器时接口
@@ -34,10 +34,9 @@ func crawlerEngineURL() string {
 
 // registerCrawlerRoutes 挂载爬虫相关路由。
 //
-// 解析/生成规则全部在引擎侧完成，网页端只负责收集站点地址、关键词与展示
-// 引擎已经解析好的搜索结果；后端只做身份、房间权限与转发。
+// 解析/生成规则全部在引擎侧完成，网页端只负责发关键词与展示引擎已经解析好
+// 的搜索结果；后端只做身份、房间权限与转发。成员提交站点的入口已移除。
 func (s *Server) registerCrawlerRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/crawler/submit", s.Auth.Require(s.handleCrawlerSubmit))
 	mux.HandleFunc("GET /api/crawler/sites", s.Auth.Require(s.handleCrawlerSites))
 	mux.HandleFunc("POST /api/crawler/search", s.Auth.Require(s.handleCrawlerSearch))
 	mux.HandleFunc("POST /api/crawler/play/resolve", s.Auth.Require(s.handleCrawlerResolvePlay))
@@ -303,113 +302,6 @@ func (s *Server) handleCrawlerResolvePlay(w http.ResponseWriter, r *http.Request
 		msg, _ := result["error"].(string)
 		if msg == "" {
 			msg = "没有解析到可播放地址"
-		}
-		httpx.Fail(w, http.StatusBadGateway, msg)
-		return
-	}
-	httpx.OK(w, result)
-}
-
-type crawlerSubmitBody struct {
-	URL     string `json:"url"`
-	Name    string `json:"name"`
-	Keyword string `json:"keyword"`
-	Note    string `json:"note"`
-	RoomID  string `json:"roomId"`
-}
-
-// handleCrawlerSubmit 校验房间成员身份后，把提交写入本机引擎。
-func (s *Server) handleCrawlerSubmit(w http.ResponseWriter, r *http.Request) {
-	var body crawlerSubmitBody
-	if err := httpx.DecodeJSON(r, &body); err != nil {
-		httpx.BadRequest(w, "请求体不是有效 JSON")
-		return
-	}
-	siteURL := strings.TrimSpace(body.URL)
-	if siteURL == "" {
-		httpx.BadRequest(w, "请填写站点地址")
-		return
-	}
-	if !strings.HasPrefix(siteURL, "http://") && !strings.HasPrefix(siteURL, "https://") {
-		siteURL = "https://" + siteURL
-	}
-	roomID := strings.TrimSpace(body.RoomID)
-	if roomID == "" {
-		httpx.BadRequest(w, "缺少房间号")
-		return
-	}
-
-	claims := auth.ClaimsFrom(r.Context())
-	if claims == nil {
-		httpx.Unauthorized(w, "未提供认证令牌")
-		return
-	}
-	allowed, err := s.canReadRoom(r.Context(), roomID, claims)
-	if err != nil {
-		httpx.InternalError(w, "POST /api/crawler/submit", err)
-		return
-	}
-	if !allowed {
-		httpx.Forbidden(w, "无权限在该房间提交站点")
-		return
-	}
-
-	roomName := ""
-	if room, err := s.Rooms.FindByRoomID(r.Context(), roomID); err == nil && room.Name != nil {
-		roomName = *room.Name
-	}
-	submittedBy := claims.Username
-	if submittedBy == "" {
-		submittedBy = "游客"
-		if claims.GuestID != "" {
-			suffix := claims.GuestID
-			if len(suffix) > 4 {
-				suffix = suffix[len(suffix)-4:]
-			}
-			submittedBy += suffix
-		}
-	}
-
-	payload := map[string]any{
-		"url":         siteURL,
-		"name":        strings.TrimSpace(body.Name),
-		"keyword":     strings.TrimSpace(body.Keyword),
-		"note":        strings.TrimSpace(body.Note),
-		"roomId":      roomID,
-		"roomName":    roomName,
-		"submittedBy": submittedBy,
-	}
-	buf, err := json.Marshal(payload)
-	if err != nil {
-		httpx.InternalError(w, "POST /api/crawler/submit", err)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, crawlerEngineURL()+"/api/crawler/submissions", bytes.NewReader(buf))
-	if err != nil {
-		httpx.InternalError(w, "POST /api/crawler/submit", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Printf("[crawler] 引擎不可达: %v", err)
-		httpx.Fail(w, http.StatusServiceUnavailable, "爬虫引擎未运行，请在桌面控制台启动")
-		return
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
-	var result map[string]any
-	if err := json.Unmarshal(raw, &result); err != nil {
-		httpx.Fail(w, http.StatusBadGateway, "爬虫引擎返回了无法解析的响应")
-		return
-	}
-	if resp.StatusCode >= 400 {
-		msg, _ := result["error"].(string)
-		if msg == "" {
-			msg = "爬虫引擎拒绝了本次提交"
 		}
 		httpx.Fail(w, http.StatusBadGateway, msg)
 		return

@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2893 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2878 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2077,7 +2077,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（513 条） =====
+  // ===== modules/room（498 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
@@ -2260,8 +2260,6 @@ const enUS: Record<string, string> = {
   '可创建房间、管理自己创建的房间': 'Can create rooms and manage the ones they created',
   '可踢出 / 禁言 / 转交房主': 'Can kick, mute and transfer the host role',
   '累计次数 / 累计时长': 'Total count / total duration',
-  '例如：流浪地球': 'e.g. The Wandering Earth',
-  '例如：某某影视': 'e.g. Some Movie Site',
   '连接服务器超时,请刷新重试': 'Timed out connecting to the server, refresh and retry',
   '连接已断开，请刷新页面后重试': 'The connection dropped, refresh the page and retry',
   '连接已关闭': 'Connection closed',
@@ -2313,7 +2311,6 @@ const enUS: Record<string, string> = {
   '请输入视频地址': 'Enter a video URL',
   '请填写服务器地址与路径': 'Enter the server address and path',
   '请填写文件路径': 'Enter the file path',
-  '请填写站点地址': 'Please enter the site address',
   '请通过「浏览 {{label}} 媒体库」选择条目，或粘贴 itemId': 'Pick an item with “Browse the {{label}} library”, or paste an itemId',
   '请选择服务器文件': 'Select a server file',
   '请选择已保存的 {{label}} 挂载': 'Select a saved {{label}} mount',
@@ -2373,13 +2370,6 @@ const enUS: Record<string, string> = {
   '搜索影片': 'Search movies',
   '搜索影片…': 'Search movies…',
   '踢人失败': 'Failed to kick',
-  '提交': 'Submit',
-  '提交后由房主在桌面控制台用 Agent 生成站点规则；规则生效后即可在房间内搜索这个站点。': 'After submission, the room owner generates site rules with the Agent in the desktop console; once the rules take effect, this site can be searched in the room.',
-  '提交失败': 'Submission failed',
-  '提交失败，请稍后再试': 'Submission failed; please try again later',
-  '提交想看的影视站点': 'Submit a movie/TV site you want',
-  '提交影视站点': 'Submit movie/TV site',
-  '提交站点': 'Submit site',
   '添加影片': 'Add movie',
   '添加影片权限：关': 'Add movie permission: off',
   '添加影片权限：开': 'Add movie permission: on',
@@ -2412,7 +2402,6 @@ const enUS: Record<string, string> = {
   '下行码率': 'Download bitrate',
   '下载': 'Download',
   '显示控制栏': 'Show the control bar',
-  '想看的影片（可选）': 'Movie you want to watch (optional)',
   '修改房间名称': 'Change the room name',
   '修改昵称': 'Change nickname',
   '需解析': 'Needs resolution',
@@ -2463,7 +2452,6 @@ const enUS: Record<string, string> = {
   '已切回服务器中转，观众将经本服务器拉流': 'Switched back to relaying: viewers now stream through this server',
   '已清空影片列表': 'Movie list cleared',
   '已任命 {{value}} 为房管': 'Appointed {{value}} as moderator',
-  '已提交，房主会在桌面控制台生成站点规则': 'Submitted; the room owner will generate site rules in the desktop console',
   '已添加 {{added}} 部影片': 'Added {{added}} movies',
   '已添加 {{length}} 集': 'Added {{length}} episodes',
   '已添加 {{length}} 集，{{value}} 集失败，可重试': 'Added {{length}} episodes, {{value}} failed; you can retry',
@@ -2508,9 +2496,6 @@ const enUS: Record<string, string> = {
   '粘贴 {{name}} itemId（可选，一般通过浏览选择）': 'Paste a {{name}} itemId (optional; usually picked by browsing)',
   '展开侧栏': 'Expand the sidebar',
   '展开查看完整影片列表': 'Expand to see the full movie list',
-  '站点地址': 'Site address',
-  '站点名称（可选）': 'Site name (optional)',
-  '这个站点已经提交过了，等待生成规则即可': 'This site has already been submitted; just wait for the rules to be generated',
   '帧在缓冲里的平均停留': 'Average time a frame sits in the buffer',
   '正在初始化解析...': 'Initializing resolution...',
   '正在等待房主的画面': 'Waiting for the host to start sharing',

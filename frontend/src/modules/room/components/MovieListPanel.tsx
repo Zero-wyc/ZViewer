@@ -38,7 +38,6 @@ import type { ResolvedSource } from '@/modules/bilibili/types'
 import { BilibiliParseSettings } from './BilibiliParseSettings'
 import { BilibiliLiveSettings } from './BilibiliLiveSettings'
 import { MovieRuntimeSettings } from './MovieRuntimeSettings'
-import { CrawlerSubmitButton } from './CrawlerSubmitButton'
 import {
   getEffectivePreferMp4,
   getActiveCliProxyUrl,
@@ -1007,7 +1006,6 @@ export function MovieListPanel({
             <Repeat className="h-3.5 w-3.5" />
           </button>
         )}
-        <CrawlerSubmitButton />
         {renderClearButton('icon')}
         <button
           type="button"

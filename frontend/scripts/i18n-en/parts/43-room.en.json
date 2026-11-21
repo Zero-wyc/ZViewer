@@ -62,8 +62,6 @@
     "Can create rooms and manage the ones they created",
     "Can kick, mute and transfer the host role",
     "Total count / total duration",
-    "e.g. The Wandering Earth",
-    "e.g. Some Movie Site",
     "Timed out connecting to the server, refresh and retry",
     "The connection dropped, refresh the page and retry",
     "Connection closed",
@@ -115,10 +113,12 @@
     "Enter a video URL",
     "Enter the server address and path",
     "Enter the file path",
-    "Please enter the site address",
     "Pick an item with “Browse the {{label}} library”, or paste an itemId",
     "Select a server file",
     "Select a saved {{label}} mount",
-    "Select a saved mount"
+    "Select a saved mount",
+    "Add and play a movie below",
+    "Complete the verification in the page below (e.g. drag the slider, enter the code); the search continues automatically when done.",
+    "Cancel (keep the current episode)"
   ]
 }

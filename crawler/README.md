@@ -113,6 +113,8 @@ python -X utf8 -m unittest engine.tests.test_engine engine.tests.test_api engine
 - M1（完成）：引擎内核、规则 schema、HTML/JSON/脚本三种模式、测试。
 - M2（完成）：账号库、agent 生成规则、MCP 工具、HTTP API、CLI、导入导出。
 - M3（完成）：GUI「爬虫引擎」页（状态、成员提交+自动生成开关、规则列表/手动添加/导入导出、agent 对话、站点登录）。
-- M4（进行中）：成员提交入口（backend-go 代理 + 前端按钮）、一起看站点搜索按钮，backend-go 调用引擎并做房间权限校验。
+- M4（部分完成）：一起看站点搜索按钮，backend-go 调用引擎并做房间权限校验。
+  ~~成员提交入口（backend-go 代理 + 前端按钮）~~ 已移除：网页端不再收集站点，
+  需要加站点时用引擎自己的 HTTP API / CLI / 桌面控制台。
 > 2026-11-14：搜索功能按用户要求暂停（当前状态见 `crawler/docs/task-progress-2026-11-13.md` 末尾）。
 > 下一步「播放」研究在仓库根目录 `player/`（怎么把搜索结果变成可播放视频）。
