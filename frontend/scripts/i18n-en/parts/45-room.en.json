@@ -1,7 +1,5 @@
 {
   "items": [
-    "Disconnected",
-    "Resume request sent, waiting for the host",
     "Seek request sent, waiting for the host",
     "Pause request sent, waiting for the host",
     "Danmaku text copied",
@@ -119,6 +117,8 @@
     "Only the host can add movies",
     "Relay",
     "Re-resolution failed",
-    "Reload the video"
+    "Reload the video",
+    "The streamer is offline; you can still add it to the list",
+    "Transfer host"
   ]
 }

@@ -24,7 +24,6 @@ import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { useRoomModeSwitch } from '@/modules/room/components/useRoomModeSwitch'
 import { useRoomMoviePermission } from '@/modules/room/hooks/useRoomMoviePermission'
 import { useRoomDisplayName } from '@/modules/room/hooks/useRoomDisplayName'
-import { RoomDisplayNameDialog } from '@/modules/room/components/RoomDisplayNameDialog'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { RoomInfoFab } from '@/modules/room/components/RoomInfoFab'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
@@ -665,8 +664,6 @@ function RoomPage() {
   return (
     <>
       {pageBody}
-      {/* 房间内显示名：游客首次进房弹一次设置框（登录用户/已设置过不弹） */}
-      <RoomDisplayNameDialog roomId={roomId} />
       {/* 独立悬浮层：不随模式/换片卸载，房主与观众共用同一份实现。
           Live2D 有独立开关：关掉时**整个宿主不挂载**——不只是不显示，
           连事件订阅、15Hz 指针上报和约 1MB 的 pixi/Cubism 引擎都不会加载。

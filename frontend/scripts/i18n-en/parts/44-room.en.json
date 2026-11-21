@@ -23,7 +23,6 @@
     "Upload bitrate",
     "Upstream link",
     "Failed to set “CLI only”",
-    "Set your nickname for this room",
     "Once set, viewers need the password to join. The root account does not.",
     "Failed to request resuming",
     "Request a seek to",
@@ -32,7 +31,6 @@
     "Failed to request the pause",
     "Live bitrate",
     "Use the local ZViewer CLI for premium high quality",
-    "Use default nickname",
     "Use the saved {{name}} mount",
     "Use the saved FTP mount",
     "Use the saved OpenList mount",
@@ -119,6 +117,8 @@
     "Remove from room",
     "Failed to remove all movies",
     "Removed {{value}}'s moderator role",
-    "Signed in, high-quality video is available"
+    "Signed in, high-quality video is available",
+    "Disconnected",
+    "Resume request sent, waiting for the host"
   ]
 }

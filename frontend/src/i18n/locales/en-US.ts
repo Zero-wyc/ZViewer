@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2895 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2893 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2077,7 +2077,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（515 条） =====
+  // ===== modules/room（513 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
@@ -2341,7 +2341,6 @@ const enUS: Record<string, string> = {
   '上行码率': 'Upload bitrate',
   '上游连接': 'Upstream link',
   '设置「仅允许CLI模式」失败': 'Failed to set “CLI only”',
-  '设置本房间昵称': 'Set your nickname for this room',
   '设置后，观众加入需输入密码。root 账户无需密码。': 'Once set, viewers need the password to join. The root account does not.',
   '申请继续播放失败': 'Failed to request resuming',
   '申请跳转到': 'Request a seek to',
@@ -2350,7 +2349,6 @@ const enUS: Record<string, string> = {
   '申请暂停失败': 'Failed to request the pause',
   '实时码率': 'Live bitrate',
   '使用本地 ZViewer CLI 获取大会员等高画质': 'Use the local ZViewer CLI for premium high quality',
-  '使用默认昵称': 'Use default nickname',
   '使用已保存的 {{name}} 挂载': 'Use the saved {{name}} mount',
   '使用已保存的 FTP 挂载': 'Use the saved FTP mount',
   '使用已保存的 OpenList 挂载': 'Use the saved OpenList mount',

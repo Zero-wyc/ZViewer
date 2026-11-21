@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2890 条。
+ * 当前共 2888 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -2074,7 +2074,7 @@ const zhCN: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁',
   'seek 失败': 'seek 失败',
 
-  // ===== modules/room（515 条） =====
+  // ===== modules/room（513 条） =====
   ' 等 {{length}} 位观众': ' 等 {{length}} 位观众',
   '），是否允许？': '），是否允许？',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] 更新成员点片权限失败:',
@@ -2338,7 +2338,6 @@ const zhCN: Record<string, string> = {
   '上行码率': '上行码率',
   '上游连接': '上游连接',
   '设置「仅允许CLI模式」失败': '设置「仅允许CLI模式」失败',
-  '设置本房间昵称': '设置本房间昵称',
   '设置后，观众加入需输入密码。root 账户无需密码。': '设置后，观众加入需输入密码。root 账户无需密码。',
   '申请继续播放失败': '申请继续播放失败',
   '申请跳转到': '申请跳转到',
@@ -2347,7 +2346,6 @@ const zhCN: Record<string, string> = {
   '申请暂停失败': '申请暂停失败',
   '实时码率': '实时码率',
   '使用本地 ZViewer CLI 获取大会员等高画质': '使用本地 ZViewer CLI 获取大会员等高画质',
-  '使用默认昵称': '使用默认昵称',
   '使用已保存的 {{name}} 挂载': '使用已保存的 {{name}} 挂载',
   '使用已保存的 FTP 挂载': '使用已保存的 FTP 挂载',
   '使用已保存的 OpenList 挂载': '使用已保存的 OpenList 挂载',
