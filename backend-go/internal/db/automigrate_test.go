@@ -47,12 +47,14 @@ func TestAutoMigrateUpgradesLegacyDatabase(t *testing.T) {
 		t.Fatalf("老数据被改动: %q", name)
 	}
 	// 补上的列对已有行取 DDL 默认值，不应是 NULL。
-	var musicEnabled int
-	if err := reopened.QueryRowContext(ctx, `SELECT "musicEnabled" FROM "room" WHERE "roomId" = 'r1'`).Scan(&musicEnabled); err != nil {
+	// 用 system_settings.roomDefaultMusicVolume（DEFAULT 50）而不是某个新功能的列：
+	// 这条用例要验证的是「ADD COLUMN 的默认值落到已有行上」，跟哪一列无关。
+	var defaultVolume int
+	if err := reopened.QueryRowContext(ctx, `SELECT "roomDefaultMusicVolume" FROM "system_settings" WHERE "id" = 1`).Scan(&defaultVolume); err != nil {
 		t.Fatalf("新列不可读: %v", err)
 	}
-	if musicEnabled != 1 {
-		t.Fatalf("新列默认值不对: %d", musicEnabled)
+	if defaultVolume != 50 {
+		t.Fatalf("新列默认值不对: %d", defaultVolume)
 	}
 }
 
