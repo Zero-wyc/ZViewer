@@ -55,6 +55,11 @@ interface CommentPanelProps {
    * 让面板直接透出窗口背景。
    */
   floating?: boolean
+  /**
+   * 隐藏发送区（输入框 + 自动滚动开关）。
+   * 桌面歌词式评论窗口里，鼠标移开后只留评论内容，移回来再展开发送区。
+   */
+  composerHidden?: boolean
 }
 
 interface SendCommentResponse {
@@ -86,6 +91,7 @@ export function CommentPanel({
   commentsOnly = false,
   allowDanmaku = true,
   floating = false,
+  composerHidden = false,
 }: CommentPanelProps) {
   const currentUser = useAuthStore((state) => state.user)
   const openFloatingWindow = useCommentFloatingStore((state) => state.open)
@@ -460,68 +466,72 @@ export function CommentPanel({
                 </Space>
               )}
             </div>
-            <Space className="w-full" size="sm">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSendComment()
-                  }
-                }}
-                placeholder={t('{{value}} 说点什么…', {
-                  value: currentUser?.username ?? '',
-                })}
-                className="flex-1"
-              />
-              <Button
-                variant="primary"
-                size="sm"
-                loading={sending}
-                icon={<Send className="h-4 w-4" />}
-                onClick={handleSendComment}
-              >
-                {t('发送')}
-              </Button>
-            </Space>
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
-                {/* 弹幕目前不可用：投屏/屏幕共享场景（commentsOnly）不显示弹幕开关 */}
-                {allowDanmaku && !commentsOnly && (
-                  <Switch
-                    label={t('以弹幕形式发送')}
-                    checked={sendAsDanmaku}
-                    onChange={(e) => setSendAsDanmaku(e.target.checked)}
-                  />
-                )}
-                {/* 自动滚动开关：手动滚动评论区会自动关闭，停手 5 秒后恢复 */}
-                <button
-                  type="button"
-                  aria-pressed={autoScroll}
-                  title={t('自动滚动到最新')}
-                  onClick={handleToggleAutoScroll}
-                  className={cn(
-                    'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] leading-none transition-colors',
-                    autoScroll
-                      ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
-                      : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
+            <div
+              className={cn('flex flex-col gap-3', composerHidden && 'hidden')}
+            >
+              <Space className="w-full" size="sm">
+                <Input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSendComment()
+                    }
+                  }}
+                  placeholder={t('{{value}} 说点什么…', {
+                    value: currentUser?.username ?? '',
+                  })}
+                  className="flex-1"
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={sending}
+                  icon={<Send className="h-4 w-4" />}
+                  onClick={handleSendComment}
+                >
+                  {t('发送')}
+                </Button>
+              </Space>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  {/* 弹幕目前不可用：投屏/屏幕共享场景（commentsOnly）不显示弹幕开关 */}
+                  {allowDanmaku && !commentsOnly && (
+                    <Switch
+                      label={t('以弹幕形式发送')}
+                      checked={sendAsDanmaku}
+                      onChange={(e) => setSendAsDanmaku(e.target.checked)}
+                    />
                   )}
-                >
-                  <ArrowDownToLine className="h-3 w-3" />
-                  {t('自动滚动')}
-                </button>
+                  {/* 自动滚动开关：手动滚动评论区会自动关闭，停手 5 秒后恢复 */}
+                  <button
+                    type="button"
+                    aria-pressed={autoScroll}
+                    title={t('自动滚动到最新')}
+                    onClick={handleToggleAutoScroll}
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] leading-none transition-colors',
+                      autoScroll
+                        ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                        : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
+                    )}
+                  >
+                    <ArrowDownToLine className="h-3 w-3" />
+                    {t('自动滚动')}
+                  </button>
+                </div>
+                {roomId && !floating && (
+                  <button
+                    type="button"
+                    title={t('在悬浮窗打开评论区')}
+                    className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-primary)]"
+                    onClick={() => void handleOpenCommentsWindow()}
+                  >
+                    <AppWindow className="h-4 w-4" />
+                  </button>
+                )}
               </div>
-              {roomId && !floating && (
-                <button
-                  type="button"
-                  title={t('在悬浮窗打开评论区')}
-                  className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-primary)]"
-                  onClick={() => void handleOpenCommentsWindow()}
-                >
-                  <AppWindow className="h-4 w-4" />
-                </button>
-              )}
             </div>
           </div>
         ) : rightPanelTab === 'tracks' ? (

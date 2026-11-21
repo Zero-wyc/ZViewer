@@ -13,7 +13,13 @@
  *   danmaku-tracks-updated / danmaku-meta-updated 增量同步(与 RoomPage 同款)
  * - 布局极简:仅标题行 + 面板本体,适配独立小窗
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import { useParams } from 'react-router-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -61,9 +67,52 @@ export default function CommentsWindowPage() {
   // 此时页面要透出桌面背景，并把自己的鼠标活动/关闭动作转给外壳。
   const isDesktopWindow =
     new URLSearchParams(window.location.search).get('desktopWindow') === '1'
+  // 真的被壳用 iframe 嵌着才启用歌词式行为：地址栏手敲参数打开时保持普通布局
+  const isEmbedded = isDesktopWindow && window.parent !== window
+  /**
+   * 外壳（桌面歌词式窗口）下发的文字样式与悬停状态。
+   *
+   * 页面只负责文字本身：背景透明度由外壳的「背景」滑杆控制（见
+   * desktop/ui/comments-window.js）。因此这里把卡片底色置空、文字颜色与
+   * 描边换成外壳选的值，鼠标移开时收起发送区，只留评论内容。
+   */
+  const [lyricsStyle, setLyricsStyle] = useState<CSSProperties>({})
+  const [hovered, setHovered] = useState(false)
 
   useEffect(() => {
-    if (!isDesktopWindow || window.parent === window) return undefined
+    if (!isEmbedded) return undefined
+    const onMessage = (event: MessageEvent) => {
+      // 只认外壳（父窗口）发来的消息：页面里任何 iframe/广告都可能是别的来源
+      if (event.source !== window.parent) return
+      const data = event.data as {
+        type?: string
+        color?: string
+        shadow?: string
+        hover?: boolean
+      } | null
+      if (!data || typeof data.type !== 'string') return
+      if (data.type === 'zviewer:lyrics-style') {
+        const color = typeof data.color === 'string' ? data.color : ''
+        if (!color) return
+        setLyricsStyle({
+          '--md-sys-color-on-surface': color,
+          '--md-sys-color-on-surface-variant': color,
+          // 卡片底色交给外壳的透明度滑杆，页面不再叠一层不透明背景
+          '--glass-bg': 'transparent',
+          textShadow: data.shadow,
+        } as CSSProperties)
+        return
+      }
+      if (data.type === 'zviewer:lyrics-hover') {
+        setHovered(data.hover === true)
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [isEmbedded])
+
+  useEffect(() => {
+    if (!isEmbedded) return undefined
     let lastSent = 0
     const post = (hover: boolean) => {
       try {
@@ -92,7 +141,7 @@ export default function CommentsWindowPage() {
       document.removeEventListener('pointerleave', onLeave)
       window.removeEventListener('blur', onLeave)
     }
-  }, [isDesktopWindow])
+  }, [isEmbedded])
 
   const closeWindow = useCallback(() => {
     try {
@@ -211,6 +260,7 @@ export default function CommentsWindowPage() {
           ? 'bg-transparent'
           : 'bg-[var(--md-sys-color-surface)] p-2'
       )}
+      style={isEmbedded ? lyricsStyle : undefined}
     >
       {/* 桌面独立窗口无系统边框，页面自己提供关闭入口（外壳收到消息后关窗） */}
       {isDesktopWindow && (
@@ -226,7 +276,12 @@ export default function CommentsWindowPage() {
       )}
       {joinState === 'ready' && socket && roomId ? (
         <div className="flex min-h-0 flex-1 flex-col [&_.glass-card]:h-full [&_.glass-card]:flex-1">
-          <CommentPanel socket={socket} roomId={roomId} />
+          <CommentPanel
+            socket={socket}
+            roomId={roomId}
+            floating={isEmbedded}
+            composerHidden={isEmbedded && !hovered}
+          />
         </div>
       ) : joinState === 'connecting' ? (
         <LoadingLine

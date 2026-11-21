@@ -172,14 +172,6 @@
       Promise.resolve(api()?.Close()).catch(() => window.close());
       return;
     }
-    // 评论页里按住空白处/文字拖动窗口：iframe 内拿不到 Wails 运行时，由外壳起拖
-    if (data.type === 'zviewer:lyrics-drag') {
-      try {
-        window.WailsInvoke?.('drag');
-      } catch (err) {
-        console.error('拖动窗口失败', err);
-      }
-    }
   });
 
   // 鼠标停在工具条上时不隐藏（iframe 此时已经收到 pointerleave）
