@@ -4,7 +4,11 @@ import { useRoomStore, type Viewer } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
 import { message } from '@/components/ui/message'
 import { t } from '@/i18n'
-import type { ViewerJoinedPayload, ViewerLeftPayload } from '../types'
+import type {
+  ViewerJoinedPayload,
+  ViewerLeftPayload,
+  ViewerRenamedPayload,
+} from '../types'
 import { SOCKET_EVENT } from '../constants'
 
 export type UseViewerListOptions = Record<string, never>
@@ -93,11 +97,16 @@ export function useViewerList(roomId?: string): UseViewerListReturn {
     const handleModeratorsChanged = (payload: {
       roomId: string
       moderators: number[]
+      guestModerators?: string[]
     }) => {
       if (payload?.roomId !== roomId || !Array.isArray(payload.moderators))
         return
       membershipRevision++
       const store = useRoomStore.getState()
+      // 游客房管按 socketId 同步（登录房管沿用 userId 列表）
+      store.setGuestModerators(
+        Array.isArray(payload.guestModerators) ? payload.guestModerators : []
+      )
       const userId = Number(useAuthStore.getState().user?.id)
       const wasModerator = store.moderators.includes(userId)
       store.setModerators(payload.moderators)
@@ -106,6 +115,12 @@ export function useViewerList(roomId?: string): UseViewerListReturn {
         if (isModerator) message.success(t('您已被任命为房管'))
         else message.info(t('您的房管权限已被撤销'))
       }
+    }
+    const handleViewerRenamed = (payload: ViewerRenamedPayload) => {
+      if (!payload?.viewerSocketId || !payload.username) return
+      useRoomStore
+        .getState()
+        .renameViewer(payload.viewerSocketId, payload.username)
     }
     const handleMembers = (payload: MembersSnapshot) => {
       if (payload?.roomId !== roomId) return
@@ -123,6 +138,7 @@ export function useViewerList(roomId?: string): UseViewerListReturn {
 
     socket.on(SOCKET_EVENT.VIEWER_JOINED, handleViewerJoined)
     socket.on(SOCKET_EVENT.VIEWER_LEFT, handleViewerLeft)
+    socket.on(SOCKET_EVENT.VIEWER_RENAMED, handleViewerRenamed)
     socket.on('room-members', handleMembers)
     socket.on('moderators-changed', handleModeratorsChanged)
     socket.on('connect', onConnect)
@@ -137,6 +153,7 @@ export function useViewerList(roomId?: string): UseViewerListReturn {
       document.removeEventListener('visibilitychange', onVisibility)
       socket.off(SOCKET_EVENT.VIEWER_JOINED, handleViewerJoined)
       socket.off(SOCKET_EVENT.VIEWER_LEFT, handleViewerLeft)
+      socket.off(SOCKET_EVENT.VIEWER_RENAMED, handleViewerRenamed)
       socket.off('room-members', handleMembers)
       socket.off('moderators-changed', handleModeratorsChanged)
       socket.off('connect', onConnect)

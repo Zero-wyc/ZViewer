@@ -12,6 +12,8 @@ import type {
   RequestJoinResponse,
 } from '../types'
 import { t } from '@/i18n'
+import { useAuthStore } from '@/store/authStore'
+import { ensureRoomDisplayName } from '@/modules/room/lib/displayName'
 
 interface UseJoinRoomOptions {
   socket: Socket | null
@@ -131,9 +133,18 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
 
       hasJoinedRef.current = false
       setJoinStatus('joining')
+      // 房间内显示名：登录用户默认账号名，游客默认「游客XXXX」。
+      // 一并发出，保证第一条 viewer-joined 广播就带正确昵称。
+      const currentUser = useAuthStore.getState().user
+      const displayName = ensureRoomDisplayName(
+        targetRoomId,
+        currentUser && currentUser.role !== 'guest'
+          ? currentUser.username
+          : null
+      )
       socket.emit(
         'request-join',
-        { roomId: targetRoomId, password },
+        { roomId: targetRoomId, password, name: displayName },
         (response: RequestJoinResponse) => {
           if (response.success) {
             // 加入成功：重置 ALREADY_IN_ROOM 重试计数

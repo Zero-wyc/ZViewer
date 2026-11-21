@@ -174,7 +174,7 @@ func (s *Service) handleViewerRequest(
 	out := viewerRequestBroadcast{
 		RoomID:         payload.RoomID,
 		ViewerSocketID: sc.ID,
-		ViewerUsername: socketUsername(sc),
+		ViewerUsername: socketDisplayName(sc),
 	}
 	if withTime {
 		out.Time = payload.Time

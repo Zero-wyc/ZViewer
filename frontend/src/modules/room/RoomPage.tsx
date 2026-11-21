@@ -22,6 +22,10 @@ import { WatchTogetherPanel } from '@/modules/room/watch-together/WatchTogetherP
 import { usePlayerRemountKey } from '@/modules/room/watch-together/usePlayerRemountKey'
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { useRoomModeSwitch } from '@/modules/room/components/useRoomModeSwitch'
+import { useRoomMoviePermission } from '@/modules/room/hooks/useRoomMoviePermission'
+import { useRoomFeatures } from '@/modules/room/hooks/useRoomFeatures'
+import { useRoomDisplayName } from '@/modules/room/hooks/useRoomDisplayName'
+import { RoomDisplayNameDialog } from '@/modules/room/components/RoomDisplayNameDialog'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { RoomInfoFab } from '@/modules/room/components/RoomInfoFab'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
@@ -169,6 +173,10 @@ function RoomPage() {
   ])
   const { socket } = useSocket()
   useViewerList(roomId)
+  // 一起看「允许成员点片」权限：进房拉取一次 + 跟随 movie:permission-changed 实时更新
+  useRoomMoviePermission(socket, roomId)
+  // 房间功能开关（语音/自动进语音/画面加密）：进房拉一次 + 跟随广播
+  useRoomFeatures(socket, roomId)
 
   // Beta 开关决定 Live2D 宿主挂不挂载。App 启动时会拉一次公开设置，但那次
   // 失败（后端刚起来、短暂离线）会让 Beta 功能在整段会话里一直不出现，
@@ -189,12 +197,38 @@ function RoomPage() {
   )
   // 其他模式仍用 RoomLayout 内置守卫；一起听底板无返回按钮（全局 Header 悬浮
   // 显示后自带离开入口）
-  const username = useAuthStore((state) => state.user?.username)
+  const accountName = useAuthStore((state) => state.user?.username)
   const currentUserId = useAuthStore((state) => state.user?.id)
   const moderators = useRoomStore((state) => state.moderators)
-  // 房管观众：可管理影片与成员（含语音），后端同步的 moderators 列表判定
+  const guestModerators = useRoomStore((state) => state.guestModerators)
+  // 房管观众：可管理影片与成员（含语音）。登录用户按 userId、游客按 socketId。
   const isModerator =
-    currentUserId != null && moderators.includes(Number(currentUserId))
+    (currentUserId != null && moderators.includes(Number(currentUserId))) ||
+    (!!socket?.id && guestModerators.includes(socket.id))
+  // 房间内显示名（昵称）：登录用户默认账号名，游客默认「游客XXXX」，
+  // 进房后可以随时改；改名/重连时重新上报给后端，广播给房间内所有人。
+  const { name: roomDisplayName } = useRoomDisplayName(roomId)
+  // 语音面板与一起听底板沿用 `username` 这个入参名，这里统一喂昵称。
+  const username = roomDisplayName || accountName
+  const pushedDisplayNameRef = useRef('')
+  useEffect(() => {
+    if (!roomId || !socket || !roomDisplayName) return
+    const push = () => {
+      if (pushedDisplayNameRef.current === roomDisplayName) return
+      pushedDisplayNameRef.current = roomDisplayName
+      socket.emit('set-display-name', { roomId, name: roomDisplayName })
+    }
+    const reset = () => {
+      pushedDisplayNameRef.current = ''
+    }
+    if (socket.connected) push()
+    socket.on('connect', push)
+    socket.on('disconnect', reset)
+    return () => {
+      socket.off('connect', push)
+      socket.off('disconnect', reset)
+    }
+  }, [roomId, socket, roomDisplayName])
   // 每条观众连接的用量（由 WebrtcSharePage 的会话采样提升，供 SharingStatusPanel 显示）
   const [hostStatsEdges, setHostStatsEdges] = useState<ShareEdgeStats[]>([])
   // 房主采集实测帧率（由 WebrtcSharePage 的帧率计提升，供 SharingStatusPanel 显示）
@@ -634,6 +668,8 @@ function RoomPage() {
   return (
     <>
       {pageBody}
+      {/* 房间内显示名：游客首次进房弹一次设置框（登录用户/已设置过不弹） */}
+      <RoomDisplayNameDialog roomId={roomId} />
       {/* 独立悬浮层：不随模式/换片卸载，房主与观众共用同一份实现。
           Live2D 有独立开关：关掉时**整个宿主不挂载**——不只是不显示，
           连事件订阅、15Hz 指针上报和约 1MB 的 pixi/Cubism 引擎都不会加载。

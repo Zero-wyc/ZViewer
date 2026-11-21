@@ -180,6 +180,12 @@ export interface ViewerLeftPayload {
   viewerSocketId: string
 }
 
+/** `viewer-renamed` 事件 payload：观众在房间内修改了昵称 */
+export interface ViewerRenamedPayload {
+  viewerSocketId: string
+  username: string
+}
+
 /**
  * 轨道类型：弹幕或字幕。
  * 用于 `track-change` 事件的 type 字段。

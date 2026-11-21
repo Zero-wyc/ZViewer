@@ -169,17 +169,19 @@ func (s *Service) IsRoomModerator(ctx context.Context, socketID, roomID string) 
 		return v, nil
 	}
 	uid := s.socketUserID(socketID)
-	if uid == nil || *uid <= 0 {
-		s.perm.set(key, false)
-		return false, nil
-	}
-	mods := s.Moderators(ctx, roomID)
 	result := false
-	for _, id := range mods {
-		if id == *uid {
-			result = true
-			break
+	if uid != nil && *uid > 0 {
+		mods := s.Moderators(ctx, roomID)
+		for _, id := range mods {
+			if id == *uid {
+				result = true
+				break
+			}
 		}
+	}
+	// 游客房管（userId 恒为 0）按 socketId 判定，见 moderator_guest.go。
+	if !result {
+		result = s.isGuestModerator(roomID, socketID)
 	}
 	s.perm.set(key, result)
 	return result, nil

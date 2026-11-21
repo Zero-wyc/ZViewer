@@ -118,6 +118,10 @@ const roomDDL = `CREATE TABLE "room" (
 	"approvedViewers" TEXT NOT NULL DEFAULT ('[]'),
 	"moderators" TEXT NOT NULL DEFAULT ('[]'),
 	"voiceMuted" TEXT NOT NULL DEFAULT ('[]'),
+	"screenE2EEEnabled" boolean NOT NULL DEFAULT (1),
+	"voiceEnabled" boolean NOT NULL DEFAULT (1),
+	"voiceAutoJoin" boolean NOT NULL DEFAULT (0),
+	"moviePermission" TEXT NOT NULL DEFAULT ('{}'),
 	"createdAt" datetime NOT NULL DEFAULT (datetime('now')),
 	"updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
 	"lastAccessedAt" datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP)
