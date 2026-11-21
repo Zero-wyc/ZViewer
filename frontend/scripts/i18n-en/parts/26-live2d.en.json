@@ -1,0 +1,33 @@
+{
+  "items": [
+    "Tilt",
+    "Done",
+    "No face detected",
+    "Unknown model",
+    "Position",
+    "Position and size are saved on this device only and are not shared",
+    "My character",
+    "Small",
+    "Smile",
+    "Eyes",
+    "Eye tracking",
+    "Apply URL",
+    "Voice lip sync",
+    "Allow camera tracking for members",
+    "These settings apply to everyone in the room",
+    "The host controls these settings; you can only view them",
+    "Calibrating…",
+    "Starting…",
+    "Recalibrate",
+    "Reload model",
+    "Face tracking only works once you pick a model again",
+    "Pick a model again for lip sync to have something to move",
+    "Reset model position",
+    "Custom model URL",
+    "Mouth",
+    "Failed to load Cubism Core",
+    "Cubism Core loaded but not registered",
+    "Live2D engine failed to load",
+    "Live2D engine failed to load: {{reason}}"
+  ]
+}

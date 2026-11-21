@@ -69,6 +69,12 @@ test-dev.sqlite
 # ---- 摄像头动捕运行时（predev/prebuild 从 node_modules 复制，不入库）----
 frontend/public/live2d/face/wasm/
 
+# ---- 爬虫引擎运行时（含 LLM 密钥、站点 Cookie、抓取数据，一律不入库）----
+crawler/config.json
+crawler/data/
+__pycache__/
+*.pyc
+
 # ---- 编辑器与 IDE ----
 .vscode/
 .idea/

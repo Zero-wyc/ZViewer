@@ -1,0 +1,16 @@
+{
+  "items": [
+    "FTP server address, e.g. ftp.example.com",
+    "Unusual formats like MKV / DTS are remuxed in the browser",
+    "MP4 smooth",
+    "MP4 mode does not support buffering, switch to DASH",
+    "MP4 direct link, smooth seeking, up to 720P (720P even when signed out)",
+    "MP4 is capped at 720P; DASH and CLI modes unlock high quality",
+    "Direct video links such as MP4/WebM",
+    "OpenList server address (required for direct-link mode; filled in from the selected mount)",
+    "P{{currentPage}} {{value}} · click to switch",
+    "RTT",
+    "Socket not connected",
+    "WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)"
+  ]
+}

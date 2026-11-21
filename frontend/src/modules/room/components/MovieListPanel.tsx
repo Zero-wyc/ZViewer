@@ -18,7 +18,11 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
-import { useRoomStore, type Movie } from '@/store/roomStore'
+import {
+  useRoomStore,
+  type CrawlerSourceMeta,
+  type Movie,
+} from '@/store/roomStore'
 import {
   resolveBilibiliWithOptions,
   resolveBilibiliLive,
@@ -34,6 +38,7 @@ import type { ResolvedSource } from '@/modules/bilibili/types'
 import { BilibiliParseSettings } from './BilibiliParseSettings'
 import { BilibiliLiveSettings } from './BilibiliLiveSettings'
 import { MovieRuntimeSettings } from './MovieRuntimeSettings'
+import { CrawlerSubmitButton } from './CrawlerSubmitButton'
 import {
   getEffectivePreferMp4,
   getActiveCliProxyUrl,
@@ -52,6 +57,10 @@ import { resolveJellyfin } from '@/modules/jellyfin/jellyfinApi'
 import type { EmbyVersionInfo } from '@/modules/emby/types'
 import { cn } from '@/lib/utils'
 import { t } from '@/i18n'
+import {
+  needsCrawlerRefresh,
+  refreshCrawlerMovie,
+} from '@/modules/crawler/playback'
 
 interface MovieListPanelProps {
   isHost: boolean
@@ -141,7 +150,7 @@ export function MovieListPanel({
     return movies.filter((m) => m.title.toLowerCase().includes(keyword))
   }, [movies, search])
 
-  const handlePlay = (movieId: number) => {
+  const handlePlay = async (movieId: number) => {
     if (!isHost && !canManage) {
       message.info(t('没有影片管理权限'))
       return
@@ -149,6 +158,25 @@ export function MovieListPanel({
     if (!socket) {
       message.error(t('未连接房间'))
       return
+    }
+    const movie = movies.find((m) => m.id === movieId)
+    // 爬虫引擎搜到的直链是站点即时解析出来的，带签名/时效，落库几分钟后
+    // 再播就会 402 或 403。播放前必须用详情页重新解析一次，把最新地址写回
+    // 影片记录（后端广播 movie-list），观众拿到的也是新地址。
+    if (movie && needsCrawlerRefresh(movie)) {
+      try {
+        // 之前选过的清晰度要延续：不传档位名会退回引擎默认档
+        await refreshCrawlerMovie(
+          roomId,
+          movie,
+          (movie.sourceMeta as CrawlerSourceMeta | undefined)?.quality
+        )
+      } catch (err) {
+        message.error(
+          err instanceof Error ? err.message : t('解析播放地址失败')
+        )
+        return
+      }
     }
     socket.emit('play-movie', { roomId, movieId })
     setCurrentMovieId(movieId)
@@ -875,7 +903,7 @@ export function MovieListPanel({
                       size="sm"
                       className="h-7 flex-shrink-0 px-2"
                       icon={<Play className="h-3.5 w-3.5" />}
-                      onClick={() => handlePlay(movie.id)}
+                      onClick={() => void handlePlay(movie.id)}
                       disabled={(!isHost && !canManage) || isScreenShare}
                       title={
                         isScreenShare
@@ -979,6 +1007,7 @@ export function MovieListPanel({
             <Repeat className="h-3.5 w-3.5" />
           </button>
         )}
+        <CrawlerSubmitButton />
         {renderClearButton('icon')}
         <button
           type="button"
