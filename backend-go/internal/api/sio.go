@@ -39,8 +39,6 @@ func (s *Server) registerSocketRoutes(mux *http.ServeMux) {
 		if s.RoomSvc != nil {
 			s.RoomSvc.AttachSocket(sc)
 		}
-		// 房间功能开关（语音 / 一起听 / 屏幕加密）：任何已鉴权连接都要能读写。
-		s.attachRoomFeatures(sc)
 	})
 	mux.Handle("/socket.io/", s.Socket)
 }

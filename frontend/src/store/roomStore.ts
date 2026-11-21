@@ -96,25 +96,6 @@ export interface RoomSettings {
   requireApproval: boolean
 }
 
-/**
- * 房间功能开关（房主在「成员管理 → 设置」里调整，全员实时同步）。
- * 后端字段同名，通过 socket 事件 room-features-get / room-features 下发。
- */
-export interface RoomFeatures {
-  /** 房间语音总开关：关闭后成员无法加入语音 */
-  voiceEnabled: boolean
-  /** 进房后自动加入语音（仅当 voiceEnabled 为 true 时生效） */
-  voiceAutoJoin: boolean
-  /** 屏幕共享端到端加密开关：切换后房主与观众自动重建连接 */
-  screenE2EEEnabled: boolean
-}
-
-export const DEFAULT_ROOM_FEATURES: RoomFeatures = {
-  voiceEnabled: true,
-  voiceAutoJoin: false,
-  screenE2EEEnabled: true,
-}
-
 export type MovieSourceType =
   | 'bilibili'
   | 'mp4'
@@ -332,8 +313,6 @@ interface RoomState {
   setGuestModerators: (socketIds: string[]) => void
   // 房间运行时设置（密码/上限/审批开关）
   roomSettings: RoomSettings
-  /** 房间功能开关（语音/画面加密/自动进语音） */
-  roomFeatures: RoomFeatures
   /** 一起看「允许成员点片」房间级权限（房主设置，全员同步） */
   moviePermission: MoviePermission
   isSharing: boolean
@@ -458,7 +437,6 @@ interface RoomState {
   addMutedViewer: (userId: number) => void
   removeMutedViewer: (userId: number) => void
   setRoomSettings: (settings: Partial<RoomSettings>) => void
-  setRoomFeatures: (features: Partial<RoomFeatures>) => void
   setMoviePermission: (permission: MoviePermission) => void
   setIsSharing: (value: boolean) => void
   setIsPaused: (value: boolean) => void
@@ -590,7 +568,6 @@ const defaultState = {
     maxViewers: 10,
     requireApproval: true,
   } as RoomSettings,
-  roomFeatures: { ...DEFAULT_ROOM_FEATURES },
   moviePermission: { ...DEFAULT_MOVIE_PERMISSION },
   isSharing: false,
   isPaused: false,
@@ -708,10 +685,6 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       ...(settings.password !== undefined
         ? { password: settings.password ?? '' }
         : {}),
-    })),
-  setRoomFeatures: (features) =>
-    set((state) => ({
-      roomFeatures: { ...state.roomFeatures, ...features },
     })),
   setMoviePermission: (permission) => set({ moviePermission: permission }),
   setIsSharing: (value) => set({ isSharing: value }),

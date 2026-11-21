@@ -1,13 +1,5 @@
 {
   "items": [
-    "Verification complete; search results loaded",
-    "Verifying…",
-    "Clear all",
-    "Watch together",
-    "Remove from room",
-    "Failed to remove all movies",
-    "Removed {{value}}'s moderator role",
-    "Signed in, high-quality video is available",
     "Disconnected",
     "Resume request sent, waiting for the host",
     "Seek request sent, waiting for the host",
@@ -62,7 +54,6 @@
     "Guests can only watch and cannot be made host",
     "Guest{{suffix}}",
     "A viewer is asking to join the room (",
-    "Voice chat",
     "Failed to load the preview source",
     "Native",
     "Remote sharing",
@@ -119,6 +110,15 @@
     "The host controls the live quality",
     "Stream directly, no need to wait for caching",
     "Direct",
-    "Connects to the origin directly, using no server bandwidth"
+    "Connects to the origin directly, using no server bandwidth",
+    "Direct link",
+    "Direct link (the browser reaches the mount server itself)",
+    "Only the host or a moderator can delete movies",
+    "Only the host or a moderator can remove movies",
+    "Only the host can play movies",
+    "Only the host can add movies",
+    "Relay",
+    "Re-resolution failed",
+    "Reload the video"
   ]
 }

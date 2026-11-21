@@ -1,9 +1,5 @@
 {
   "items": [
-    "The main feature on this site requires membership or cannot be played directly; open the original site to watch",
-    "That account is already in this room",
-    "More",
-    "Failed to update movie request permission",
     "Failed to update",
     "{{length}} parts · click to choose",
     "{{value}} results",
@@ -11,8 +7,6 @@
     "Sharing status",
     "Sharing settings",
     "Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.",
-    "Once off, members of this room cannot join voice.",
-    "Once off, screen sharing is not end-to-end encrypted.",
     "Watch request",
     "Viewer {{index}}",
     "Viewers",
@@ -50,7 +44,6 @@
     "Resolution failed",
     "View only",
     "CLI only",
-    "Auto-start voice on join",
     "Cache the full video locally when joining, avoiding expired URLs and stutter",
     "Mute",
     "Block this member from adding movies",
@@ -103,7 +96,6 @@
     "You are no longer muted",
     "You are the new host",
     "Bulk add failed",
-    "Screen-share end-to-end encryption",
     "Regular account",
     "A regular signed-up user who can join rooms",
     "Forced native playback; unsupported codecs will show no picture or sound",
@@ -119,6 +111,14 @@
     "Clear the room's movie list, including movies hidden from search",
     "Clearing…",
     "Access this service over a public IPv4 or IPv6 address before copying, or expose it with a tunnel such as FRP.",
-    "Enter a nickname"
+    "Enter a nickname",
+    "Enter a video URL",
+    "Enter the server address and path",
+    "Enter the file path",
+    "Please enter the site address",
+    "Pick an item with “Browse the {{label}} library”, or paste an itemId",
+    "Select a server file",
+    "Select a saved {{label}} mount",
+    "Select a saved mount"
   ]
 }

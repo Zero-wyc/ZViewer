@@ -23,7 +23,6 @@ import { usePlayerRemountKey } from '@/modules/room/watch-together/usePlayerRemo
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { useRoomModeSwitch } from '@/modules/room/components/useRoomModeSwitch'
 import { useRoomMoviePermission } from '@/modules/room/hooks/useRoomMoviePermission'
-import { useRoomFeatures } from '@/modules/room/hooks/useRoomFeatures'
 import { useRoomDisplayName } from '@/modules/room/hooks/useRoomDisplayName'
 import { RoomDisplayNameDialog } from '@/modules/room/components/RoomDisplayNameDialog'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
@@ -175,8 +174,6 @@ function RoomPage() {
   useViewerList(roomId)
   // 一起看「允许成员点片」权限：进房拉取一次 + 跟随 movie:permission-changed 实时更新
   useRoomMoviePermission(socket, roomId)
-  // 房间功能开关（语音/自动进语音/画面加密）：进房拉一次 + 跟随广播
-  useRoomFeatures(socket, roomId)
 
   // Beta 开关决定 Live2D 宿主挂不挂载。App 启动时会拉一次公开设置，但那次
   // 失败（后端刚起来、短暂离线）会让 Beta 功能在整段会话里一直不出现，

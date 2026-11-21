@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2904 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2895 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2077,13 +2077,11 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（524 条） =====
+  // ===== modules/room（515 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
   '[RoomInfoPanel] 更新添加影片权限失败:': '[RoomInfoPanel] failed to update add-movie permission:',
-  '[useRoomFeatures] 获取房间功能开关失败:': '[useRoomFeatures] failed to load room feature flags:',
-  '[useRoomFeatures] 修改房间功能开关失败:': '[useRoomFeatures] failed to update room feature flags:',
   '[useRoomMoviePermission] 获取点片权限失败:': '[useRoomMoviePermission] Failed to get movie request permission:',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
   '[useWatchTogether] 观众端预览源加载失败:': '[useWatchTogether] Viewer preview source failed to load:',
@@ -2128,7 +2126,6 @@ const enUS: Record<string, string> = {
   '采集源': 'Capture source',
   '采集帧率': 'Capture frame rate',
   '撤销房管': 'Remove moderator',
-  '成员进入房间后自动加入语音。': 'Members join voice automatically when they enter the room.',
   '创建房间': 'Create room',
   '创建房间或被转交房主身份的用户。可踢出 / 禁言观众、任命房管、转交房主、修改房间设置与名称、控制播放。': 'The user who created the room or was handed the host role. Can kick or mute viewers, appoint moderators, transfer the host role, change room settings and name, and control playback.',
   '创建房间失败': 'Failed to create the room',
@@ -2161,7 +2158,6 @@ const enUS: Record<string, string> = {
   '房间 ID': 'Room ID',
   '房间 ID 已复制': 'Room ID copied',
   '房间创建成功': 'Room created',
-  '房间功能': 'Room features',
   '房间密码': 'Room password',
   '房间密码（可选）': 'Room password (optional)',
   '房间名称': 'Room name',
@@ -2209,8 +2205,6 @@ const enUS: Record<string, string> = {
   '共享情况': 'Sharing status',
   '共享设置': 'Sharing settings',
   '关闭（默认）：一律直连源站，服务器零媒体流量，带防盗链的源需开启才能播放。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。': 'Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.',
-  '关闭后本房间成员无法加入语音。': 'Once off, members of this room cannot join voice.',
-  '关闭后屏幕共享不启用端到端加密。': 'Once off, screen sharing is not end-to-end encrypted.',
   '观看请求': 'Watch request',
   '观众 {{index}}': 'Viewer {{index}}',
   '观众管理': 'Viewers',
@@ -2248,7 +2242,6 @@ const enUS: Record<string, string> = {
   '解析失败': 'Resolution failed',
   '仅查看': 'View only',
   '仅允许CLI模式': 'CLI only',
-  '进房自动开启语音': 'Auto-start voice on join',
   '进入房间先缓存完整视频到本地，避免 URL 过期与卡顿': 'Cache the full video locally when joining, avoiding expired URLs and stutter',
   '禁言': 'Mute',
   '禁止该成员添加影片': 'Block this member from adding movies',
@@ -2301,7 +2294,6 @@ const enUS: Record<string, string> = {
   '您已被解除禁言': 'You are no longer muted',
   '您已成为新房主': 'You are the new host',
   '批量添加失败': 'Bulk add failed',
-  '屏幕共享端到端加密': 'Screen-share end-to-end encryption',
   '普通账号': 'Regular account',
   '普通注册用户，可加入房间观看': 'A regular signed-up user who can join rooms',
   '强制原生播放，浏览器不支持的编码会没有画面或声音': 'Forced native playback; unsupported codecs will show no picture or sound',
@@ -2500,7 +2492,6 @@ const enUS: Record<string, string> = {
   '游客，仅可观看，不能被转交为房主': 'Guests can only watch and cannot be made host',
   '游客{{suffix}}': 'Guest{{suffix}}',
   '有观看者请求加入房间（': 'A viewer is asking to join the room (',
-  '语音功能': 'Voice chat',
   '预览源加载失败': 'Failed to load the preview source',
   '原生': 'Native',
   '远程共享': 'Remote sharing',

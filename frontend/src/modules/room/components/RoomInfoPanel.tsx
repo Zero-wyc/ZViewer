@@ -16,8 +16,6 @@ import {
   Lock,
   UserCheck,
   Zap,
-  Mic,
-  ShieldCheck,
   Clapperboard,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -26,11 +24,9 @@ import { Text, Paragraph } from '@/components/ui/Typography'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
-import { Switch } from '@/components/ui/Switch'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useRoomDisplayName } from '@/modules/room/hooks/useRoomDisplayName'
-import { useRoomFeatures } from '@/modules/room/hooks/useRoomFeatures'
 import {
   DISPLAY_NAME_MAX,
   isValidDisplayName,
@@ -91,7 +87,6 @@ export function RoomInfoPanel({
   const roomName = useRoomStore((state) => state.roomName)
   const roomMode = useRoomStore((state) => state.mode)
   const roomSettings = useRoomStore((state) => state.roomSettings)
-  const roomFeatures = useRoomStore((state) => state.roomFeatures)
   const addMutedViewer = useRoomStore((state) => state.addMutedViewer)
   const removeMutedViewer = useRoomStore((state) => state.removeMutedViewer)
   const setRoomSettings = useRoomStore((state) => state.setRoomSettings)
@@ -104,7 +99,6 @@ export function RoomInfoPanel({
   const currentUserId = useAuthStore((state) => state.user?.id)
   const role = useAuthStore((state) => state.user?.role)
   const matrix = useSystemSettingsStore((state) => state.roomPermissionMatrix)
-  const { updateFeature } = useRoomFeatures(socket, roomId)
   const moviePermission = useRoomStore((state) => state.moviePermission)
   const setMoviePermission = useRoomStore((state) => state.setMoviePermission)
   const [moviePermissionBusy, setMoviePermissionBusy] = useState(false)
@@ -1331,81 +1325,6 @@ export function RoomInfoPanel({
                     disabled={!isHost || savingSettings}
                   />
                 </div>
-              </div>
-
-              {/* 房间功能开关：语音 / 进房自动语音 / 画面加密 */}
-              <div className="glass flex flex-col gap-3 rounded-[var(--md-sys-shape-corner)] p-3">
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-                    style={{
-                      backgroundColor: 'var(--md-sys-color-primary-container)',
-                      color: 'var(--md-sys-color-on-primary-container)',
-                    }}
-                  >
-                    <Zap className="h-4 w-4" />
-                  </div>
-                  <div className="flex min-w-0 flex-col">
-                    <Text className="text-sm font-medium">{t('房间功能')}</Text>
-                    <Text
-                      type="secondary"
-                      className="text-[10px] uppercase tracking-wide"
-                    >
-                      ROOM FEATURES
-                    </Text>
-                  </div>
-                </div>
-
-                {[
-                  {
-                    key: 'voiceEnabled' as const,
-                    icon: <Mic className="h-3.5 w-3.5" />,
-                    label: t('语音功能'),
-                    hint: t('关闭后本房间成员无法加入语音。'),
-                    checked: roomFeatures.voiceEnabled,
-                    disabled: !isHost,
-                  },
-                  {
-                    key: 'voiceAutoJoin' as const,
-                    icon: <Mic className="h-3.5 w-3.5" />,
-                    label: t('进房自动开启语音'),
-                    hint: t('成员进入房间后自动加入语音。'),
-                    checked: roomFeatures.voiceAutoJoin,
-                    disabled: !isHost || !roomFeatures.voiceEnabled,
-                  },
-                  {
-                    key: 'screenE2EEEnabled' as const,
-                    icon: <ShieldCheck className="h-3.5 w-3.5" />,
-                    label: t('屏幕共享端到端加密'),
-                    hint: t('关闭后屏幕共享不启用端到端加密。'),
-                    checked: roomFeatures.screenE2EEEnabled,
-                    disabled: !isHost,
-                  },
-                ].map((item) => (
-                  <div key={item.key} className="flex items-start gap-2">
-                    <span className="mt-0.5 shrink-0 text-[var(--md-sys-color-primary)]">
-                      {item.icon}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <Text className="text-xs font-medium">
-                          {item.label}
-                        </Text>
-                        <Switch
-                          className="ml-auto"
-                          checked={item.checked}
-                          disabled={item.disabled}
-                          onChange={(event) =>
-                            updateFeature({ [item.key]: event.target.checked })
-                          }
-                        />
-                      </div>
-                      <Text type="secondary" className="mt-0.5 text-[10px]">
-                        {item.hint}
-                      </Text>
-                    </div>
-                  </div>
-                ))}
               </div>
 
               {/* 保存按钮 */}
