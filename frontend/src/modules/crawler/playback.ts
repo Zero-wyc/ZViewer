@@ -17,6 +17,7 @@ import {
   type MovieSourceMeta,
 } from '@/store/roomStore'
 import { resolveCrawlerPlay, type CrawlerPlayQuality } from './api'
+import { t } from '@/i18n'
 
 function isCrawlerMeta(
   meta: MovieSourceMeta | null | undefined
@@ -69,7 +70,7 @@ export async function resolveCrawlerSelection(
   if (!isCrawlerMeta(meta)) return null
   const resolved = await resolveCrawlerPlay(roomId, meta.pageUrl)
   if (resolved.format === 'iframe' || !resolved.url) {
-    throw new Error(resolved.note || '没有解析到可播放地址，请打开原站查看')
+    throw new Error(resolved.note || t('没有解析到可播放地址，请打开原站查看'))
   }
 
   const qualities: CrawlerPlayQuality[] = (resolved.qualities || []).filter(

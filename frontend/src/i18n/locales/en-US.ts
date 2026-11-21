@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2793 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2795 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -311,7 +311,7 @@ const enUS: Record<string, string> = {
   '字幕轨为空': 'Subtitle track is empty',
   '字幕提取已取消': 'Subtitle extraction cancelled',
 
-  // ===== lib（19 条） =====
+  // ===== lib（20 条） =====
   '{{hours}} 小时 {{minutes}} 分钟前': '{{hours}} hr {{minutes}} min ago',
   '{{hours}} 小时前': '{{hours}} hr ago',
   '{{minutes}} 分钟前': '{{minutes}} min ago',
@@ -321,7 +321,6 @@ const enUS: Record<string, string> = {
   '橙': 'Orange',
   '粉': 'Pink',
   '该文件格式（{{format}}）不被浏览器原生支持，请选择 MP4/WebM/MOV/MKV 文件': 'The browser cannot play {{format}} natively, choose an MP4/WebM/MOV/MKV file',
-  '暂不支持 {{format}} 容器（浏览器与浏览器转码引擎都无法解析），请先转换为 MP4 或 MKV': '{{format}} containers are not supported yet (neither the browser nor the browser transcoding engine can parse them), convert to MP4 or MKV first',
   '该文件格式未知，浏览器无法播放': 'Unknown file format, the browser cannot play it',
   '刚刚': 'Just now',
   '黑': 'Black',
@@ -331,14 +330,14 @@ const enUS: Record<string, string> = {
   '亮粉': 'Light pink',
   '绿': 'Green',
   '游客': 'Guest',
+  '暂不支持 {{format}} 容器（浏览器与浏览器转码引擎都无法解析），请先转换为 MP4 或 MKV': '{{format}} containers are not supported yet (neither the browser nor the browser transcoding engine can parse them), convert to MP4 or MKV first',
   '紫': 'Purple',
 
-  // ===== store（8 条） =====
+  // ===== store（7 条） =====
   '大': 'Large',
   '更新影片失败': 'Failed to update the movie',
   '获取影片列表失败': 'Failed to load the movie list',
   '清空影片失败': 'Failed to clear the movies',
-  '小': 'Small',
   '新增影片失败': 'Failed to add the movie',
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
@@ -967,11 +966,12 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（122 条） =====
+  // ===== modules/live2d（123 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
   '本服模型': 'Server models',
+  '标准': 'Standard',
   '表情': 'Expression',
   '表情 {{index}}': 'Expression {{index}}',
   '不支持协议相对地址': 'Protocol-relative URLs are not supported',
@@ -1024,6 +1024,7 @@ const enUS: Record<string, string> = {
   '开启后可直接拖动角色调整位置': 'Drag the character to move it',
   '另有 {{count}} 个角色未显示': '{{count}} more characters not shown',
   '浏览器不支持摄像头动捕': 'This browser doesn\'t support camera tracking',
+  '流畅': 'Smooth',
   '没有找到可用的摄像头': 'No camera found',
   '眉': 'Brows',
   '每人最多 {{perOwner}} 个，全库最多 {{total}} 个': 'Up to {{perOwner}} per person, {{total}} in total',
@@ -1069,6 +1070,7 @@ const enUS: Record<string, string> = {
   '位置': 'Position',
   '位置和大小只保存在本机，不会同步给别人': 'Position and size are saved on this device only and are not shared',
   '我的角色': 'My character',
+  '小': 'Small',
   '笑': 'Smile',
   '眼': 'Eyes',
   '应用地址': 'Apply URL',
@@ -1168,7 +1170,7 @@ const enUS: Record<string, string> = {
   '未取得影片播放地址': 'No playback URL for the movie',
   '主播当前未开播，请开播后再播放': 'The streamer is offline, try again once the stream starts',
 
-  // ===== modules/music（726 条） =====
+  // ===== modules/music（725 条） =====
   ' · 共 {{totalPages}} 页': ' · {{totalPages}} pages',
   ' / 共 {{totalPages}} 页': ' / {{totalPages}} pages',
   ' 首分P歌曲…': ' first-part tracks…',
@@ -1259,7 +1261,6 @@ const enUS: Record<string, string> = {
   '编辑种类顺序（编辑模式下用箭头调整位置）': 'Edit genre order (use the arrows in edit mode)',
   '标签': 'Tags',
   '标题': 'Title',
-  '标准': 'Standard',
   '播放': 'Play',
   '播放/暂停': 'Play/pause',
   '播放队列': 'Queue',
@@ -1938,7 +1939,7 @@ const enUS: Record<string, string> = {
   '状态恢复失败': 'Failed to restore the state',
   'B站 URL 已过期，请等待房主重新解析': 'The Bilibili URL expired, wait for the host to resolve it again',
 
-  // ===== modules/player（100 条） =====
+  // ===== modules/player（103 条） =====
   '  缓冲范围: {{buffered}}\n': '  Buffered: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js error: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] Total size: video={{value}}MB, ',
@@ -2491,7 +2492,7 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（179 条） =====
+  // ===== modules/screen-sharing（178 条） =====
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
   '1080P · 30fps，默认档位': '1080P · 30fps — the default',
   '1080P · 60fps，画面有快速运动时选它': '1080P · 60fps — pick this when the picture moves fast',
@@ -2576,7 +2577,6 @@ const enUS: Record<string, string> = {
   '连接已断开，请点击刷新重试': 'Connection lost, click Refresh to retry',
   '浏览器调整了{{names}}，实际发送可能低于设定': 'The browser adjusted {{names}}; the actual output may be below your settings',
   '浏览器已自动静音，点击开启声音': 'Your browser muted the audio; click to unmute',
-  '流畅': 'Smooth',
   '流密钥（Stream Key）': 'Stream key',
   '流密钥已复制': 'Stream key copied',
   '密码错误': 'Wrong password',

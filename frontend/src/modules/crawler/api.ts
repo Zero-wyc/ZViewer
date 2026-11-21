@@ -5,6 +5,7 @@
  * 前端只负责把关键词/站点发出去并展示已解析好的结果。
  */
 import { apiGet, apiPost } from '@/lib/api'
+import { t } from '@/i18n'
 
 export interface CrawlerSite {
   id: string
@@ -131,7 +132,7 @@ export async function resolveCrawlerPlay(
     { roomId, url }
   )
   if (!ok || !data || data.success === false) {
-    throw new Error(errorMessage(data, '解析播放地址失败'))
+    throw new Error(errorMessage(data, t('解析播放地址失败')))
   }
   return data
 }
@@ -144,7 +145,7 @@ export async function fetchCrawlerSites(
     `/api/crawler/sites?roomId=${encodeURIComponent(roomId)}`
   )
   if (!ok || !data?.success) {
-    throw new Error(errorMessage(data, '获取站点列表失败'))
+    throw new Error(errorMessage(data, t('获取站点列表失败')))
   }
   // 引擎已过滤停用规则；前端再兜一层，停用的站点不进入「全网搜片」列表。
   return Array.isArray(data.sites)
@@ -177,7 +178,7 @@ export async function searchCrawlerSite(
         const value = details[key]
         return typeof value === 'string' && value ? value : undefined
       }
-      throw new CrawlerChallengeError(errorMessage(data, '需要人工验证'), {
+      throw new CrawlerChallengeError(errorMessage(data, t('需要人工验证')), {
         id: details.challengeId,
         proxyUrl:
           text('proxyUrl') ||
@@ -191,7 +192,7 @@ export async function searchCrawlerSite(
         expiresAt: text('expiresAt'),
       })
     }
-    throw new Error(errorMessage(data, '搜索失败'))
+    throw new Error(errorMessage(data, t('搜索失败')))
   }
   return data
 }
@@ -207,7 +208,7 @@ export async function verifyCrawlerChallenge(
     error?: string
   }>(`/api/crawler/challenge/${encodeURIComponent(challengeId)}/verify`)
   if (!ok || !data?.success || !data.result) {
-    throw new Error(errorMessage(data, '验证还没有完成'))
+    throw new Error(errorMessage(data, t('验证还没有完成')))
   }
   return data.result
 }

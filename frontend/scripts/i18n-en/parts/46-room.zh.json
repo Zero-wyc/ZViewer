@@ -1,0 +1,17 @@
+{
+  "bucket": "modules/room",
+  "items": [
+    "FTP 服务器地址，如 ftp.example.com",
+    "MKV / DTS 等非常规格式由浏览器重封装后播放",
+    "MP4 流畅",
+    "MP4 模式不支持缓冲，请切换到 DASH",
+    "MP4 直链，seek 流畅，清晰度最高 720P（未登录也是 720P）",
+    "MP4 最高 720P，DASH 与 CLI 模式才能获取高画质",
+    "MP4/WebM 等视频直链",
+    "OpenList 服务器地址（直链模式必填，已选挂载自动填充）",
+    "P{{currentPage}} {{value}} · 点击切换",
+    "RTT 往返时延",
+    "Socket 尚未连接",
+    "WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）"
+  ]
+}
