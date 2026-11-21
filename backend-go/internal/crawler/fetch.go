@@ -111,6 +111,9 @@ type Request struct {
 
 // Fetch 执行抓取，失败返回 *EngineError（code=fetch_error）。
 func (f *Fetcher) Fetch(ctx context.Context, req Request) (*FetchResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	target := strings.TrimSpace(req.URL)
 	if target == "" {
 		return nil, FetchError("URL 为空", 0, "", nil)
