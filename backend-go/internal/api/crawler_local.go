@@ -26,8 +26,14 @@ import (
 var (
 	crawlerMu       sync.Mutex
 	crawlerResolved bool
-	crawlerService  *crawler.SearchService
+	crawlerBundle   *localCrawlerBundle
 )
+
+// localCrawlerBundle 把搜索与播放解析放在一起共享 store / fetcher / goja 运行时。
+type localCrawlerBundle struct {
+	search *crawler.SearchService
+	play   *crawler.PlayResolver
+}
 
 // crawlerRoot 找爬虫根目录（其下有 data/rules）。
 //
@@ -61,15 +67,15 @@ func crawlerRoot() string {
 	return ""
 }
 
-// localCrawler 返回进程内的搜索服务；没有可用规则目录时返回 nil。
+// localBundle 返回进程内的引擎；没有可用规则目录时返回 nil。
 //
 // 单例是刻意的：规则目录、搜索日志、脚本运行时都是进程级资源，
 // 每个请求重建会丢日志并反复初始化 goja。
-func localCrawler() *crawler.SearchService {
+func localBundle() *localCrawlerBundle {
 	crawlerMu.Lock()
 	defer crawlerMu.Unlock()
 	if crawlerResolved {
-		return crawlerService
+		return crawlerBundle
 	}
 	crawlerResolved = true
 
@@ -85,18 +91,40 @@ func localCrawler() *crawler.SearchService {
 		Timeout: 25 * time.Second,
 		Retries: 1,
 	})
+	js := crawler.NewJSRunner(fetcher)
 	logStore, _ := crawler.NewSearchLogStore(
 		filepath.Join(root, "data", "search-log.json"),
 		crawler.DefaultSearchLogLimit,
 	)
-	service := crawler.NewSearchService(crawler.SearchOptions{
+	search := crawler.NewSearchService(crawler.SearchOptions{
 		Store:   store,
 		Fetcher: fetcher,
 		Log:     logStore,
 	})
-	service.SetJSRuntime(crawler.NewJSRunner(fetcher))
-	crawlerService = service
-	return service
+	search.SetJSRuntime(js)
+	play := crawler.NewPlayResolver(crawler.PlayOptions{
+		Store:   store,
+		Fetcher: fetcher,
+		JS:      js,
+	})
+	crawlerBundle = &localCrawlerBundle{search: search, play: play}
+	return crawlerBundle
+}
+
+// localCrawler 返回进程内的搜索服务；没有可用规则目录时返回 nil。
+func localCrawler() *crawler.SearchService {
+	if bundle := localBundle(); bundle != nil {
+		return bundle.search
+	}
+	return nil
+}
+
+// localPlayResolver 返回进程内的播放解析器；没有可用规则目录时返回 nil。
+func localPlayResolver() *crawler.PlayResolver {
+	if bundle := localBundle(); bundle != nil {
+		return bundle.play
+	}
+	return nil
 }
 
 // resetLocalCrawler 仅供测试：丢掉单例，下次调用重新探测目录。
@@ -104,7 +132,7 @@ func resetLocalCrawler() {
 	crawlerMu.Lock()
 	defer crawlerMu.Unlock()
 	crawlerResolved = false
-	crawlerService = nil
+	crawlerBundle = nil
 }
 
 // crawlerErrorStatus 把引擎错误码映射成 HTTP 状态。
@@ -133,7 +161,7 @@ func crawlerErrorStatus(code string) int {
 func writeCrawlerError(w http.ResponseWriter, err error) {
 	engineErr, ok := err.(*crawler.EngineError)
 	if !ok {
-		httpx.InternalError(w, "POST /api/crawler/search", err)
+		httpx.InternalError(w, "crawler", err)
 		return
 	}
 	if engineErr.Code == "challenge_required" {

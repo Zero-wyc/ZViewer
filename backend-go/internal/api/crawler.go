@@ -308,6 +308,16 @@ func (s *Server) handleCrawlerResolvePlay(w http.ResponseWriter, r *http.Request
 		"roomId": body.RoomID,
 		"role":   crawlerRole(claims),
 	}
+	// 本地引擎优先：直链嗅探、规则接口、脚本解析都在进程内完成。
+	if resolver := localPlayResolver(); resolver != nil {
+		result, resolveErr := resolver.Resolve(body.URL, body.RoomID, crawlerRole(claims), nil)
+		if resolveErr != nil {
+			writeCrawlerError(w, resolveErr)
+			return
+		}
+		httpx.OK(w, result)
+		return
+	}
 	result, status, err := s.crawlerProxy(r.Context(), http.MethodPost, "/api/crawler/play/resolve", payload, 120*time.Second)
 	if err != nil {
 		log.Printf("[crawler] 播放解析失败: %v", err)

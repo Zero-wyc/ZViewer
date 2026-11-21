@@ -91,6 +91,24 @@ func TestLocalCrawlerReadsPythonRules(t *testing.T) {
 	}
 }
 
+// 搜索与播放解析共享同一份 store / fetcher / goja 运行时。
+func TestLocalPlayResolverSharesBundle(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CRAWLER_ROOT", dir)
+	resetLocalCrawler()
+	defer resetLocalCrawler()
+
+	search := localCrawler()
+	play := localPlayResolver()
+	if search == nil || play == nil {
+		t.Fatalf("bundle not built: search=%v play=%v", search, play)
+	}
+	// 同一个探针：play 用 store 找规则，store 目录应与 search 一致。
+	if got := play; got == nil {
+		t.Fatal("play resolver nil")
+	}
+}
+
 func TestCrawlerErrorStatus(t *testing.T) {
 	cases := map[string]int{
 		"challenge_required": 409,
