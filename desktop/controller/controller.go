@@ -53,9 +53,14 @@ type RuntimeFiles struct {
 }
 
 type Snapshot struct {
-	Config     Config       `json:"config"`
-	Active     *Config      `json:"active"`
-	WebURL     string       `json:"webUrl"`
+	Config Config  `json:"config"`
+	Active *Config `json:"active"`
+	WebURL string  `json:"webUrl"`
+	// WebURLs 是本机与局域网可用的网页端地址，界面地址栏据此切换；只监听回环时只有本机一条。
+	WebURLs []string `json:"webUrls"`
+	// EmbedURL 是控制台内嵌浏览器（WebView2）该加载的地址：
+	// HTTPS 模式下是 127.0.0.1 的回环 HTTP 地址（免证书），其余情况等于 WebURL。
+	EmbedURL   string       `json:"embedUrl"`
 	Backend    string       `json:"backend"`
 	Voice      string       `json:"voice"`
 	Frp        string       `json:"frp"`
@@ -134,9 +139,12 @@ type Controller struct {
 	tunnelLifecycleMu  sync.Mutex
 	tunnelRefreshCount int
 	active             *Config
-	frpRegistered      map[string]bool
-	voiceKey           string
-	voiceSecret        string
+	// embedPort 是本次启动时给「内嵌网页端」挑的回环 HTTP 端口（仅 HTTPS 模式），
+	// 通过 LOOPBACK_HTTP_PORT 下发给后端；后端起不来就是 0，界面退回 HTTPS 地址。
+	embedPort     int
+	frpRegistered map[string]bool
+	voiceKey      string
+	voiceSecret   string
 
 	ipv6Mu sync.Mutex
 	ipv6   *IPv6Report
@@ -181,6 +189,8 @@ func New(opts Options) (*Controller, error) {
 		return nil, err
 	}
 	c.store = store
+	// 启动时把日志目录收回到 6MiB 预算内（滚动本身在 appendLogFile 里做）。
+	pruneDesktopLogs(c.dir)
 	key := make([]byte, 12)
 	secret := make([]byte, 48)
 	_, _ = rand.Read(key)
@@ -254,13 +264,23 @@ func (c *Controller) log(message, source, level string) {
 	c.emit()
 }
 
+// 控制台日志上限：单文件 2MiB，滚动保留 2 个历史文件，
+// 整个 logs 目录合计不超过 6MiB（desktop.log + .1 + .2）。
+// 日志里既有后端 stdout（含访问日志）也有壳自身事件，长期运行必须封顶，
+// 否则一台 7×24 开着的机器会被日志慢慢吃满磁盘。
+const (
+	maxDesktopLogBytes      = 2 << 20
+	maxDesktopLogBackups    = 2
+	maxDesktopLogTotalBytes = 6 << 20
+)
+
 func (c *Controller) appendLogFile(event Event) {
 	logFile := filepath.Join(c.dir, "logs", "desktop.log")
 	if err := os.MkdirAll(filepath.Dir(logFile), 0o700); err != nil {
 		return
 	}
-	if info, err := os.Stat(logFile); err == nil && info.Size() > 2*1024*1024 {
-		_ = os.Rename(logFile, logFile+".previous")
+	if info, err := os.Stat(logFile); err == nil && info.Size() > maxDesktopLogBytes {
+		rotateDesktopLog(logFile)
 	}
 	raw, err := json.Marshal(event)
 	if err != nil {
@@ -272,6 +292,80 @@ func (c *Controller) appendLogFile(event Event) {
 	}
 	defer file.Close()
 	_, _ = file.Write(append(raw, '\n'))
+}
+
+// rotateDesktopLog 滚动 desktop.log：desktop.log → .1 → .2，最老的删除。
+// 旧版本用的是 desktop.log.previous 单个备份，这里顺手清掉，免得白占磁盘。
+func rotateDesktopLog(path string) {
+	_ = os.Remove(path + ".previous")
+	_ = os.Remove(fmt.Sprintf("%s.%d", path, maxDesktopLogBackups))
+	for i := maxDesktopLogBackups - 1; i >= 1; i-- {
+		_ = os.Rename(fmt.Sprintf("%s.%d", path, i), fmt.Sprintf("%s.%d", path, i+1))
+	}
+	_ = os.Rename(path, path+".1")
+}
+
+// pruneDesktopLogs 在启动时把 logs 目录收回到预算内：
+// 先删旧版本残留的 desktop.log.previous 与超额滚动文件（.3/.4…），
+// 再从最老的备份开始删，直到总计不超过 maxDesktopLogTotalBytes。
+// 运行期的滚动由 appendLogFile + rotateDesktopLog 负责，这里只兜「跨版本残留」
+// 与「用户手动拷回来的旧日志」。
+func pruneDesktopLogs(stateDir string) {
+	logDir := filepath.Join(stateDir, "logs")
+	_ = os.Remove(filepath.Join(logDir, "desktop.log.previous"))
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "desktop.log.") {
+			continue
+		}
+		idx, convErr := strconv.Atoi(strings.TrimPrefix(name, "desktop.log."))
+		if convErr != nil || idx <= maxDesktopLogBackups {
+			continue
+		}
+		_ = os.Remove(filepath.Join(logDir, name))
+	}
+	for i := maxDesktopLogBackups; i >= 1; i-- {
+		if desktopLogDirBytes(logDir) <= maxDesktopLogTotalBytes {
+			return
+		}
+		_ = os.Remove(filepath.Join(logDir, fmt.Sprintf("desktop.log.%d", i)))
+	}
+}
+
+// livekitRecordStart 判断一行是不是 LiveKit 新日志记录的开头。
+// v1.13 的记录格式：2026-11-06T19:18:32.098+0800<TAB>ERROR<TAB>livekit<TAB>文件名:行号<TAB>正文。
+// 用于把「一条记录 + 其后的栈帧」当成一个整体过滤，避免栈帧行被当成独立记录。
+func livekitRecordStart(line string) bool {
+	// 记录形如 2026-11-06T19:18:32.098+0800，栈帧行以 TAB 或 github.com/ 开头，
+	// 长度与 "T" 位置都要一起校验，避免把普通日志行当成记录起点。
+	if len(line) < 20 {
+		return false
+	}
+	for i := 0; i < 4; i++ {
+		if line[i] < '0' || line[i] > '9' {
+			return false
+		}
+	}
+	return line[4] == '-' && line[10] == 'T'
+}
+
+// desktopLogDirBytes 统计 logs 目录里 desktop.log 系列文件的总字节数。
+func desktopLogDirBytes(logDir string) int64 {
+	var total int64
+	for i := 0; i <= maxDesktopLogBackups; i++ {
+		name := "desktop.log"
+		if i > 0 {
+			name = fmt.Sprintf("desktop.log.%d", i)
+		}
+		if info, err := os.Stat(filepath.Join(logDir, name)); err == nil {
+			total += info.Size()
+		}
+	}
+	return total
 }
 
 func (c *Controller) Snapshot() Snapshot {
@@ -294,7 +388,7 @@ func (c *Controller) Snapshot() Snapshot {
 	mesh.PublicPeers = MeshPublicPeers()
 	out := Snapshot{
 		Config: config, Active: active,
-		WebURL: c.WebURL(), Backend: backend, Voice: voice, Frp: frp,
+		WebURL: c.WebURL(), WebURLs: c.WebURLs(), EmbedURL: c.EmbedURL(), Backend: backend, Voice: voice, Frp: frp,
 		Cli:  c.cli.Snapshot(),
 		Mesh: mesh,
 		Pid:  backendPid, FrpPid: frpPid,
@@ -340,6 +434,58 @@ func (c *Controller) WebURL() string {
 		scheme = "https"
 	}
 	return fmt.Sprintf("%s://localhost:%d/", scheme, config.Port)
+}
+
+// WebURLs 返回控制台可直接内嵌的网页端地址：本机回环在前，其后是局域网 IPv4。
+// 只监听 127.0.0.1 时不返回局域网地址，避免把实际访问不到的地址放进地址栏。
+func (c *Controller) WebURLs() []string {
+	c.mu.RLock()
+	active := c.active
+	c.mu.RUnlock()
+	config := c.store.Value
+	if active != nil {
+		config = *active
+	}
+	scheme := "http"
+	if config.Https {
+		scheme = "https"
+	}
+	urls := []string{fmt.Sprintf("%s://localhost:%d/", scheme, config.Port)}
+	if config.BindHost == "127.0.0.1" {
+		return urls
+	}
+	for _, ip := range lanIPv4s() {
+		urls = append(urls, fmt.Sprintf("%s://%s:%d/", scheme, ip.String(), config.Port))
+	}
+	return urls
+}
+
+// loopbackHTTPPort 返回本次启动给内嵌网页端挑的回环 HTTP 端口，0 表示没挑到。
+func (c *Controller) loopbackHTTPPort() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.embedPort
+}
+
+// EmbedURL 返回控制台内嵌浏览器应加载的地址。
+//
+// HTTPS 模式下 WebView2 不认自签证书，只会显示一张灰底错误页（不像 Edge 那样
+// 提供「继续访问」）。所以后端额外开了一个只绑 127.0.0.1 的纯 HTTP 监听，
+// 内嵌页走它；http://127.0.0.1 属于浏览器的「潜在可信来源」= 安全上下文，
+// 麦克风、屏幕共享权限都拿得到。端口没挑到（或非 HTTPS）时退回 WebURL。
+func (c *Controller) EmbedURL() string {
+	c.mu.RLock()
+	active := c.active
+	port := c.embedPort
+	c.mu.RUnlock()
+	config := c.store.Value
+	if active != nil {
+		config = *active
+	}
+	if config.Https && port > 0 {
+		return fmt.Sprintf("http://127.0.0.1:%d/", port)
+	}
+	return c.WebURL()
 }
 
 func (c *Controller) ManagementURL() string { return c.WebURL() + "admin" }
@@ -437,6 +583,13 @@ func (c *Controller) environment() ([]string, error) {
 	env["PORT"] = strconv.Itoa(config.Port)
 	env["HOST"] = config.BindHost
 	env["HTTPS"] = strconv.FormatBool(config.Https)
+	// 内嵌网页端走回环 HTTP：端口由壳挑好下发，后端据此额外开一个 127.0.0.1 监听。
+	// 只有 HTTPS 模式才需要——HTTP 模式下网页端本来就是普通 HTTP。
+	if config.Https {
+		if port := c.loopbackHTTPPort(); port > 0 {
+			env["LOOPBACK_HTTP_PORT"] = strconv.Itoa(port)
+		}
+	}
 	env["RTMP_PORT"] = strconv.Itoa(config.RtmpPort)
 	env["HTTP_FLV_PORT"] = strconv.Itoa(config.FlvPort)
 	// 标记后端运行在桌面 GUI 壳内：网页管理端的「版本更新」会因此禁用，
@@ -444,6 +597,18 @@ func (c *Controller) environment() ([]string, error) {
 	env["ZVIEWER_DESKTOP"] = "1"
 	// 壳内管理令牌：后端只对带 X-Desktop-Token 且值相等的请求放行爬虫管理接口。
 	env["ZVIEWER_DESKTOP_TOKEN"] = c.desktopToken
+	// 独立评论窗口要由后端拉起同一个桌面壳，这里把壳自身路径下发过去。
+	if exe, err := os.Executable(); err == nil {
+		env["ZVIEWER_DESKTOP_EXE"] = exe
+	}
+	// 后端在没有 PROJECT_ROOT 时会「从工作目录向上找 frontend/ + backend-go/」推断项目根。
+	// 运行包若被放在源码树里（例如开发机上的 .gui/runtime），就会一路向上误判到源码根，
+	// 于是壳按 <runtime>/config/dev.sqlite 判断首次启动、后端却拿源码根的库执行 --init-db，
+	// 结果「库里已有 17 张表」直接初始化失败。壳本来就以 c.root 作为运行包根，这里显式下发，
+	// 保证两侧永远指向同一个库；.env 或父进程显式给的 PROJECT_ROOT 优先（开发态可留在源码树）。
+	if strings.TrimSpace(env["PROJECT_ROOT"]) == "" {
+		env["PROJECT_ROOT"] = c.root
+	}
 	// 语音与屏幕共享共用的媒体面：UDP 跟在网页端口上（沿用既有防火墙规则），
 	// TCP 必须单开一个——3333/tcp 已经是网页本身。
 	env["SHARE_MEDIA_PORT"] = strconv.Itoa(config.Port)
@@ -494,6 +659,15 @@ func (c *Controller) startBackend() (any, error) {
 	if config.Https {
 		if _, err := c.certs.Ensure(config.Domain, config.LanIP); err != nil {
 			return nil, err
+		}
+		// 给内嵌网页端挑一个本机空闲端口（主端口 +1000 起，避开主端口/RTMP/FLV/语音）。
+		// 挑不到就不下发，后端不开回环监听，界面退回 HTTPS 地址（可能要手动信任证书）。
+		port := pickLoopbackHTTPPort(config.Port + 1000)
+		c.mu.Lock()
+		c.embedPort = port
+		c.mu.Unlock()
+		if port == 0 {
+			c.log("未找到可用的本机回环端口，内嵌网页端仍使用 HTTPS 地址（可能提示证书不受信任）", "backend", "WARN")
 		}
 	}
 	c.setBackendState("starting")

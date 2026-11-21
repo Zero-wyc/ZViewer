@@ -37,7 +37,7 @@
   const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.info}</svg>`;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = selector => document.querySelector(selector);
-  const titles = { overview: '服务总览', connect: '连接方式', frp: 'FRP 穿透', cert: '证书与域名', cli: '高画质代理', mesh: 'EasyTier 虚拟组网', crawler: '爬虫引擎', logs: '运行日志', settings: '应用设置' };
+  const titles = { overview: '服务总览', connect: '连接方式', web: '网页端', frp: 'FRP 穿透', cert: '证书与域名', cli: '高画质代理', mesh: 'EasyTier 虚拟组网', crawler: '爬虫引擎', logs: '运行日志', settings: '应用设置' };
   let prefs = { closeToTray: true, remember: true };
   try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem('zviewer-ui-prefs') || '{}') }; } catch { /* Use safe defaults if storage is unavailable. */ }
   const state = {
@@ -48,7 +48,7 @@
     meshDraft: null, meshSecretDraft: '', meshProbe: null,
     meshConfig: null, meshConfigDraft: null, meshConfigError: '', meshPreviewMode: 'form',
     crawler: { info: null, loading: false, starting: false, error: '', tab: 'submissions', rules: [], ruleSource: '', sessions: [], sessionId: '', messages: [], submissions: [], autoGenerate: false, browser: null, loginBusy: false, chatBusy: false, autoTried: false },
-    events: [], prefs, updateOpen: false, updateKey: ''
+    events: [], prefs, updateOpen: false, updateKey: '', webURL: ''
   };
   function clock() { return new Date().toLocaleTimeString('zh-CN', { hour12: false }); }
   function addEvent(message, source = 'console', level = 'INFO') { state.events.unshift({ time: clock(), source, level, message }); state.events.length = Math.min(state.events.length, 100); }
@@ -295,6 +295,64 @@
     patchUpdateProxy(true, url);
     state.updateKey = '';
     $('#modal-content').innerHTML = updateModal();
+  }
+  // ---------- 内嵌网页端 ----------
+  // 地址列表来自桌面快照（本机 + 局域网），预览态只给本机地址。
+  function webURLs() {
+    if (!state.live) return ['http://localhost:3333/'];
+    const list = Array.isArray(state.server?.webUrls) && state.server.webUrls.length ? state.server.webUrls : [state.server?.webUrl].filter(Boolean);
+    return list.filter((url, index) => Boolean(url) && list.indexOf(url) === index);
+  }
+  // embedUrl 来自壳：HTTPS 模式下是本机回环 HTTP 地址（127.0.0.1，免证书、
+  // 仍属安全上下文），非 HTTPS 或后端没开回环监听时等于 webUrl。
+  function embedURL() {
+    if (!state.live) return '';
+    const url = state.server?.embedUrl;
+    return typeof url === 'string' ? url : '';
+  }
+  // 地址栏候选：内嵌地址排第一，然后是快照给的本机/局域网地址，去重。
+  function webAddresses() {
+    const list = [embedURL(), ...webURLs()].filter(Boolean);
+    return list.filter((url, index) => list.indexOf(url) === index);
+  }
+  function webAddressLabel(url) {
+    if (url === embedURL()) return '本机（内嵌）';
+    return url.includes('localhost') || url.includes('127.0.0.1') ? '本机' : '局域网';
+  }
+  function webAddress() { const urls = webAddresses(); return urls.includes(state.webURL) ? state.webURL : urls[0] || ''; }
+  function webFrame() {
+    const container = $('#web-view');
+    if (!container) return null;
+    let frame = container.querySelector('#web-frame');
+    if (!frame) {
+      frame = document.createElement('iframe');
+      frame.id = 'web-frame';
+      frame.title = 'ZViewer 网页端';
+      // microphone/camera/display-capture 必须显式授权：跨源 iframe 里的
+      // getUserMedia / getDisplayMedia 受 Permissions Policy 约束，不写就静默失败。
+      frame.setAttribute('allow', 'autoplay; fullscreen; clipboard-write; microphone; camera; display-capture');
+      frame.setAttribute('referrerpolicy', 'no-referrer');
+      container.appendChild(frame);
+    }
+    return frame;
+  }
+  // iframe 常驻，切页只隐藏容器；只有地址变化或手动刷新才动 src，避免重载丢失播放状态。
+  function syncWebFrame(force = false) {
+    const container = $('#web-view');
+    if (!container) return;
+    container.hidden = state.page !== 'web';
+    if (state.page !== 'web') return;
+    const frame = webFrame();
+    const target = webAddress();
+    if (frame && (force || frame.getAttribute('src') !== target)) frame.setAttribute('src', target);
+  }
+  // 网页端页只保留地址栏一行，内嵌浏览器占满下方剩余空间。
+  function web() {
+    const urls = webAddresses(), current = webAddress();
+    const options = urls.map(url => `<option value="${esc(url)}" ${url === current ? 'selected' : ''}>${esc(webAddressLabel(url))} · ${esc(url)}</option>`).join('');
+    const backend = state.live ? state.server?.backend || 'stopped' : 'running';
+    return `<div class="web-toolbar"><label class="web-address"><span>访问地址</span><select id="web-address" aria-label="访问地址">${options}</select></label><div class="web-actions">${button('刷新', 'web-refresh', 'refresh')}${button('在浏览器打开', 'web-external', 'external')}</div></div>` +
+      (backend === 'running' ? '' : notice('主服务尚未启动，请先在「服务总览」启动服务；启动后这里会自动加载。'));
   }
   function setRunning(running, notify = true) {
     state.running = !!running;
@@ -685,7 +743,7 @@
     pageView.hidden = state.page === 'cli'; cliView.hidden = state.page !== 'cli';
     $('#crumb').textContent = titles[state.page];
     document.querySelectorAll('[data-page]').forEach(a => { const active = a.dataset.page === state.page; a.classList.toggle('active', active); if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-    const markup = (state.live && state.views ? state.views : { overview, connect, frp, cert, cli, mesh, crawler: crawlerPreview, logs, settings })[state.page]();
+    const markup = (state.live && state.views ? state.views : { overview, connect, web, frp, cert, cli, mesh, crawler: crawlerPreview, logs, settings })[state.page]();
     // Both containers stay attached. Hiding the CLI view preserves its browsing context across navigation.
     if (frame && !state.cliEmbedUrl) frame.remove();
     else if (frame && frame.getAttribute('src') !== state.cliEmbedUrl) frame.setAttribute('src', state.cliEmbedUrl);
@@ -698,6 +756,8 @@
       cliView.querySelector('.cli-settings').replaceWith(template.content.querySelector('.cli-settings'));
       if (focusId) { const replacement = document.getElementById(focusId); replacement?.focus({ preventScroll: true }); if (replacement && selection) replacement.setSelectionRange(...selection); }
     } else (state.page === 'cli' ? cliView : pageView).innerHTML = markup;
+    // 网页端 iframe 独立于页面容器，切页不销毁浏览上下文。
+    syncWebFrame();
     $('#tray-label').textContent = state.native ? '收起到托盘' : '托盘预览';
     $('#footer-status').textContent = state.live ? (state.server?.backend === 'running' ? '本地服务运行中' : '原生托盘已启用') : state.native ? '原生托盘已启用' : '本地界面预览';
     icons();
@@ -757,6 +817,12 @@
       patchUpdateProxy(enabled, url);
       state.updateKey = '';
       $('#modal-content').innerHTML = updateModal();
+    }
+    else if (name === 'web-refresh') { syncWebFrame(true); toast('已刷新网页端'); }
+    else if (name === 'web-external') {
+      const url = webAddress();
+      if (window.runtime?.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
+      else window.open(url, '_blank', 'noopener,noreferrer');
     }
     else if (name === 'docs') { if (window.zviewerDesktop) await window.zviewerDesktop.openDocs(); else window.open('https://docx.zviewer.zero251.xyz/', '_blank', 'noopener,noreferrer'); }
     else if (name === 'export-frp') {
@@ -848,6 +914,7 @@
     if (target.matches('[data-frp-check]')) { state.frp[target.dataset.frpCheck] = target.checked; const code = $('#frp-code'); if (code) code.textContent = frpConfig(); }
     if (target.id === 'log-source') { state.logSource = target.value; if (!state.paused) refreshLogs(); }
     if (target.id === 'log-level') { state.logLevel = target.value; if (!state.paused) refreshLogs(); }
+    if (target.id === 'web-address') { state.webURL = target.value; syncWebFrame(true); }
     if (target.id === 'update-proxy-url') applyProxyURL(target);
   });
   function refreshLogs() { $('#log-lines').innerHTML = logLines(); $('#log-count').textContent = `${filteredEvents().length} 条 · ${state.live ? '运行日志' : '操作记录'}`; }
@@ -871,7 +938,7 @@
   function crawlerPreview() {
     return heading('爬虫引擎', '用大模型生成站点规则，供一起看搜索影视。') + notice('爬虫引擎页只在桌面版中可用：需要本地 Python 服务与桌面桥接。', true);
   }
-  window.ZViewerUI = { state, icon, esc, heading, button, notice, tutorial, render, navigate, toast, modal, preview: { overview, connect, frp, cert, cli, mesh, crawler: crawlerPreview, logs, settings, updateModal, syncUpdate }, refreshLogs, syncWorkspace };
+  window.ZViewerUI = { state, icon, esc, heading, button, notice, tutorial, render, navigate, toast, modal, preview: { overview, connect, web, frp, cert, cli, mesh, crawler: crawlerPreview, logs, settings, updateModal, syncUpdate }, refreshLogs, syncWorkspace };
   render();
   if (window.zviewerDesktop) {
     window.zviewerDesktop.info().then(info => {

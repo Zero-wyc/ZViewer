@@ -399,7 +399,10 @@ func (t *trayIcon) runMenuCommand(id uint32) {
 	case menuRestart:
 		run(func() error { _, err := app.ctrl.Restart(); return err })
 	case menuOpenWeb:
-		run(func() error { return app.openLocalPage(false) })
+		// 与界面上的「打开网页端」一致：内嵌到控制台网页端页，服务未启动时后台拉起。
+		app.showWindow()
+		app.navigate("web")
+		run(func() error { return app.ensureBackend() })
 	case menuCli:
 		app.showWindow()
 		app.navigate("cli")

@@ -1066,6 +1066,32 @@ dialog p { margin-top: 8px; color: var(--text-secondary); font-size: 12px; line-
   * { transition: none !important; animation: none !important; }
 }
 
+/* 内嵌网页端：工具栏留在页面容器里，iframe 占满剩余高度。
+   #main 默认是块级滚动容器，必须显式改成纵向 flex，否则 #web-view 的
+   flex:1 不生效、iframe 只剩浏览器默认的 150px 高度，下面留一大片空白。 */
+#main[data-view="web"] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#main[data-view="web"] > #page-view { flex: 0 0 auto; padding: 12px var(--page-padding); }
+#web-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0 !important;
+  max-width: none !important;
+}
+#web-view[hidden] { display: none !important; }
+#web-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+.web-toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+#main[data-view="web"] .web-toolbar { margin-bottom: 0; }
+.web-address { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 280px; }
+.web-address > span { font-size: 12px; opacity: .68; }
+.web-address select { width: 100%; }
+.web-actions { display: flex; gap: 8px; }
+
 /* 爬虫引擎页：状态卡、规则列表、Agent 对话与账号。 */
 .crawler-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 14px 0; }
 .crawler-fact { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-control); background: var(--subtle-hover); }
