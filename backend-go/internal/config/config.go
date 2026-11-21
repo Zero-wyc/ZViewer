@@ -57,6 +57,13 @@ type Config struct {
 	// 需要退回旧模式时显式设 `SQLITE_WAL=0`。
 	SQLiteWAL bool
 
+	// AutoMigrate 为 true 时，启动路径在打开库之前先把「版本升级后结构变了」的库
+	// 自动补到当前 schema：先 VACUUM INTO 备份，再在一个事务里补表补列。
+	//
+	// **默认开启**：用户装新版直接启动就该能用，不该先被 `--upgrade-db` 拦住。
+	// 显式设 `DB_AUTO_MIGRATE=0` 可退回旧行为（结构不符就拒绝启动，由人工升级）。
+	AutoMigrate bool
+
 	// ShareMediaPort 是媒体 UDP 端口。
 	//
 	// 默认 3333：这个端口以前是 livekit-server 的语音端口，防火墙早就开着。
@@ -113,6 +120,7 @@ func Load() (*Config, error) {
 		UseTLS:       os.Getenv("HTTPS") == "true",
 		StartedAt:    time.Now(),
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
+		AutoMigrate:  os.Getenv("DB_AUTO_MIGRATE") != "0",
 
 		ShareMediaPort:     3333,
 		ShareMediaTCPPort:  mediaTCPFallbackPort,
