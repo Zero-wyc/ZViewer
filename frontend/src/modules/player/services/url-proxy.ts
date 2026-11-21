@@ -34,7 +34,15 @@ const BILIBILI_MEDIA_HOST_SUFFIXES = [
   'mountaintoys.cn',
   'pili-video.com',
   'boss-pgc.com',
+  // B站 PCDN / 自建边缘节点（如 upos-lcdn-*.solseed.cn）：
+  // 实测同样校验 Referer，缺了就直出 403。
+  'solseed.cn',
+  'szbdyd.com',
+  'bilivideo.cn',
 ] as const
+
+/** B站 媒体防盗链要求的 Referer（代理转发未收录域名时显式带上） */
+const BILIBILI_REFERER = 'https://www.bilibili.com'
 
 /** akamaized 为共享 CDN，仅精确白名单 B站 海外边缘节点 */
 const BILIBILI_MEDIA_HOST_EXACT: readonly string[] = [
@@ -211,11 +219,16 @@ export function appendAuthToken(url: string): string {
  *
  * 认证：hls.js 等场景无法设置 Authorization header，因此将 access token
  * 附加到查询参数中，后端 extractAccessToken 会优先从查询参数读取。
+ *
+ * @param referer 显式覆盖代理转发时的 Referer（B站 未收录的边缘/PCDN 域名兜底）
  */
-export function buildProxyUrl(url: string): string {
+export function buildProxyUrl(url: string, referer?: string): string {
+  // 未知 B站 CDN 域名兜底：后端白名单未收录的新边缘/PCDN 节点，
+  // 由这里显式声明 Referer，避免上游因防盗链直出 403。
+  const refererParam = referer ? `&referer=${encodeURIComponent(referer)}` : ''
   const token = getStoredToken()
   const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
-  return `/api/stream/proxy?url=${encodeURIComponent(url)}${tokenParam}`
+  return `/api/stream/proxy?url=${encodeURIComponent(url)}${tokenParam}${refererParam}`
 }
 
 /**
@@ -314,7 +327,10 @@ export function resolveMediaRoute(
       format,
       hasHeaders,
     })
-    return { url: buildProxyUrl(url), allowFallback: false }
+    return {
+      url: buildProxyUrl(url, isBili ? BILIBILI_REFERER : undefined),
+      allowFallback: false,
+    }
   }
 
   if (isBili) {
@@ -330,7 +346,7 @@ export function resolveMediaRoute(
 
     if (isDashStream) {
       // B站 DASH m4s 流：有防盗链 + 无 CORS，必须走服务器代理
-      return { url: buildProxyUrl(url), allowFallback: false }
+      return { url: buildProxyUrl(url, BILIBILI_REFERER), allowFallback: false }
     }
     // B站 MP4 直链：仅 platform=html5 形态（UGC html5 接口产物）免防盗链，
     // 可直连服务器零流量，直连失败（签名过期等）允许一次代理重试；
@@ -339,7 +355,7 @@ export function resolveMediaRoute(
     // platform=html5 请求参数无效果，绕不过）——直接走服务器代理（后端
     // 注入 B站 Referer），省去注定失败的直连往返与回退
     if (!isAntileechFreeBilibiliMp4Url(url)) {
-      return { url: buildProxyUrl(url), allowFallback: false }
+      return { url: buildProxyUrl(url, BILIBILI_REFERER), allowFallback: false }
     }
     return { url, allowFallback: true }
   }

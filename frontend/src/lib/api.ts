@@ -312,6 +312,11 @@ export async function apiFetch(
       : input
 
   const res = await fetch(url, {
+    // 反向代理（如 LuCI 的 _rp_login 反代）会给同源响应强行加
+    // Cache-Control: private, max-age=3600 之类的缓存头，覆盖后端下发的 no-store，
+    // 导致浏览器把 API 结果缓存一小时；API 响应永不复用，默认绕过 HTTP 缓存
+    // （调用方仍可通过 options.cache 覆盖）。
+    cache: 'no-store',
     ...rest,
     credentials: 'include',
     headers: {
