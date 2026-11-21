@@ -270,7 +270,7 @@ export function MusicHomePage({
         <RecBlock
           titleEN="TOP LIST"
           titleCN={translate('排行榜')}
-          kind="album"
+          kind="playlist"
           items={toplists.map((t) => ({
             id: t.id,
             name: t.name,
