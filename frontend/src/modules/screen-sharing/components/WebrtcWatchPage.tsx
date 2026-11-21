@@ -6,27 +6,35 @@
  * 拿到 active 才挂画面。恢复由会话自己做（预算 2 次），耗尽后把刷新按钮交给用户。
  *
  * 页面只负责：绑定 video 元素、把会话状态映到控制栏、以及所有 UI（批注、网页
- * 全屏、画中画）。
+ * 全屏、画中画）。播放器外壳（舞台、玻璃拟态控制栏、全屏、分屏评论区、自动
+ * 隐藏）与 OBS 推流观众端共用 `PlayerChrome`，只把媒体内容换成
+ * `RemoteVideoPlayer`，两端界面保持一致。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PauseCircle, Volume2 } from 'lucide-react'
-import { message } from '@/components/ui/message'
-import { useSocket } from '@/hooks/useSocket'
-import { cn } from '@/lib/utils'
 import {
-  isIOSDevice,
-  supportsContainerFullscreen,
-} from '@/lib/fullscreen-utils'
+  PauseCircle,
+  Pencil,
+  PictureInPicture,
+  PictureInPicture2,
+  Volume2,
+  X,
+} from 'lucide-react'
+import { message } from '@/components/ui/message'
+import { Slider } from '@/components/ui/Slider'
+import { Tag } from '@/components/ui/Tag'
+import { IconButton } from '@/components/VideoControls'
+import { cn } from '@/lib/utils'
 import {
   AnnotationLayer,
   AnnotationToolbar,
   type AnnotationTool,
 } from '@/components/AnnotationLayer'
 import { CommentPanel } from '@/components/CommentPanel'
+import { CommentListSheet } from '@/components/CommentListSheet'
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
-import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import { useIsLandscapeShort } from '@/hooks/useMediaQuery'
+import { useSocket } from '@/hooks/useSocket'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { usePiikShareViewer } from '@/modules/piik-share/usePiikShareViewer'
 import { ViewerAudio, type ViewerAudioSnapshot } from '../core/viewer-audio'
@@ -37,7 +45,7 @@ import {
 } from '../utils/mediaSettingsStorage'
 import { viewerStatusText } from '../utils/shareMessages'
 import { RemoteVideoPlayer } from './RemoteVideoPlayer'
-import { WatchControlsBar } from './WatchControlsBar'
+import { PlayerChrome, type PlayerChromeStatus } from './PlayerChrome'
 import { t } from '@/i18n'
 
 declare global {
@@ -53,6 +61,42 @@ declare global {
 
 interface WebrtcWatchPageProps {
   roomId: string
+}
+
+type ConnectionState = RTCPeerConnectionState
+
+function getConnectionStateText(state: ConnectionState): string {
+  switch (state) {
+    case 'connecting':
+      return t('连接中')
+    case 'connected':
+      return t('已连接')
+    case 'disconnected':
+      return t('已断开')
+    case 'failed':
+      return t('连接失败')
+    case 'closed':
+      return t('连接已关闭')
+    default:
+      return t('等待连接')
+  }
+}
+
+function getConnectionStateColor(
+  state: ConnectionState
+): 'default' | 'primary' | 'success' | 'danger' {
+  switch (state) {
+    case 'connected':
+      return 'success'
+    case 'connecting':
+      return 'primary'
+    case 'disconnected':
+    case 'failed':
+    case 'closed':
+      return 'danger'
+    default:
+      return 'default'
+  }
 }
 
 function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
@@ -83,11 +127,13 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   const [annotationColor, setAnnotationColor] = useState('#f76f53')
   const [annotationWidth, setAnnotationWidth] = useState(3)
   const [showAnnotationToolbar, setShowAnnotationToolbar] = useState(false)
+  // 横屏矮窗（手机横屏 / 网页全屏横屏）里批注工具改成横排，避免竖向面板
+  // 从控制栏一直顶到画面上沿
+  const landscapeShort = useIsLandscapeShort()
   const annotationRef = useRef<{ clear: () => void }>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
-
-  // WebRTC 播放器舞台 ref（用于控制栏自动隐藏）
-  const webrtcStageRef = useRef<HTMLDivElement | null>(null)
+  // 手机竖屏非全屏：控制栏「查看全部评论」弹出大评论列表
+  const [commentSheetOpen, setCommentSheetOpen] = useState(false)
 
   // video ref（使用回调 ref 触发 videoVersion 变化：远端流可能先于元素到达，
   // 会话需要这个版本号才能在元素就位后补一次 srcObject 绑定）
@@ -121,13 +167,6 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       if (videoRef.current) videoRef.current.srcObject = null
     }
   }, [])
-
-  // WebRTC 控制栏自动隐藏（逻辑仿照 WatchTogetherCore）
-  const webrtcControlBarVisible = useControlBarAutoHide(webrtcStageRef)
-
-  // 横屏矮窗（手机横屏全屏 / 网页全屏横屏）：批注工具条改成横排，否则竖向
-  // 面板会从底部顶到画面上沿，360~450px 高的视口里只剩一条缝。
-  const compactAnnotationToolbar = useIsLandscapeShort()
 
   // 防息屏：移动/平板观众正在观看共享画面时保持屏幕常亮
   // （移植自 mirotalk wakeLock；桌面设备与页面不可见时内部自动失效）
@@ -230,22 +269,6 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   }, [videoVersion])
 
   // 事件处理
-  const handleFullscreen = () => {
-    if (isIOSDevice() || !supportsContainerFullscreen()) {
-      setIsWebFullscreen((prev) => !prev)
-      return
-    }
-    const video = videoRef.current
-    if (!video) return
-    if (document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => {})
-    } else {
-      video.requestFullscreen().catch(() => {
-        setIsWebFullscreen((prev) => !prev)
-      })
-    }
-  }
-
   const handleTogglePictureInPicture = async () => {
     const video = videoRef.current
     if (!video) return
@@ -293,8 +316,12 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     retry()
   }, [retry])
 
+  const handleToggleWebFullscreen = useCallback(() => {
+    setIsWebFullscreen((prev) => !prev)
+  }, [])
+
   // 控制栏上的连接状态：还没接到画面时要区分「房主没共享」和「正在建连」。
-  const displayConnectionState: RTCPeerConnectionState = hasRemoteStream
+  const displayConnectionState: ConnectionState = hasRemoteStream
     ? connectionState
     : state.recovering
       ? 'disconnected'
@@ -302,15 +329,151 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         ? 'connecting'
         : 'new'
 
-  const playerContent = (
-    <div
-      ref={webrtcStageRef}
-      className={cn(
-        'zart-stage relative h-full w-full',
-        isWebFullscreen && 'zart-web-fullscreen fixed inset-0 z-[100]'
+  // 状态标签：接到画面后只有「房主暂停」会改变它（暂停时画面冻结在最后一帧）
+  const playerStatus: PlayerChromeStatus = hasRemoteStream
+    ? state.paused
+      ? 'paused'
+      : 'playing'
+    : state.exhausted
+      ? 'error'
+      : 'connecting'
+
+  // 全屏时可分屏的评论区；与 RoomLayout 的 rightPanel 是同一份内容，
+  // 但 RoomLayout 在（网页/原生）全屏时会隐藏侧栏，分屏里由 PlayerChrome 挂载。
+  const commentPanel = (
+    <CommentPanel socket={socket} roomId={roomId} commentsOnly />
+  )
+
+  // 播放壳之外的控制项：音量增益滑杆、画中画、批注（PlayerChrome 只管
+  // 播放/静音/全屏/刷新/旋转）。
+  const extraControls = (
+    <>
+      {hasRemoteAudio && (
+        <div className="flex items-center gap-1.5">
+          {/* 音量：0–200%。系统声往往偏小，超过 100% 的部分靠增益实现，
+              浏览器不支持 Web Audio 时上限退回 100%。 */}
+          <Slider
+            size="sm"
+            showValue={false}
+            min={0}
+            max={audioSnapshot.boostAvailable ? 200 : 100}
+            step={1}
+            value={Math.round(audioSnapshot.level * 100)}
+            onChange={(value) => handleVolumeChange(value / 100)}
+            className="w-20"
+            aria-label={t('音量')}
+          />
+          <span
+            className={cn(
+              'w-8 shrink-0 text-[10px] tabular-nums',
+              audioSnapshot.level > 1
+                ? 'font-semibold text-[var(--md-sys-color-primary)]'
+                : 'text-[var(--md-sys-color-on-surface-variant)]'
+            )}
+          >
+            {Math.round(audioSnapshot.level * 100)}%
+          </span>
+        </div>
       )}
-      style={
-        isWebFullscreen ? { width: '100dvw', height: '100dvh' } : undefined
+      {isPiPSupported && (
+        <IconButton
+          icon={
+            isPictureInPicture ? <PictureInPicture2 /> : <PictureInPicture />
+          }
+          label={isPictureInPicture ? t('退出画中画') : t('画中画')}
+          onClick={() => void handleTogglePictureInPicture()}
+        />
+      )}
+      <IconButton
+        icon={showAnnotationToolbar ? <X /> : <Pencil />}
+        label={showAnnotationToolbar ? t('关闭批注') : t('批注')}
+        active={showAnnotationToolbar}
+        onClick={() => setShowAnnotationToolbar((prev) => !prev)}
+      />
+    </>
+  )
+
+  const extraStatus = (
+    <>
+      <Tag color={connected ? 'success' : 'default'}>
+        {connected ? t('已连接') : t('未连接')}
+      </Tag>
+      <Tag color="primary">{t('已加入')}</Tag>
+      <Tag color={getConnectionStateColor(displayConnectionState)}>
+        {getConnectionStateText(displayConnectionState)}
+      </Tag>
+      {videoResolution && (
+        <span className="text-[10px] tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+          {t('分辨率：{{width}} x {{height}}', {
+            width: videoResolution.width,
+            height: videoResolution.height,
+          })}
+        </span>
+      )}
+    </>
+  )
+
+  const playerContent = (
+    <PlayerChrome
+      status={playerStatus}
+      sourceLabel={t('WebRTC 共享')}
+      isPlaying={isPlaying}
+      isMuted={isMuted}
+      onTogglePlayPause={handleTogglePlayPause}
+      onToggleMute={handleToggleMute}
+      onRefresh={handleRefresh}
+      webFullscreen={isWebFullscreen}
+      onToggleWebFullscreen={handleToggleWebFullscreen}
+      commentPanel={commentPanel}
+      onOpenCommentSheet={() => setCommentSheetOpen(true)}
+      canOpenCommentSheet={!isWebFullscreen}
+      extraControls={extraControls}
+      extraStatus={extraStatus}
+      overlayOwner="webrtc-watch"
+      // 批注面板贴着控制栏上沿，和控制栏一起显隐：收起控制栏时让位给画面，
+      // 轻点画面唤回控制栏时面板一起回来（批注本身仍然保持激活，可以直接画）。
+      barPopoverAlign={landscapeShort ? 'center' : 'right'}
+      barPopover={
+        showAnnotationToolbar ? (
+          <AnnotationToolbar
+            compact={landscapeShort}
+            tool={annotationTool}
+            color={annotationColor}
+            width={annotationWidth}
+            onToolChange={setAnnotationTool}
+            onColorChange={setAnnotationColor}
+            onWidthChange={setAnnotationWidth}
+            onClear={() => annotationRef.current?.clear()}
+            canClear
+          />
+        ) : undefined
+      }
+      overlay={
+        <>
+          {/* 画面还在（最后一帧会一直停着），所以 statusTip 不显示；不给提示的话
+              观众只会看到一张卡住的图，分不清是暂停还是自己网络断了。 */}
+          {state.paused && hasRemoteStream && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/55">
+              <div className="flex flex-col items-center gap-2 text-white">
+                <PauseCircle className="h-8 w-8" />
+                <span className="text-sm font-medium">
+                  {t('房主已暂停共享')}
+                </span>
+              </div>
+            </div>
+          )}
+          {hasRemoteStream && hasRemoteAudio && isMuted && (
+            <button
+              type="button"
+              onClick={handleUnmute}
+              className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-white shadow-lg transition-colors hover:brightness-110"
+              style={{ backgroundColor: 'rgba(0, 0, 0, 0.72)' }}
+            >
+              <Volume2 className="h-4 w-4" />
+              {t('浏览器已自动静音，点击开启声音')}
+            </button>
+          )}
+        </>
       }
     >
       <RemoteVideoPlayer
@@ -322,27 +485,6 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         edges={edges}
         statusTip={viewerStatusText(state)}
       />
-      {/* 画面还在（最后一帧会一直停着），所以 statusTip 不显示；不给提示的话
-          观众只会看到一张卡住的图，分不清是暂停还是自己网络断了。 */}
-      {state.paused && hasRemoteStream && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-black/55">
-          <div className="flex flex-col items-center gap-2 text-white">
-            <PauseCircle className="h-8 w-8" />
-            <span className="text-sm font-medium">{t('房主已暂停共享')}</span>
-          </div>
-        </div>
-      )}
-      {hasRemoteStream && hasRemoteAudio && isMuted && (
-        <button
-          type="button"
-          onClick={handleUnmute}
-          className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-white shadow-lg transition-colors hover:brightness-110"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.72)' }}
-        >
-          <Volume2 className="h-4 w-4" />
-          {t('浏览器已自动静音，点击开启声音')}
-        </button>
-      )}
       <AnnotationLayer
         ref={annotationRef}
         socket={socket}
@@ -352,68 +494,29 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         color={annotationColor}
         width={annotationWidth}
       />
-      {showAnnotationToolbar && (
-        <div
-          className={cn(
-            'absolute bottom-20 right-3 z-30',
-            compactAnnotationToolbar
-              ? 'max-w-[min(94vw,32rem)]'
-              : 'max-w-[220px]'
-          )}
-        >
-          <AnnotationToolbar
-            tool={annotationTool}
-            color={annotationColor}
-            width={annotationWidth}
-            onToolChange={setAnnotationTool}
-            onColorChange={setAnnotationColor}
-            onWidthChange={setAnnotationWidth}
-            onClear={() => annotationRef.current?.clear()}
-            canClear
-            compact={compactAnnotationToolbar}
-          />
-        </div>
-      )}
-      <WatchControlsBar
-        isMuted={isMuted}
-        volumeLevel={audioSnapshot.level}
-        boostAvailable={audioSnapshot.boostAvailable}
-        isPlaying={isPlaying}
-        hasRemoteAudio={hasRemoteAudio}
-        hasRemoteStream={hasRemoteStream}
-        isPictureInPicture={isPictureInPicture}
-        isPiPSupported={isPiPSupported}
-        showAnnotationToolbar={showAnnotationToolbar}
-        connected={connected}
-        connectionState={displayConnectionState}
-        videoResolution={videoResolution}
-        onToggleMute={handleToggleMute}
-        onVolumeChange={handleVolumeChange}
-        onTogglePlayPause={handleTogglePlayPause}
-        onFullscreen={handleFullscreen}
-        onTogglePiP={handleTogglePictureInPicture}
-        onToggleAnnotation={() => setShowAnnotationToolbar((prev) => !prev)}
-        onRefresh={handleRefresh}
-        controlBarVisible={webrtcControlBarVisible}
-        isWebFullscreen={isWebFullscreen}
-        onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
-      />
-    </div>
+    </PlayerChrome>
   )
 
   return (
-    <RoomLayout
-      isHost={false}
-      mainContent={playerContent}
-      edges={edges}
-      sharingRole="receiver"
-      sharingMode={sharingMode}
-      sharingActive
-      webFullscreen={isWebFullscreen}
-      rightPanel={<CommentPanel socket={socket} roomId={roomId} commentsOnly />}
-      controls={<RoomInfoPanel roomId={roomId} isHost={false} />}
-      controlLabels={[t('房间状态')]}
-    />
+    <>
+      <RoomLayout
+        isHost={false}
+        mainContent={playerContent}
+        edges={edges}
+        sharingRole="receiver"
+        sharingMode={sharingMode}
+        sharingActive
+        webFullscreen={isWebFullscreen}
+        rightPanel={commentPanel}
+        controls={<RoomInfoPanel roomId={roomId} isHost={false} />}
+        controlLabels={[t('房间状态')]}
+      />
+      <CommentListSheet
+        open={commentSheetOpen}
+        roomId={roomId}
+        onClose={() => setCommentSheetOpen(false)}
+      />
+    </>
   )
 }
 

@@ -42,7 +42,6 @@ export function StreamPushPage({
 
   useEffect(() => {
     const controller = new AbortController()
-    setPublish({ room: roomId, server: '', key: '', error: '' })
     void getPublishConfiguration(roomId, controller.signal)
       .then((config) => {
         if (!controller.signal.aborted)
@@ -62,6 +61,8 @@ export function StreamPushPage({
   }, [roomId])
   const rtmpUrl = publish.room === roomId ? publish.server : ''
   const effectiveStreamKey = publish.room === roomId ? publish.key : ''
+  // 切房间后上一间的错误提示不再显示（fetch 结果回来前的过渡态）
+  const publishError = publish.room === roomId ? publish.error : ''
   const { url: flvUrl, error: watchError } = useWatchPlayback(
     roomId,
     previewMode
@@ -132,7 +133,7 @@ export function StreamPushPage({
           </div>
           {!effectiveStreamKey && (
             <Paragraph type="danger" className="m-0 text-xs">
-              {publish.error || t('正在获取发布配置，请稍候')}
+              {publishError || t('正在获取发布配置，请稍候')}
             </Paragraph>
           )}
         </div>
@@ -188,7 +189,7 @@ export function StreamPushPage({
         </ol>
         <Paragraph type="secondary" className="m-0 mt-2 text-xs">
           {t(
-            '提示：结束推流请在 OBS 中点击「停止推流」。切换回 WebRTC 共享前请先停止 OBS 推流。'
+            '提示：结束推流请在 OBS 中点击「停止推流」；切换到其他共享方式会立即断开 OBS 推流。'
           )}
         </Paragraph>
       </Card>

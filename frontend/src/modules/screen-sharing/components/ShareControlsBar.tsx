@@ -1,13 +1,8 @@
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
 import { Tag } from '@/components/ui/Tag'
-import {
-  Copy,
-  PauseCircle,
-  PlayCircle,
-  Power,
-  RefreshCw,
-} from 'lucide-react'
+import { Copy, PauseCircle, PlayCircle, Power, RefreshCw } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { t } from '@/i18n'
 
 interface ShareControlsBarProps {
@@ -31,6 +26,11 @@ interface ShareControlsBarProps {
   onClose: () => void
   /** 刷新共享（重启采集并重建连接） */
   onRefresh: () => void
+  /**
+   * 控制栏是否可见：与 OBS 推流（PlayerChrome）一致，静止 5s 或点播放器画面后收起。
+   * 收起时保留 DOM 只做淡出 + 屏蔽指针，避免按钮在动画中途仍可点。
+   */
+  visible?: boolean
 }
 
 export function ShareControlsBar({
@@ -44,9 +44,18 @@ export function ShareControlsBar({
   onClearAnnotations,
   onClose,
   onRefresh,
+  visible = true,
 }: ShareControlsBarProps): JSX.Element {
   return (
-    <div className="vc-container absolute bottom-0 left-0 right-0 z-20 p-2">
+    <div
+      className={cn(
+        'vc-container absolute bottom-0 left-0 right-0 z-20 p-2 transition-all duration-200 ease-out',
+        visible
+          ? 'translate-y-0 opacity-100'
+          : 'pointer-events-none translate-y-3 opacity-0'
+      )}
+      aria-hidden={!visible}
+    >
       <div className="glass-strong rounded-xl px-2.5 py-2 shadow-lg">
         <Space className="w-full" wrap>
           {isPaused ? (
