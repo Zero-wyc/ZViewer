@@ -1,6 +1,7 @@
 package bilibili
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -30,24 +31,39 @@ func codecID(codecs string) int {
 
 func intPtr(v int) *int { return &v }
 
+func TestPlayURLWithOptionalFlacAudio(t *testing.T) {
+	for name, audio := range map[string]string{
+		"single track":  `{"id":30251,"codecs":"fLaC"}`,
+		"track list":    `[{"id":30251,"codecs":"fLaC"}]`,
+		"missing track": `null`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			payload := json.RawMessage(`{"quality":120,"dash":{
+				"video":[{"id":120,"codecs":"avc1","baseUrl":"https://cdn.example/video"}],
+				"audio":[{"id":30280,"codecs":"mp4a.40.2","baseUrl":"https://cdn.example/audio"}],
+				"flac":{"display":true,"audio":` + audio + `}}}`)
+			data, err := DecodeData[rawPlayURLData](&Envelope{Data: payload})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := NormalizePlayURLData(&data, 120, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.BestVideo == nil || result.BestVideo.ID != 120 || result.BestAudio == nil || result.BestAudio.ID != 30280 {
+				t.Fatalf("unexpected DASH selection: %+v", result)
+			}
+		})
+	}
+}
+
 // TestNormalizeFiltersTracksByQn 覆盖最关键的一条：dash.video 会一次性返回
 // 所有清晰度的轨道，不按 qn 过滤就永远选到最高档——用户选了 480P 却在放 1080P。
 func TestNormalizeFiltersTracksByQn(t *testing.T) {
 	data := &rawPlayURLData{
 		Quality:       intPtr(64),
 		AcceptQuality: []int{80, 64, 32, 16},
-		Dash: &struct {
-			Video []rawDashMedia `json:"video"`
-			Audio []rawDashMedia `json:"audio"`
-			Dolby *struct {
-				Type  int            `json:"type"`
-				Audio []rawDashMedia `json:"audio"`
-			} `json:"dolby"`
-			Flac *struct {
-				Display bool           `json:"display"`
-				Audio   []rawDashMedia `json:"audio"`
-			} `json:"flac"`
-		}{
+		Dash: &rawDash{
 			Video: []rawDashMedia{
 				dashVideo(80, 2000000, "avc1.640032"),
 				dashVideo(64, 1000000, "avc1.640028"),
@@ -97,18 +113,7 @@ func TestNormalizeFiltersTracksByQn(t *testing.T) {
 func TestNormalizeEffectiveQnFallsBackToRealTrack(t *testing.T) {
 	data := &rawPlayURLData{
 		Quality: intPtr(64), // 声称 720P
-		Dash: &struct {
-			Video []rawDashMedia `json:"video"`
-			Audio []rawDashMedia `json:"audio"`
-			Dolby *struct {
-				Type  int            `json:"type"`
-				Audio []rawDashMedia `json:"audio"`
-			} `json:"dolby"`
-			Flac *struct {
-				Display bool           `json:"display"`
-				Audio   []rawDashMedia `json:"audio"`
-			} `json:"flac"`
-		}{
+		Dash: &rawDash{
 			Video: []rawDashMedia{
 				dashVideo(32, 400000, "avc1.64001E"),
 				dashVideo(16, 200000, "avc1.64000D"),
@@ -128,18 +133,7 @@ func TestNormalizeCodecPreference(t *testing.T) {
 	makeData := func() *rawPlayURLData {
 		return &rawPlayURLData{
 			Quality: intPtr(80),
-			Dash: &struct {
-				Video []rawDashMedia `json:"video"`
-				Audio []rawDashMedia `json:"audio"`
-				Dolby *struct {
-					Type  int            `json:"type"`
-					Audio []rawDashMedia `json:"audio"`
-				} `json:"dolby"`
-				Flac *struct {
-					Display bool           `json:"display"`
-					Audio   []rawDashMedia `json:"audio"`
-				} `json:"flac"`
-			}{
+			Dash: &rawDash{
 				Video: []rawDashMedia{
 					dashVideo(80, 3000000, "hev1.1.6.L150"), // HEVC 带宽更高
 					dashVideo(80, 2000000, "avc1.640032"),
@@ -173,18 +167,7 @@ func TestNormalizeHdrDetection(t *testing.T) {
 	makeData := func(qn int, codecs string) *rawPlayURLData {
 		return &rawPlayURLData{
 			Quality: intPtr(qn),
-			Dash: &struct {
-				Video []rawDashMedia `json:"video"`
-				Audio []rawDashMedia `json:"audio"`
-				Dolby *struct {
-					Type  int            `json:"type"`
-					Audio []rawDashMedia `json:"audio"`
-				} `json:"dolby"`
-				Flac *struct {
-					Display bool           `json:"display"`
-					Audio   []rawDashMedia `json:"audio"`
-				} `json:"flac"`
-			}{
+			Dash: &rawDash{
 				Video: []rawDashMedia{dashVideo(qn, 5000000, codecs)},
 			},
 		}
