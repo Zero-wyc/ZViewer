@@ -56,12 +56,14 @@ type ChatResult struct {
 
 // ChatOptions 覆盖单次请求的参数。
 type ChatOptions struct {
-	Tools          []map[string]any
-	ToolChoice     string
-	Temperature    *float64
-	MaxTokens      int
-	ResponseFormat map[string]any
-	Model          string
+	Tools      []map[string]any
+	ToolChoice string
+	// ReasoningEffort 覆盖配置里的全局推理力度（空 = 用配置值）。
+	ReasoningEffort string
+	Temperature     *float64
+	MaxTokens       int
+	ResponseFormat  map[string]any
+	Model           string
 	// OnDelta 在流式模式下逐段回调：kind 为 reasoning / content。
 	OnDelta func(kind, text string)
 	// Cancel 返回 true 时中断生成。
@@ -174,6 +176,9 @@ func (c *LLMClient) payload(messages []map[string]any, opts ChatOptions, stream 
 		body["response_format"] = opts.ResponseFormat
 	}
 	effort := c.config.ReasoningEffort
+	if strings.TrimSpace(opts.ReasoningEffort) != "" {
+		effort = strings.TrimSpace(opts.ReasoningEffort)
+	}
 	if strings.TrimSpace(effort) != "" && effort != "default" {
 		body["reasoning_effort"] = effort
 	}
