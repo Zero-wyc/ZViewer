@@ -6,9 +6,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -438,13 +440,17 @@ func main() {
 		log.Printf("[HTTPS] 使用证书: %s", certPaths.CertPath)
 	}
 
+	// 两个监听共用同一个 handler：主监听按配置走 HTTP/HTTPS，
+	// 回环 HTTP 监听（见下面 embedServer）只给桌面控制台的内嵌浏览器用。
+	handler := server.Handler()
 	httpServer := &http.Server{
 		Addr:    listenAddr(cfg),
-		Handler: server.Handler(),
+		Handler: handler,
 		// 只设读头超时：后续的媒体代理、SSE、长轮询都可能有很长的写持续时间，
 		// 设 WriteTimeout 会把大文件转发和实时流直接掐断。
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		ErrorLog:          httpErrorLog(),
 	}
 
 	log.Printf("[start] ZViewer Go 后端 平台=%s 项目根=%s", config.Platform(), cfg.ProjectRoot)
@@ -468,9 +474,33 @@ func main() {
 		}
 	}()
 
+	// HTTPS 模式下，桌面控制台的内嵌浏览器用自签证书会卡在证书错误页
+	// （WebView2 不弹「继续访问」，只显示灰底错误页）。这里额外开一个
+	// 只绑 127.0.0.1 的纯 HTTP 监听，内嵌页直接走它：不用信任证书，
+	// 而 http://127.0.0.1 本身是浏览器的「潜在可信来源」= 安全上下文，
+	// 语音、屏幕共享的权限拿得到。
+	// 端口由桌面壳挑空闲口后经 LOOPBACK_HTTP_PORT 下发；源码运行时不设即关闭。
+	var embedServer *http.Server
+	if cfg.UseTLS && cfg.LoopbackHTTPPort > 0 {
+		embedAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.LoopbackHTTPPort))
+		embedServer = &http.Server{
+			Addr:              embedAddr,
+			Handler:           handler,
+			ReadHeaderTimeout: 15 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			ErrorLog:          httpErrorLog(),
+		}
+		log.Printf("[embed-http] 控制台内嵌网页端监听 http://%s/（仅本机回环，免证书）", embedAddr)
+		go func() {
+			// 这个监听是锦上添花：端口万一被占，只记一条日志，不影响主服务。
+			if err := embedServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("[embed-http] 监听失败: %v", err)
+			}
+		}()
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
 	case err := <-errCh:
 		log.Fatalf("[http] 监听失败: %v", err)
@@ -497,10 +527,33 @@ func main() {
 		_ = piikShare.Close(ctx)
 	}
 
+	if embedServer != nil {
+		_ = embedServer.Shutdown(ctx)
+	}
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("[shutdown] 强制关闭: %v", err)
 	}
 	log.Printf("[shutdown] 已退出")
+}
+
+// tlsQuietWriter 过滤 HTTP 服务的高频 TLS 握手失败日志。
+//
+// 端口扫描、错误 SNI、证书预检都会在 HTTPS 端口留下
+// "TLS handshake error from …" 行，一轮扫描就能刷几十上百条、把控制台日志顶满。
+// 默认丢弃；需要排障时设 ZVIEWER_LOG_TLS=1 全量输出。
+type tlsQuietWriter struct{ out io.Writer }
+
+func (w tlsQuietWriter) Write(p []byte) (int, error) {
+	if os.Getenv("ZVIEWER_LOG_TLS") != "1" && bytes.Contains(p, []byte("TLS handshake error")) {
+		return len(p), nil
+	}
+	return w.out.Write(p)
+}
+
+// httpErrorLog 返回给 http.Server.ErrorLog 用的 logger（走标准 logger 的输出目标，
+// 桌面壳会把 stderr 收进 desktop.log）。
+func httpErrorLog() *log.Logger {
+	return log.New(tlsQuietWriter{out: log.Writer()}, "", 0)
 }
 
 func listenAddr(cfg *config.Config) string {

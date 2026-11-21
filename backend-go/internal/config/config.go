@@ -44,6 +44,9 @@ type Config struct {
 
 	CORS   CORSConfig
 	UseTLS bool
+	// LoopbackHTTPPort 非 0 时，HTTPS 模式下额外在 127.0.0.1 上开一个纯 HTTP
+	// 监听，供桌面控制台的内嵌浏览器使用（WebView2 不会让用户跳过自签证书错误页）。
+	LoopbackHTTPPort int
 
 	StartedAt    time.Time
 	RestartCount int
@@ -149,6 +152,13 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("PORT 非法: %q", raw)
 		}
 		cfg.Port = port
+	}
+
+	// 桌面控制台的内嵌浏览器端口：只做本机回环，非法值直接忽略（不致命）。
+	if raw := os.Getenv("LOOPBACK_HTTP_PORT"); raw != "" {
+		if port, err := strconv.Atoi(raw); err == nil && port > 0 && port <= 65535 {
+			cfg.LoopbackHTTPPort = port
+		}
 	}
 
 	// 媒体 TCP 端口的最终结算放在 PORT 之后：它要跟网页端口比。

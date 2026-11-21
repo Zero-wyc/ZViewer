@@ -207,6 +207,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerKazumiRoutes(mux)
 	s.registerDanmakuRoutes(mux)
 	s.registerMusicRoutes(mux)
+	// 桌面壳（Windows 控制台）：能力探测 + 评论独立窗拉起。
+	s.registerDesktopWindowRoutes(mux)
 	s.registerUpdaterRoutes(mux)
 	s.registerVoiceRoutes(mux)
 	// 爬虫引擎代理：网页端经此转发本机桌面引擎，无引擎时接口返回 503。

@@ -368,6 +368,26 @@ func (s *Service) IsPublishing(streamKey string) bool {
 	return s.publishAllowed(context.Background(), streamKey)
 }
 
+// StopPublishing 强制断开某路推流的发布端（切换房间模式 / 子模式时用）。
+//
+// 房主在 OBS 推流中点「切换到 WebRTC」时，前端不该再要求先去 OBS 里手动
+// 停止推流：这里直接把 RTMP 连接关掉，OBS 会自行显示「推流已停止」，观众
+// 侧的 FLV 订阅也随 hub.stop 一起结束。只有内嵌媒体服务能踢人；外部 NMS 的
+// 连接不归本进程管，返回 false。
+func (s *Service) StopPublishing(streamKey string) bool {
+	if s == nil || streamKey == "" {
+		return false
+	}
+	s.mu.Lock()
+	srv := s.embedded
+	enabled := !s.cfg.Disabled && s.cfg.Embedded
+	s.mu.Unlock()
+	if !enabled || srv == nil {
+		return false
+	}
+	return srv.kickPublishing(streamKey)
+}
+
 // Invalidate 强制下一次 Available 重新探测。
 //
 // 前端点「重试」、或 NMS 刚被运维拉起来时用；单测也靠它绕过缓存。
@@ -411,12 +431,14 @@ func (s *Service) SetAuthorizers(publish func(context.Context, string) bool, wat
 	defer s.mu.Unlock()
 	s.authorizePublish, s.authorizeWatch = publish, watch
 }
+
 func (s *Service) publishAllowed(ctx context.Context, key string) bool {
 	s.mu.Lock()
 	fn := s.authorizePublish
 	s.mu.Unlock()
 	return fn != nil && fn(ctx, key)
 }
+
 func (s *Service) watchAllowed(ctx context.Context, key, ticket string) bool {
 	s.mu.Lock()
 	fn := s.authorizeWatch
