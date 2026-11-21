@@ -24,10 +24,10 @@ type AccountResolver interface {
 	Resolve(accountID string) (map[string]any, error)
 }
 
-// ChallengeSessions 管理人工验证会话。
+// ChallengeSessions 管理人工验证会话（*ChallengeStore 实现）。
 type ChallengeSessions interface {
-	Create(rule *Rule, keyword, roomID, role string, page *Page, challenge map[string]any) (map[string]any, error)
-	ProxyBase(session map[string]any) string
+	Create(rule *Rule, keyword, roomID, role string, page *Page, challenge map[string]any) (*ChallengeSession, error)
+	ProxyBase(session *ChallengeSession) string
 }
 
 // RuleRepairer 让大模型修复失效的规则。
@@ -95,6 +95,9 @@ func (s *SearchService) JSRuntime() JSRunner { return s.js }
 
 // SetJSRuntime 在 goja 运行时构造完成后注入。
 func (s *SearchService) SetJSRuntime(js JSRunner) { s.js = js }
+
+// SetChallengeSessions 注入人工验证会话表。
+func (s *SearchService) SetChallengeSessions(sessions ChallengeSessions) { s.challenges = sessions }
 
 // ListSites 返回当前身份可见的站点列表。
 func (s *SearchService) ListSites(roomID, role string) []map[string]any {
@@ -594,11 +597,9 @@ func (s *SearchService) Search(site, keyword, roomID, role string, limit int, ex
 							lastErr = sessionErr
 							failure = sessionErr.Error()
 						} else {
-							challenge["challengeId"] = session["id"]
+							challenge["challengeId"] = session.ID
 							challenge["proxyUrl"] = s.challenges.ProxyBase(session)
-							if expires, ok := session["expiresAt"]; ok {
-								challenge["expiresAt"] = expires
-							}
+							challenge["expiresAt"] = session.ExpiresAt
 						}
 					}
 					if lastErr == nil {
@@ -743,7 +744,7 @@ func (s *SearchService) TestRule(raw *Rule, keyword string, limit int) map[strin
 		if s.challenges != nil {
 			session, sessionErr := s.challenges.Create(rule, keyword, "", "root", page, challenge)
 			if sessionErr == nil {
-				challenge["challengeId"] = session["id"]
+				challenge["challengeId"] = session.ID
 				challenge["proxyUrl"] = s.challenges.ProxyBase(session)
 			}
 		}

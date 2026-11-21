@@ -326,6 +326,9 @@ func decodeText(raw []byte, name string) (string, string) {
 	return string(decoded), normalized
 }
 
+// DecodeText 按编码名解码字节，返回文本与实际采用的编码（验证反代复用）。
+func DecodeText(raw []byte, name string) (string, string) { return decodeText(raw, name) }
+
 // QuoteKeyword 按指定编码把关键词转成百分号编码，等价 Python 的
 // urllib.parse.quote(keyword, safe="")：只保留 A-Za-z0-9-._~，空格编成 %20。
 // 国内站点常见 encoding=gbk，先转字节再编码，不能直接对 UTF-8 编码。

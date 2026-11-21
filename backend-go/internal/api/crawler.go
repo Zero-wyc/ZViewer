@@ -51,6 +51,9 @@ func (s *Server) handleCrawlerChallengeProxy(w http.ResponseWriter, r *http.Requ
 		httpx.NotFound(w, "未知接口")
 		return
 	}
+	if store := localChallengeStore(); store != nil && s.serveLocalChallenge(w, r, store) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 	target := crawlerEngineURL() + r.URL.RequestURI()

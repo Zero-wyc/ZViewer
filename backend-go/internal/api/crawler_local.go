@@ -31,8 +31,9 @@ var (
 
 // localCrawlerBundle 把搜索与播放解析放在一起共享 store / fetcher / goja 运行时。
 type localCrawlerBundle struct {
-	search *crawler.SearchService
-	play   *crawler.PlayResolver
+	search    *crawler.SearchService
+	play      *crawler.PlayResolver
+	challenge *crawler.ChallengeStore
 }
 
 // crawlerRoot 找爬虫根目录（其下有 data/rules）。
@@ -107,7 +108,9 @@ func localBundle() *localCrawlerBundle {
 		Fetcher: fetcher,
 		JS:      js,
 	})
-	crawlerBundle = &localCrawlerBundle{search: search, play: play}
+	challenges := crawler.NewChallengeStore(0, 0)
+	search.SetChallengeSessions(challenges)
+	crawlerBundle = &localCrawlerBundle{search: search, play: play, challenge: challenges}
 	return crawlerBundle
 }
 
@@ -123,6 +126,14 @@ func localCrawler() *crawler.SearchService {
 func localPlayResolver() *crawler.PlayResolver {
 	if bundle := localBundle(); bundle != nil {
 		return bundle.play
+	}
+	return nil
+}
+
+// localChallengeStore 返回进程内的验证会话表；没有可用规则目录时返回 nil。
+func localChallengeStore() *crawler.ChallengeStore {
+	if bundle := localBundle(); bundle != nil {
+		return bundle.challenge
 	}
 	return nil
 }
