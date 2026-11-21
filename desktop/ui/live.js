@@ -185,7 +185,7 @@
     // 配置随快照更新，端口或 HTTPS 改变后连接方式页不会残留旧地址。
     state.config = structuredClone(snapshot.config);
     if (initial) state.frp = structuredClone(snapshot.config.frp);
-    if (initial || state.page === 'overview' || state.page === 'cli' && (embedChanged || cliBefore !== cliViewKey(snapshot)) || state.page === 'connect' && (tunnelBefore !== tunnelKey(snapshot) || entryBefore !== entryKey(snapshot)) || state.page === 'mesh') ui.render();
+    if (initial || state.page === 'overview' || state.page === 'web' || state.page === 'cli' && (embedChanged || cliBefore !== cliViewKey(snapshot)) || state.page === 'connect' && (tunnelBefore !== tunnelKey(snapshot) || entryBefore !== entryKey(snapshot)) || state.page === 'mesh') ui.render();
     else if (state.page === 'logs' && !state.paused) ui.refreshLogs();
     else if (state.page === 'connect' || state.page === 'cert') ensureIPv6();
     ui.preview.syncUpdate(snapshot);
@@ -490,7 +490,7 @@
   function init(info) {
     if (initialized) return; initialized = true;
     state.live = true; state.info = info; state.native = true;
-    state.views = { overview, connect: ui.preview.connect, frp, cert, cli: ui.preview.cli, mesh: ui.preview.mesh, logs, settings }; state.frpConfigOverride = frpCode;
+    state.views = { overview, connect: ui.preview.connect, web: ui.preview.web, frp, cert, cli: ui.preview.cli, mesh: ui.preview.mesh, crawler: window.ZViewerCrawlerPage ? window.ZViewerCrawlerPage.page : ui.preview.crawler, logs, settings }; state.frpConfigOverride = frpCode;
     const buildLabel = $('.build-label');
     if (buildLabel) buildLabel.textContent = `WINDOWS DESKTOP · ${info.version}`;
     const status = $('.statusbar > span:last-child');

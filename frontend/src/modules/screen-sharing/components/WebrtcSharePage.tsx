@@ -20,6 +20,7 @@ import { Tag } from '@/components/ui/Tag'
 import { ConfirmModal } from '@/components/ui/Modal'
 import { LiveArtPlayer } from '@/modules/art-player'
 import { useSocket } from '@/hooks/useSocket'
+import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import { useRoomStore } from '@/store/roomStore'
 import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { message } from '@/components/ui/message'
@@ -564,6 +565,29 @@ function WebrtcSharePage({
     []
   )
 
+  /**
+   * 控制栏显隐：与 OBS 推流（PlayerChrome）同一套规则——
+   * 静止 5s 自动收起；点画面（video/canvas）在可见/隐藏之间切换；
+   * 鼠标移出画面立即收起；移动端默认隐藏、轻点画面唤出。
+   * 批注画布正在接收指针时不算「点播放器」，否则画一笔就把控制栏收掉。
+   */
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const resolveControlInteraction = useCallback(
+    (target: EventTarget | null, kind: 'move' | 'down') => {
+      const el = target instanceof Element ? target : null
+      if (el?.closest('.vc-container')) return 'normal'
+      if (el?.closest('[data-annotation-canvas]')) return 'normal'
+      if (kind === 'down' && el?.closest('video, canvas')) return 'toggle'
+      return 'normal'
+    },
+    []
+  )
+  const controlBarVisible = useControlBarAutoHide(stageRef, {
+    // 未在共享（正在选采集源/参数）时不要自动收起，表单要一直可操作
+    disabled: !isSharing,
+    resolveInteraction: resolveControlInteraction,
+  })
+
   const publishShareSettings = useShareSettingsBridge((state) => state.publish)
   const clearShareSettings = useShareSettingsBridge((state) => state.clear)
 
@@ -606,7 +630,11 @@ function WebrtcSharePage({
   }
 
   return (
-    <div className={cn('relative h-full w-full', className)} style={style}>
+    <div
+      ref={stageRef}
+      className={cn('relative h-full w-full', className)}
+      style={style}
+    >
       {isSharing ? (
         <>
           <div
@@ -636,6 +664,7 @@ function WebrtcSharePage({
             </div>
           )}
           <ShareControlsBar
+            visible={controlBarVisible}
             isPaused={isPaused}
             connected={connected}
             viewerCount={viewerCount}

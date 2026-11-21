@@ -44,6 +44,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { useFullscreenOverlayStore } from '@/store/fullscreenOverlayStore'
+import { useRightDockStore } from '@/store/rightDockStore'
 import { useMusicPanelStore } from '@/store/musicPanelStore'
 import { useIsPortraitMobile } from '@/hooks/useMediaQuery'
 import { useRoomStore } from '@/store/roomStore'
@@ -119,6 +120,9 @@ export function MusicControlPanel({
   const voiceDockVisible = useSystemSettingsStore(
     (s) => s.showVoiceChatButton
   )
+  // 右下角 Live2D 入口竖列（角色设置 / 动捕预览）的顶边，由宿主动态登记：
+  // 音乐浮球原先写死 bottom-24，正好压在角色设置钮上。
+  const live2dTop = useRightDockStore((s) => s.live2dTop)
 
   // 全屏浮层宿主（与语音面板同一套机制）
   const overlayTarget = useFullscreenOverlayStore((s) => s.target)
@@ -381,19 +385,31 @@ export function MusicControlPanel({
   const hasQueue = queue.length > 0
   const busy = socket == null
 
-  // 悬浮卡片 / 队列大列表共用的高度上限。
-  // 非全屏时页面顶栏是 fixed top-0 z-50、实测高 4rem，而浮层在它下面（z 更低），
-  // 所以高度上限必须把顶栏一起扣掉：否则卡片顶边会钻到顶栏底下，手机横屏等矮视口下
-  // 顶部「收起」按钮被顶栏盖住、点不中，表现为弹窗关不掉（用户报的横屏问题）。
-  // 语音浮球占位时浮层上移一档（bottom-6 → bottom-24），可用高度相应再少 4.5rem。
-  // 全屏浮层内没有页面顶栏，沿用原来的值。
+  // 音乐浮层底边落点（px）：
+  // - 非全屏：语音浮球 bottom-6（24）占位时再让出 48 球 + 12 间距；
+  // - 全屏：按宿主实测控制栏高度抬到控制栏上方（语音浮球同理再加一档）；
+  // - 两种情况下都要让过右下角的 Live2D 入口竖列（角色设置 bottom-84、
+  //   动捕预览再上一档），否则会压住角色设置钮——竖列高度随动捕是否开启变化，
+  //   所以由 rightDockStore 登记顶边，而不是写死常量。
+  const dockBottom = Math.max(
+    overlayActive
+      ? overlayDockBottom(
+          overlayBarHeight,
+          voiceDockVisible,
+          commentPaneOrientation === 'stacked' ? commentPaneSize : 0
+        )
+      : voiceDockVisible
+        ? 24 + 48 + 12
+        : 24,
+    live2dTop > 0 ? live2dTop + 12 : 0
+  )
+
+  // 悬浮卡片 / 队列大列表共用的高度上限（样式里按 dockBottom 动态算，类名只是
+  // 兜底）：非全屏时页面顶栏是 fixed top-0 高 4rem，浮层在它下面，必须扣掉，
+  // 否则手机横屏等矮视口下顶部「收起」按钮会被顶栏盖住、点不中。
   const cardMaxHeightClass = overlayActive
-    ? voiceDockVisible
-      ? 'max-h-[calc(100dvh-12rem)]' // 声浮球占位 + 抬到控制栏上方的保守值
-      : 'max-h-[calc(100dvh-8rem)]' // 抬到全屏控制栏上方的保守值
-    : voiceDockVisible
-      ? 'max-h-[calc(100dvh-11rem)]' // 96(底) + 64(顶栏) + 16(间距)
-      : 'max-h-[calc(100dvh-6.5rem)]' // 24(底) + 64(顶栏) + 16(间距)
+    ? 'max-h-[calc(100dvh-12rem)]'
+    : 'max-h-[calc(100dvh-11rem)]'
 
   const card = (
     <div
@@ -402,24 +418,13 @@ export function MusicControlPanel({
         // 悬浮卡片贴着右下角、底对齐：手机横屏等矮视口下内容比屏幕高，
         // 原来 overflow-hidden 会把「点歌」「收起」等顶部按钮顶出屏幕且无法滚动
         // （横屏下点不到点歌）。这里按视口高度限高并允许卡片内部滚动。
-        // 语音浮球占位时卡片上移一档（bottom-24），可用高度相应少 4.5rem。
         cardMaxHeightClass
       )}
-      style={
-        overlayActive
-          ? {
-              // 竖屏上下分屏时浮层整体上移，可用高度要按实测落点重算，
-              // 否则卡片顶部会顶出视口（顶部按钮点不到）。
-              maxHeight: `calc(100dvh - ${
-                overlayDockBottom(
-                  overlayBarHeight,
-                  voiceDockVisible,
-                  commentPaneOrientation === 'stacked' ? commentPaneSize : 0
-                ) + 16
-              }px)`,
-            }
-          : undefined
-      }
+      style={{
+        // 卡片底边与浮层落点一致，可用高度按落点重算：竖屏上下分屏时整组上移、
+        // 让过语音浮球与 Live2D 竖列后，卡顶都不能顶出视口或钻进顶栏。
+        maxHeight: `calc(100dvh - ${dockBottom + (overlayActive ? 16 : 64 + 16)}px)`,
+      }}
     >
       {/* 播放中 */}
       <SectionHeader
@@ -807,31 +812,23 @@ export function MusicControlPanel({
         <div
           data-music-ui="panel"
           className={cn(
-            dockClass(overlayActive, voiceDockVisible),
+            dockClass(overlayActive),
             overlayActive && !overlayBarVisible
               ? 'pointer-events-none opacity-0'
               : ''
           )}
-          style={
-            overlayActive
+          style={{
+            // 落点统一由 dockBottom 给：非全屏在右下角、让过语音浮球与 Live2D
+            // 竖列；全屏时抬到实测控制栏上方（竖屏分屏再叠一档）。
+            bottom: dockBottom,
+            ...(overlayActive &&
+            sidePaneWidth(commentPaneOrientation, commentPaneSize) > 0
               ? {
-                  bottom: overlayDockBottom(
-                    overlayBarHeight,
-                    voiceDockVisible,
-                    commentPaneOrientation === 'stacked' ? commentPaneSize : 0
-                  ),
-                  ...(sidePaneWidth(commentPaneOrientation, commentPaneSize) > 0
-                    ? {
-                        right:
-                          sidePaneWidth(
-                            commentPaneOrientation,
-                            commentPaneSize
-                          ) + 24,
-                      }
-                    : null),
+                  right:
+                    sidePaneWidth(commentPaneOrientation, commentPaneSize) + 24,
                 }
-              : undefined
-          }
+              : null),
+          }}
         >
           {panel}
         </div>,
@@ -847,36 +844,25 @@ export function MusicControlPanel({
           <div
             data-music-ui="queue"
             className={cn(
-              queueDockClass(overlayActive, voiceDockVisible),
+              queueDockClass(overlayActive),
               overlayActive && !overlayBarVisible
                 ? 'pointer-events-none opacity-0'
                 : ''
             )}
-            style={
-              overlayActive
+            style={{
+              // 与面板共用落点，保证两者底边对齐。
+              bottom: dockBottom,
+              // 队列大列表平时贴在控制面板左侧（面板 18rem + 0.75rem 间距
+              // ⇒ 324px），横屏分屏时整组一起左移评论区宽度。
+              ...(overlayActive &&
+              sidePaneWidth(commentPaneOrientation, commentPaneSize) > 0
                 ? {
-                    bottom: overlayDockBottom(
-                      overlayBarHeight,
-                      voiceDockVisible,
-                      commentPaneOrientation === 'stacked'
-                        ? commentPaneSize
-                        : 0
-                    ),
-                    // 队列大列表平时贴在控制面板左侧（面板 18rem + 0.75rem 间距
-                    // ⇒ 324px），横屏分屏时整组一起左移评论区宽度。
-                    ...(sidePaneWidth(commentPaneOrientation, commentPaneSize) >
-                    0
-                      ? {
-                          right:
-                            sidePaneWidth(
-                              commentPaneOrientation,
-                              commentPaneSize
-                            ) + 324,
-                        }
-                      : null),
+                    right:
+                      sidePaneWidth(commentPaneOrientation, commentPaneSize) +
+                      324,
                   }
-                : undefined
-            }
+                : null),
+            }}
           >
             <MusicQueueWindow
               queue={queue}
@@ -1016,34 +1002,31 @@ function sidePaneWidth(
 
 /**
  * 悬浮容器定位：全屏舞台内 absolute，普通页面 fixed 到右下角。
- * 语音聊天浮球固定在 bottom-6 right-6（全屏时抬到控制栏上方），占位时音乐
- * 浮球上移一档避免重叠。
+ * 纵向落点统一由 dockBottom 以内联 style 给出（要同时让过语音浮球、控制栏和
+ * Live2D 入口竖列，常量表达不了），类名只负责横向位置与层级。
  */
-function dockClass(inOverlay: boolean, voiceDockVisible: boolean): string {
-  const offsetY = voiceDockVisible ? 'bottom-24' : 'bottom-6'
+function dockClass(inOverlay: boolean): string {
   return cn(
     'flex flex-col items-end gap-3',
     inOverlay
-      ? // 纵向落点由 overlayDockBottom 以内联 style 给出（按实测控制栏高度）
-        'absolute right-6 z-30'
-      // 非全屏页面浮在顶栏（z-50）之上：配合 cardMaxHeightClass 扣掉顶栏高度，
+      ? 'absolute right-6 z-30'
+      // 非全屏页面浮在顶栏（z-50）之上：配合卡片 maxHeight 扣掉顶栏高度，
       // 双保险——万一某档视口算出的高度仍有重叠，面板也不会被顶栏盖住点不动。
-      : `fixed ${offsetY} right-6 z-[60]`
+      : 'fixed right-6 z-[60]'
   )
 }
 
 /**
  * 队列大列表的悬浮定位：贴在控制面板左侧并排。
  * 面板是 right-6（1.5rem）+ w-72（18rem），再加 0.75rem 间距 ⇒ 右边距 20.25rem，
- * 两个浮层底边对齐；纵向偏移与面板同一档（语音浮球占位时一起上移）。
+ * 两个浮层底边对齐（同一个 dockBottom）。
  */
-function queueDockClass(inOverlay: boolean, voiceDockVisible: boolean): string {
-  const offsetY = voiceDockVisible ? 'bottom-24' : 'bottom-6'
+function queueDockClass(inOverlay: boolean): string {
   return cn(
     'flex flex-col items-stretch',
     inOverlay
       ? 'absolute right-[20.25rem] z-40'
-      : `fixed ${offsetY} right-[20.25rem] z-[60]`
+      : 'fixed right-[20.25rem] z-[60]'
   )
 }
 

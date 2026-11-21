@@ -1,0 +1,1782 @@
+(function () {
+  'use strict';
+  const ui = window.ZViewerUI;
+  if (!ui || !window.zviewerDesktop) return;
+  const { state, icon, esc, heading, button, notice } = ui;
+  const $ = selector => document.querySelector(selector);
+  let loading = false;
+
+  function crawlerDefaults() {
+    return { info: null, loading: false, starting: false, error: '', tab: 'submissions', rules: [], ruleSource: '', sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
+  }
+  function cs() {
+    // app.js 里的初始状态可能落后于本文件新增的字段，这里原地补齐，不能替换对象：
+    // 异步回调持有同一个引用，换成新对象会丢状态并造成反复重载。
+    if (!state.crawler) state.crawler = crawlerDefaults();
+    const c = state.crawler;
+    const defaults = crawlerDefaults();
+    Object.keys(defaults).forEach(function (key) {
+      if (typeof c[key] === 'undefined') c[key] = defaults[key];
+    });
+    return c;
+  }
+  function message(error) { return String(error && error.message ? error.message : error).replace(/^.*Error: /, ''); }
+  function cmd(action, payload) { return window.zviewerDesktop.command(action, payload || {}); }
+  async function api(method, path, body) {
+    const result = await cmd('crawler-api', { method: method, path: path, body: body });
+    const status = result && result.status || 0;
+    const data = result && result.body || {};
+    if (status >= 400) {
+      const error = new Error(data.error || ('引擎返回状态 ' + status));
+      error.status = status;
+      error.data = data;
+      throw error;
+    }
+    return data;
+  }
+  function renderIf() { if (state.page === 'crawler') ui.render(); }
+
+  function ensure(force) {
+    if (loading) return;
+    const c = cs();
+    if (!force && c.info) return;
+    loading = true;
+    c.loading = true;
+    c.error = '';
+    renderIf();
+    cmd('crawler-info').then(function (info) {
+      c.info = info;
+      if (info && info.available && !info.running && !c.autoTried) {
+        c.autoTried = true;
+        c.starting = true;
+        renderIf();
+        return cmd('crawler-start').then(function (started) { c.info = started; }).catch(function (error) { c.error = message(error); });
+      }
+    }).then(function () {
+      return loadData();
+    }).catch(function (error) {
+      c.error = message(error);
+    }).then(function () {
+      loading = false;
+      c.loading = false;
+      c.starting = false;
+      renderIf();
+    });
+  }
+
+  async function loadData() {
+    const c = cs();
+    try {
+      const result = await cmd('crawler-rules');
+      if (result && Array.isArray(result.rules)) c.rules = result.rules;
+      c.ruleSource = result && result.source || 'engine';
+    } catch (error) {
+      c.error = message(error);
+    }
+    if (c.info && c.info.running) {
+      try {
+        const sessions = await api('GET', '/api/crawler/agent/sessions');
+        c.sessions = sessions.sessions || [];
+      } catch (error) { c.sessions = []; }
+      try {
+        const submissions = await api('GET', '/api/crawler/submissions');
+        c.submissions = submissions.submissions || [];
+      } catch (error) { c.submissions = []; }
+      try {
+        const challenges = await api('GET', '/api/crawler/challenges');
+        c.challenges = challenges.challenges || [];
+      } catch (error) { c.challenges = []; }
+      try {
+        const status = await api('GET', '/api/crawler/status');
+        c.autoGenerate = Boolean(status.autoGenerate);
+        c.repairEnabled = status.repairEnabled !== false;
+        c.browser = status.browser || null;
+        if (typeof status.reasoningEffort === 'string') c.settingsEffort = status.reasoningEffort;
+        if (typeof status.submissionReasoningEffort === 'string') c.submissionEffort = status.submissionReasoningEffort;
+        if (status.llmConfigured && !c.models.length && !c.modelsLoading) loadModels();
+      } catch (error) { /* 状态读取失败不影响页面 */ }
+      if (!c.sessionId && c.sessions.length) await loadSession(c.sessions[0].id);
+    } else if (c.info && c.info.config) {
+      c.autoGenerate = Boolean(c.info.config.autoGenerate);
+      if (typeof c.info.config.reasoningEffort === 'string') c.settingsEffort = c.info.config.reasoningEffort;
+      if (typeof c.info.config.submissionReasoningEffort === 'string') c.submissionEffort = c.info.config.submissionReasoningEffort;
+    }
+  }
+
+  async function loadRules() {
+    const result = await cmd('crawler-rules');
+    const c = cs();
+    if (result && Array.isArray(result.rules)) c.rules = result.rules;
+    c.ruleSource = result && result.source || 'engine';
+    renderIf();
+  }
+
+  async function loadSession(id) {
+    stopSessionWatch();
+    const c = cs();
+    c.generatingSession = '';
+    c.sessionId = id || '';
+    c.messages = [];
+    c.workOpen = {};
+    c.stepOpen = {};
+    c.chatDraft = '';
+    c.chatImages = [];
+    c.chatRuleRefs = [];
+    closeMentions();
+    c.queue = [];
+    if (!id) { renderIf(); return; }
+    try {
+      const data = await api('GET', '/api/crawler/agent/sessions/' + encodeURIComponent(id));
+      c.messages = (data.session && data.session.messages) || [];
+      c.sessionEffort = (data.session && data.session.reasoningEffort) || '';
+      c.sessionModel = (data.session && data.session.model) || '';
+    } catch (error) {
+      ui.toast(message(error));
+    }
+    renderIf();
+  }
+
+  function enginePill(c) {
+    if (c.starting) return '<span class="pill"><i></i>启动中</span>';
+    if (c.info && c.info.running) return '<span class="pill green"><i></i>运行中</span>';
+    return '<span class="pill"><i></i>未启动</span>';
+  }
+  function fact(label, value) {
+    return '<div class="crawler-fact"><span>' + label + '</span><code>' + esc(value == null || value === '' ? '—' : value) + '</code></div>';
+  }
+  function tag(text, tone) {
+    return '<span class="pill ' + (tone || '') + '"><i></i>' + esc(text) + '</span>';
+  }
+  function statusCard(c) {
+    const info = c.info || {};
+    const config = info.config || {};
+    const running = Boolean(info.running);
+    const facts = [
+      fact('引擎地址', running ? 'http://127.0.0.1:' + info.port : '未启动'),
+      fact('站点规则', String((info.ruleCount == null ? c.rules.length : info.ruleCount)) + ' 条'),
+      fact('运行环境', info.python || '未找到 Python'),
+      fact('工作目录', info.root || ''),
+      fact('API Key', config.apiKeyConfigured ? ('已配置 ' + (config.apiKeyMasked || '')) : '尚未配置'),
+      fact('最后错误', info.lastError || c.error || '')
+    ].join('');
+    const controls = running
+      ? button('停止引擎', 'crawler-stop', 'stop') + button('刷新', 'crawler-refresh', 'refresh')
+      : button('启动引擎', 'crawler-start', 'play', 'primary') + button('刷新', 'crawler-refresh', 'refresh');
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎是本地 Python 服务，随 GUI 启动；日志在 ' + esc(info.logPath || '') + '。</p></section>';
+  }
+  function tabs(c) {
+    const pendingChallenges = (c.challenges || []).filter(function (item) { return !item.completed; }).length;
+    const items = [['submissions', '成员提交'], ['rules', '站点规则'], ['challenges', '登录/验证' + (pendingChallenges ? ' (' + pendingChallenges + ')' : '')], ['agent', 'Agent 对话'], ['about', '引擎信息'], ['settings', '设置']];
+    return '<div class="tabs crawler-tabs">' + items.map(function (item) {
+      return '<button data-crawler-tab="' + item[0] + '" class="' + (c.tab === item[0] ? 'active' : '') + '">' + item[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  function visibilityLabel(rule) {
+    if (rule.visibility === 'root') return '仅 root';
+    const rooms = rule.allowedRooms || rule.allowed_rooms || [];
+    return rooms.length ? ('指定 ' + rooms.length + ' 个房间') : '所有房间';
+  }
+  function ruleRow(rule) {
+    const id = rule.id || '';
+    const search = rule.search || {};
+    const parse = rule.parse || {};
+    const updated = rule.updated_at || rule.updatedAt || '';
+    const disabled = rule.enabled === false;
+    return '<div class="crawler-rule' + (disabled ? ' disabled' : '') + '"><div class="crawler-rule-main"><div class="crawler-rule-title"><strong>' + esc(rule.name || id) + '</strong>' + (disabled ? tag('已停用') : '') + '</div><div class="crawler-rule-meta"><span>' + esc(rule.site || '') + '</span><span>' + esc(search.mode || 'http') + ' · ' + esc(parse.type || 'html') + '</span><span>' + esc(visibilityLabel(rule)) + '</span><span>' + esc(updated.slice(0, 19)) + '</span></div>' + (rule.description ? '<p class="field-note">' + esc(rule.description) + '</p>' : '') + '</div><div class="crawler-rule-actions"><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="login">登录站点</button><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="toggle">' + (disabled ? '启用' : '停用') + '</button><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="edit">编辑</button><button class="text-button danger" data-crawler-rule="' + esc(id) + '" data-crawler-do="delete">删除</button></div></div>';
+  }
+  function challengeRow(item) {
+    const id = item.id || '';
+    const expires = Number(item.expiresAt || 0) * 1000;
+    const left = expires ? Math.max(0, Math.round((expires - Date.now()) / 60000)) : 0;
+    return '<div class="crawler-rule"><div class="crawler-rule-main"><div class="crawler-rule-title"><strong>' + esc(item.name || item.site || id) + '</strong>' + tag('待人工验证') + (item.cookies ? tag('已收 Cookie ' + item.cookies) : '') + '</div><div class="crawler-rule-meta"><span>' + esc(item.site || '') + '</span><span>搜索词 ' + esc(item.keyword || '') + '</span><span>HTTP ' + esc(String(item.status || '')) + '</span><span>' + esc(item.roomId ? ('房间 ' + item.roomId) : '控制台验证') + '</span><span>' + (left ? ('约 ' + left + ' 分钟后过期') : '已过期') + '</span></div><p class="field-note">' + esc(item.note || item.reason || '网站要求完成人机验证') + '</p><p class="field-note">验证页：' + esc(item.pageUrl || '') + '</p></div><div class="crawler-rule-actions"><button class="text-button" data-crawler-challenge="' + esc(id) + '" data-crawler-do="open">打开验证页</button><button class="text-button" data-crawler-challenge="' + esc(id) + '" data-crawler-do="verify">我已完成</button><button class="text-button danger" data-crawler-challenge="' + esc(id) + '" data-crawler-do="delete">删除</button></div></div>';
+  }
+  function challengesPanel(c) {
+    const rows = (c.challenges || []).length ? c.challenges.map(challengeRow).join('') : '<div class="empty">没有待处理的人机验证。搜索遇到验证码、滑块或登录墙时会出现在这里，并弹 Windows 通知。</div>';
+    const verify = '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('shield') + '</span><h2>人机验证</h2></div><small>' + (c.challenges || []).length + ' 条</small></div><div class="live-toolbar">' + button('刷新', 'crawler-challenges-refresh', 'refresh') + '</div><p class="field-note">点「打开验证页」会在系统浏览器打开经过反代的验证页（不暴露站点登录态）；完成后回到这里点「我已完成」，引擎会用同一会话 Cookie 重新抓取并返回结果。</p><div class="crawler-rules">' + rows + '</div></section>';
+    return verify + browserPanel(c);
+  }
+  function rulesPanel(c) {
+    const rows = c.rules.length ? c.rules.map(ruleRow).join('') : '<div class="empty">还没有站点规则。可以用 Agent 生成，也可以手动新建或导入。</div>';
+    const local = c.ruleSource === 'local' ? '<p class="field-note">引擎未运行，当前直接读取规则文件；启动引擎后才能测试与保存。</p>' : '';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('server') + '</span><h2>站点规则</h2></div><small>' + c.rules.length + ' 条</small></div><div class="live-toolbar">' + button('新建规则', 'crawler-rule-new', 'check') + button('规则文档', 'crawler-doc', 'book') + button('导入', 'crawler-import', 'download') + button('导出', 'crawler-export', 'folder') + '</div>' + local + '<div class="crawler-rules">' + rows + '</div></section>';
+  }
+  const TOOL_LABELS = {
+    fetch_page: '打开页面', inspect_html: '检查页面', test_rule: '试跑规则',
+    save_rule: '保存规则', get_rule: '读取规则', update_rule: '更新规则', delete_rule: '删除规则', list_rules: '列出规则',
+    list_accounts: '查看账号', save_account: '保存账号', bind_account: '绑定账号',
+    browser_open: '打开浏览器', browser_text: '读取页面', browser_html: '读取 HTML', browser_eval: '执行脚本',
+    browser_show: '显示登录窗口', browser_save_login: '保存登录态', browser_hide: '收起浏览器',
+    inspect_challenge: '分析验证', detect_challenge_html: '检测验证',
+    search_logs: '查询日志', task_complete: '完成任务', ask_user: '询问用户'
+  };
+  function toolLabel(name) { return TOOL_LABELS[name] || name || '工具'; }
+  function clampText(value, limit) {
+    const text = String(value == null ? '' : value);
+    return text.length > limit ? text.slice(0, limit) + '…' : text;
+  }
+  function argsSummary(args) {
+    if (!args || typeof args !== 'object') return '';
+    const keys = ['url', 'keyword', 'name', 'site', 'selector', 'query', 'message', 'summary', 'rule_id', 'ruleId', 'account_id', 'limit'];
+    for (let i = 0; i < keys.length; i += 1) {
+      const value = args[keys[i]];
+      if (typeof value === 'string' && value.trim()) return clampText(value.trim(), 72);
+    }
+    try { return clampText(JSON.stringify(args), 72); } catch (error) { return ''; }
+  }
+  function resultLine(summary) {
+    if (!summary || typeof summary !== 'object') return '';
+    if (summary.error) return '失败：' + clampText(summary.error, 90);
+    if (summary.success === false) return '失败';
+    const parts = [];
+    if (summary.completed === true) parts.push('已完成');
+    else if (summary.success === true) parts.push('完成');
+    if (summary.count != null) parts.push(summary.count + ' 条');
+    if (summary.ruleId) parts.push('规则 ' + summary.ruleId);
+    if (summary.deleted) parts.push('已删除');
+    if (summary.saved) parts.push('已保存');
+    if (!parts.length && summary.message) parts.push(clampText(summary.message, 80));
+    return parts.join(' · ');
+  }
+  function mergeRunEvents(target, incoming) {
+    (incoming || []).forEach(function (event) {
+      if (!event || !event.kind) return;
+      if (event.kind === 'thinking' || event.kind === 'tool') {
+        const id = event.id || (event.kind + '-' + (event.step || '') + '-' + (event.seq || ''));
+        const copy = Object.assign({}, event, { id: id });
+        const found = target.findIndex(function (item) { return item.kind === event.kind && item.id === id; });
+        if (found >= 0) target[found] = copy;
+        else target.push(copy);
+      } else if (event.kind === 'note' || event.kind === 'continue') {
+        target.push(Object.assign({}, event));
+      }
+    });
+  }
+  function eventsToSteps(events) {
+    const steps = [];
+    (events || []).forEach(function (event) {
+      if (!event || !event.kind) return;
+      if (event.kind === 'tool') {
+        const last = steps[steps.length - 1];
+        if (last && last.type === 'tool' && last.name === event.name) last.calls.push(event);
+        else steps.push({ type: 'tool', name: event.name, calls: [event] });
+      } else if (event.kind === 'thinking') steps.push({ type: 'thinking', event: event });
+      else if (event.kind === 'note' || event.kind === 'continue') steps.push({ type: event.kind, event: event });
+    });
+    return steps;
+  }
+  function workCounts(steps) {
+    let thinking = 0, tools = 0, failed = 0;
+    steps.forEach(function (step) {
+      if (step.type === 'thinking') thinking += 1;
+      if (step.type === 'tool') {
+        tools += step.calls.length;
+        step.calls.forEach(function (call) { if (call.status === 'error') failed += 1; });
+      }
+    });
+    return { thinking: thinking, tools: tools, failed: failed };
+  }
+  function workSummaryText(steps, pending) {
+    let running = null;
+    steps.forEach(function (step) {
+      if (step.type === 'tool') step.calls.forEach(function (call) { if (call.status === 'running') running = call; });
+    });
+    if (running) return '正在处理第 ' + (running.step || 1) + ' 步 · ' + toolLabel(running.name);
+    if (pending) return '正在分析…';
+    const counts = workCounts(steps);
+    const parts = [];
+    if (counts.thinking) parts.push('思考 ' + counts.thinking + ' 次');
+    if (counts.tools) parts.push('调用 ' + counts.tools + ' 个工具');
+    if (counts.failed) parts.push(counts.failed + ' 个失败');
+    return parts.length ? parts.join(' · ') : '已完成';
+  }
+  function isOpen(map, key, fallback) {
+    return typeof map[key] === 'boolean' ? map[key] : fallback;
+  }
+  function renderToolDetail(call, key) {
+    const args = call.arguments && Object.keys(call.arguments).length ? JSON.stringify(call.arguments, null, 2) : '';
+    const summary = call.summary && Object.keys(call.summary).length ? JSON.stringify(call.summary, null, 2) : (call.detail || '');
+    let html = '';
+    if (args) html += '<div class="crawler-wlabel">参数</div><pre class="crawler-wpre">' + esc(clampText(args, 4000)) + '</pre>';
+    if (summary) html += '<div class="crawler-wlabel">结果</div><pre class="crawler-wpre">' + esc(clampText(summary, 4000)) + '</pre>';
+    return html ? '<div class="crawler-wdetail" data-scroll-key="tool:' + key + '">' + html + '</div>' : '';
+  }
+  function renderNoteStep(step, index, idx, c) {
+    const text = step.event.text || '';
+    if (!text) return '';
+    const kind = step.type === 'continue' ? 'refresh' : 'chat';
+    return '<div class="crawler-wstep"><div class="crawler-wnode">' + icon(kind) + '</div><div class="crawler-wbody"><div class="crawler-wnote">' + esc(text) + '</div></div></div>';
+  }
+  function renderThinkingStep(step, index, idx, c) {
+    const event = step.event;
+    const key = 's' + index + '-' + idx;
+    const done = event.done !== false;
+    const open = isOpen(c.stepOpen, key, !done);
+    const seconds = event.durationMs ? Math.max(1, Math.round(event.durationMs / 1000)) : 0;
+    const title = done ? ('思考已完成' + (seconds ? ' · 用时 ' + seconds + ' 秒' : '')) : '思考中…';
+    const body = open && event.text ? '<div class="crawler-wdetail crawler-wthink" data-scroll-key="think:' + key + '">' + esc(event.text) + '</div>' : '';
+    return '<div class="crawler-wstep"><div class="crawler-wnode ' + (done ? '' : 'running') + '">' + icon('bulb') + '</div><div class="crawler-wbody"><button class="crawler-wrow ' + (done ? '' : 'running') + '" data-crawler-step="' + key + '"><span class="crawler-wrow-title">' + esc(title) + '</span><span class="crawler-wchev">›</span></button>' + body + '</div></div>';
+  }
+  function renderToolStep(step, index, idx, c) {
+    const key = 's' + index + '-' + idx;
+    const calls = step.calls || [];
+    if (!calls.length) return '';
+    const latest = calls[calls.length - 1];
+    const running = calls.some(function (call) { return call.status === 'running'; });
+    const failed = calls.filter(function (call) { return call.status === 'error'; }).length;
+    const open = isOpen(c.stepOpen, key, false);
+    const title = toolLabel(step.name) + (calls.length > 1 ? ' · ' + calls.length + ' 次' : '');
+    const sub = running ? argsSummary(latest.arguments) : (failed ? failed + ' 个失败' : (calls.length > 1 ? '' : (resultLine(latest.summary) || argsSummary(latest.arguments))));
+    let body = '';
+    if (open) {
+      if (calls.length > 1) {
+        body = '<div class="crawler-wdetail crawler-wcalls" data-scroll-key="tool:' + key + '">' + calls.map(function (call) {
+          const tone = call.status === 'error' ? 'failed' : (call.status === 'running' ? 'running' : 'ok');
+          return '<div class="crawler-wcall"><span class="crawler-wdot ' + tone + '"></span><div class="crawler-wcall-main"><div class="crawler-wcall-title">' + esc(argsSummary(call.arguments) || toolLabel(call.name)) + '</div><div class="crawler-wcall-sub">' + esc(resultLine(call.summary) || '') + '</div></div></div>';
+        }).join('') + '</div>';
+      } else body = renderToolDetail(latest, key);
+    }
+    const tone = failed ? 'failed' : (running ? 'running' : '');
+    return '<div class="crawler-wstep"><div class="crawler-wnode ' + tone + '">' + icon('wrench') + '</div><div class="crawler-wbody"><button class="crawler-wrow ' + tone + '" data-crawler-step="' + key + '"><span class="crawler-wrow-title">' + esc(title) + '</span><span class="crawler-wchev">›</span></button>' + (sub ? '<div class="crawler-wrow-sub">' + esc(sub) + '</div>' : '') + body + '</div></div>';
+  }
+  function renderWorkProcess(item, index, c) {
+    const steps = eventsToSteps(item.events || []);
+    const key = 'w' + index;
+    const open = isOpen(c.workOpen, key, Boolean(item.pending));
+    const running = Boolean(item.pending);
+    let runningTool = null;
+    steps.forEach(function (step) { if (step.type === 'tool') step.calls.forEach(function (call) { if (call.status === 'running') runningTool = call; }); });
+    const headIcon = runningTool ? 'wrench' : (running ? 'bulb' : 'check');
+    const headText = workSummaryText(steps, running);
+    const body = open ? '<div class="crawler-work-body">' + steps.map(function (step, idx) {
+      if (step.type === 'thinking') return renderThinkingStep(step, index, idx, c);
+      if (step.type === 'tool') return renderToolStep(step, index, idx, c);
+      return renderNoteStep(step, index, idx, c);
+    }).join('') + '</div>' : '';
+    return '<div class="crawler-work' + (open ? ' expanded' : '') + (running ? ' running' : '') + '"><button class="crawler-work-head" data-crawler-work="' + key + '"><span class="crawler-work-icon">' + icon(headIcon) + '</span><span class="crawler-work-title">' + esc(headText) + '</span><span class="crawler-work-chevron">›</span></button>' + body + '</div>';
+  }
+  function findRule(c, id) {
+    return (c.rules || []).find(function (rule) { return rule.id === id; });
+  }
+  function referencedRules(ruleIds) {
+    const c = cs();
+    return (ruleIds || []).map(function (id) { return findRule(c, id); }).filter(Boolean).map(function (rule) {
+      return { id: rule.id, name: rule.name || rule.id, site: rule.site || '' };
+    });
+  }
+  function mentionCandidates(c, query) {
+    const q = String(query || '').toLowerCase();
+    return (c.rules || []).filter(function (rule) {
+      if (!q) return true;
+      return ((rule.name || '') + ' ' + (rule.site || '') + ' ' + (rule.id || '')).toLowerCase().indexOf(q) >= 0;
+    }).slice(0, 8);
+  }
+  function closeMentions() {
+    const c = cs();
+    c.mentionOpen = false;
+    c.mentionQuery = '';
+    c.mentionIndex = 0;
+    const slot = document.getElementById('crawler-mentions');
+    if (slot) { slot.hidden = true; slot.innerHTML = ''; }
+  }
+  function renderMentions() {
+    const c = cs();
+    const slot = document.getElementById('crawler-mentions');
+    if (!slot) return;
+    if (!c.mentionOpen) { slot.hidden = true; slot.innerHTML = ''; return; }
+    const items = mentionCandidates(c, c.mentionQuery);
+    if (!items.length) {
+      slot.innerHTML = '<div class="crawler-mention-empty">没有匹配的站点规则</div>';
+    } else {
+      if (c.mentionIndex >= items.length) c.mentionIndex = items.length - 1;
+      if (c.mentionIndex < 0) c.mentionIndex = 0;
+      slot.innerHTML = items.map(function (rule, index) {
+        return '<button type="button" class="crawler-mention' + (index === c.mentionIndex ? ' active' : '') + '" data-crawler-mention="' + esc(rule.id) + '"><span class="crawler-mention-name">@' + esc(rule.name || rule.id) + '</span><span class="crawler-mention-site">' + esc(rule.site || '') + '</span></button>';
+      }).join('');
+    }
+    slot.hidden = false;
+  }
+  function mentionMatch(input) {
+    if (!input) return null;
+    const caret = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+    const before = input.value.slice(0, caret);
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(before);
+    if (!match) return null;
+    return { query: match[1], start: caret - match[1].length - 1, end: caret };
+  }
+  function updateMentions() {
+    const c = cs();
+    const input = document.getElementById('crawler-chat-input');
+    const match = mentionMatch(input);
+    if (!match) { closeMentions(); return; }
+    c.mentionOpen = true;
+    c.mentionQuery = match.query;
+    c.mentionStart = match.start;
+    c.mentionEnd = match.end;
+    const items = mentionCandidates(c, match.query);
+    if (c.mentionIndex >= items.length) c.mentionIndex = 0;
+    renderMentions();
+  }
+  function selectMention(id) {
+    const c = cs();
+    const rule = findRule(c, id);
+    const input = document.getElementById('crawler-chat-input');
+    if (!rule || !input) return;
+    const start = typeof c.mentionStart === 'number' ? c.mentionStart : input.selectionStart;
+    const end = typeof c.mentionEnd === 'number' ? c.mentionEnd : input.selectionEnd;
+    input.setRangeText('@' + (rule.name || rule.id) + ' ', start, end, 'end');
+    if (c.chatRuleRefs.indexOf(rule.id) < 0) c.chatRuleRefs.push(rule.id);
+    c.chatDraft = input.value;
+    closeMentions();
+    input.focus();
+  }
+  function attachmentsHtml(c) {
+    const images = c.chatImages || [];
+    return '<div class="crawler-attachments" id="crawler-attachments"' + (images.length ? '' : ' hidden') + '><div class="crawler-attachments-list">' + images.map(function (image) {
+      return '<div class="crawler-attach-item"><img src="' + image.data + '" alt=""><button type="button" class="crawler-attach-remove" data-crawler-image-remove="' + esc(image.id) + '" title="移除图片" aria-label="移除图片">×</button></div>';
+    }).join('') + '</div></div>';
+  }
+  function renderAttachments() {
+    const c = cs();
+    const slot = document.getElementById('crawler-attachments');
+    if (!slot) return;
+    const holder = document.createElement('div');
+    holder.innerHTML = attachmentsHtml(c);
+    const fresh = holder.firstChild;
+    slot.innerHTML = fresh.innerHTML;
+    slot.hidden = !(c.chatImages || []).length;
+  }
+  function imageEncode(canvas, quality) {
+    return canvas.toDataURL('image/jpeg', quality);
+  }
+  function compressImageFile(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file || !/^image\//.test(file.type || '')) { reject(new Error('不是图片文件')); return; }
+      const reader = new FileReader();
+      reader.onerror = function () { reject(new Error('读取图片失败')); };
+      reader.onload = function () {
+        const image = new Image();
+        image.onerror = function () { reject(new Error('解析图片失败')); };
+        image.onload = function () {
+          try {
+            const max = 1600;
+            const scale = Math.min(1, max / Math.max(image.width || 1, image.height || 1));
+            let width = Math.max(1, Math.round((image.width || 1) * scale));
+            let height = Math.max(1, Math.round((image.height || 1) * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(image, 0, 0, width, height);
+            let quality = 0.86;
+            let data = imageEncode(canvas, quality);
+            while (data.length > 2900000 && quality > 0.5) {
+              quality -= 0.1;
+              data = imageEncode(canvas, quality);
+            }
+            if (data.length > 2950000) {
+              const smaller = document.createElement('canvas');
+              const scale2 = 1200 / Math.max(width, height);
+              smaller.width = Math.max(1, Math.round(width * scale2));
+              smaller.height = Math.max(1, Math.round(height * scale2));
+              const ctx2 = smaller.getContext('2d');
+              ctx2.fillStyle = '#ffffff';
+              ctx2.fillRect(0, 0, smaller.width, smaller.height);
+              ctx2.drawImage(canvas, 0, 0, smaller.width, smaller.height);
+              data = imageEncode(smaller, 0.75);
+            }
+            if (data.length > 2950000) { reject(new Error('图片太大，请换一张小一点的')); return; }
+            resolve({ id: 'img' + Date.now() + Math.random().toString(36).slice(2, 7), name: file.name || '图片', data: data });
+          } catch (error) { reject(error); }
+        };
+        image.src = String(reader.result || '');
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  async function addImageFiles(files) {
+    const c = cs();
+    const list = Array.prototype.slice.call(files || []).filter(function (file) { return file && /^image\//.test(file.type || ''); });
+    if (!list.length) return;
+    for (let index = 0; index < list.length; index += 1) {
+      if (c.chatImages.length >= 4) { ui.toast('最多添加 4 张图片'); break; }
+      try {
+        const image = await compressImageFile(list[index]);
+        c.chatImages.push(image);
+        renderAttachments();
+      } catch (error) {
+        ui.toast(message(error));
+      }
+    }
+    const input = document.getElementById('crawler-chat-input');
+    if (input) input.focus();
+  }
+  function chatMessage(item, index, c) {
+    if (item.role === 'user') {
+      const images = item.images || [];
+      return '<div class="crawler-msg own"><div class="crawler-msg-body">' + (item.content ? esc(item.content) : '') + (images.length ? '<div class="crawler-msg-images">' + images.map(function (src) { return '<img src="' + src + '" alt="">'; }).join('') + '</div>' : '') + '</div></div>';
+    }
+    const events = item.events || [];
+    let html = '<div class="crawler-msg agent">';
+    if (events.length || item.pending) html += renderWorkProcess(item, index, c);
+    if (item.content) html += '<div class="crawler-msg-body crawler-md">' + renderMarkdown(item.content) + '</div>';
+    if (item.pending && !item.content && !events.length) html += '<div class="crawler-pending-hint">正在准备回答…</div>';
+    if (item.content) html += '<div class="crawler-msg-actions"><button class="crawler-icon-btn" data-crawler-copy="' + index + '" title="复制">' + icon('copy') + '</button></div>';
+    html += '</div>';
+    return html;
+  }
+  function messagesHtml(c) {
+    if (!c.messages.length) {
+      const suggestions = [
+        '帮我给一个影视站点生成电影搜索规则',
+        '检查一下当前规则为什么抓不到结果',
+        '给这个站点配置人机验证并绑定登录态'
+      ];
+      return '<div class="crawler-chat-empty"><div class="crawler-chat-empty-icon">' + icon('chat') + '</div><strong>让 Agent 帮你生成站点规则</strong><p>描述站点、搜索词或要修的规则。它会自己抓页面、试规则、保存，不需要逐步确认。</p><div class="crawler-suggestions">' + suggestions.map(function (text) { return '<button class="crawler-suggest" data-crawler-suggest="' + esc(text) + '">' + esc(text) + '</button>'; }).join('') + '</div></div>';
+    }
+    return c.messages.map(function (item, index) { return chatMessage(item, index, c); }).join('');
+  }
+  function syncSessionSelect(c) {
+    const select = $('#crawler-session');
+    if (!select) return;
+    select.innerHTML = '<option value="">新对话</option>' + c.sessions.map(function (item) {
+      return '<option value="' + esc(item.id) + '"' + (item.id === c.sessionId ? ' selected' : '') + '>' + esc(item.title || item.id) + ' · ' + esc(item.turns || 0) + ' 轮</option>';
+    }).join('');
+    select.value = c.sessionId || '';
+  }
+  function queueHtml(c) {
+    if (!c.queue.length) return '';
+    return '<div class="crawler-queue"><div class="crawler-queue-head"><span>排队中 · ' + c.queue.length + ' 条</span><button type="button" class="crawler-queue-clear" data-action="crawler-queue-clear">清空</button></div><div class="crawler-queue-list">' + c.queue.map(function (item) {
+      const images = item.images || [];
+      const thumbs = images.length ? '<span class="crawler-queue-images">' + images.slice(0, 3).map(function (image) { return '<img src="' + image.data + '" alt="">'; }).join('') + (images.length > 3 ? '<i>+' + (images.length - 3) + '</i>' : '') + '</span>' : '';
+      return '<div class="crawler-queue-row"><span class="crawler-queue-text">' + (item.text ? esc(item.text) : '') + thumbs + '</span><button type="button" class="crawler-queue-remove" data-crawler-queue-remove="' + esc(item.id) + '" title="移出队列" aria-label="移出队列">×</button></div>';
+    }).join('') + '</div></div>';
+  }
+  function renderQueue(c) {
+    const slot = $('#crawler-queue');
+    if (slot) slot.innerHTML = queueHtml(c);
+  }
+  function renderChat(forceScroll) {
+    if (state.page !== 'crawler' || cs().tab !== 'agent') return;
+    const c = cs();
+    const box = $('#crawler-chat');
+    if (!box) return;
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 90;
+    // 运行中每 450ms 轮询都会重绘一次，展开的详情框（参数 JSON / 思考文本）会因 innerHTML 重建把滚动位置重置到顶部，
+    // 这里先按 data-scroll-key 记住再恢复，否则用户没法在详情框里继续往下翻。
+    const scrolls = {};
+    box.querySelectorAll('[data-scroll-key]').forEach(function (el) { scrolls[el.getAttribute('data-scroll-key')] = el.scrollTop; });
+    box.innerHTML = messagesHtml(c);
+    box.querySelectorAll('[data-scroll-key]').forEach(function (el) {
+      const top = scrolls[el.getAttribute('data-scroll-key')];
+      if (typeof top === 'number' && top > 0) el.scrollTop = top;
+    });
+    if (forceScroll || nearBottom) box.scrollTop = box.scrollHeight;
+    syncSessionSelect(c);
+    renderQueue(c);
+    renderAttachments();
+    const status = $('#crawler-chat-status');
+    if (status) status.textContent = c.chatSending ? '正在连接…' : c.runBusy ? (c.runStatus === 'cancelling' ? '正在停止…' : '正在执行…') : (c.generatingSession ? '规则生成中…' : '可多轮');
+    const stop = $('#crawler-chat-stop');
+    if (stop) stop.hidden = !c.runBusy;
+    const send = $('#crawler-chat-send');
+    if (send) {
+      send.disabled = Boolean(c.chatSending);
+      send.title = c.runBusy ? '加入队列，当前任务结束后自动发送' : '发送';
+    }
+  }
+  function modelOptions(c) {
+    const current = c.sessionModel || '';
+    const items = [['', '模型：跟随设置']].concat((c.models || []).map(function (item) { return [item.id, '模型：' + item.id]; }));
+    if (current && !items.some(function (item) { return item[0] === current; })) items.push([current, '模型：' + current]);
+    return items.map(function (item) {
+      return '<option value="' + esc(item[0]) + '"' + (item[0] === current ? ' selected' : '') + '>' + esc(item[1]) + '</option>';
+    }).join('');
+  }
+
+  function helpPanel() {
+    return '<section class="panel crawler-help-panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('info') + '</span><h2>能做什么</h2></div></div><div class="crawler-help-grid"><div class="check-item">' + icon('globe') + '<div><strong>生成规则</strong><br>给一个站点地址和搜索词，Agent 会分析页面结构并试跑。</div></div><div class="check-item">' + icon('settings') + '<div><strong>微调脚本</strong><br>直接说哪里抓不到、要换选择器或改接口，它会读规则再改。</div></div><div class="check-item">' + icon('lock') + '<div><strong>登录站点</strong><br>遇到登录墙时 Agent 会自己弹出浏览器窗口，你登录后它保存登录态并绑定账号。</div></div></div><p class="field-note">开放 MCP 后，外部 Agent 也能通过工具增删改规则。</p></section>';
+  }
+
+  function agentPanel(c) {
+    const options = c.sessions.map(function (item) {
+      return '<option value="' + esc(item.id) + '"' + (item.id === c.sessionId ? ' selected' : '') + '>' + esc(item.title || item.id) + ' · ' + esc(item.turns || 0) + ' 轮</option>';
+    }).join('');
+    const effortOptions = EFFORT_LEVELS.map(function (item) {
+      return '<option value="' + item[0] + '"' + (item[0] === (c.sessionEffort || '') ? ' selected' : '') + '>思考：' + item[1] + '</option>';
+    }).join('');
+    // 只保留会话切换和新建/删除；模型与思考强度移入输入框下方，按 DSH composer 布局。
+    const sessions = '<div class="crawler-session-bar"><select id="crawler-session" aria-label="对话会话"><option value="">新对话</option>' + options + '</select>' + button('新会话', 'crawler-session-new', 'chat') + (c.sessionId ? button('重命名', 'crawler-session-rename', 'edit') : '') + (c.sessionId ? button('删除会话', 'crawler-session-delete', 'trash') : '') + '</div>';
+    const compose = '<div class="crawler-compose-wrap"><div class="crawler-queue-slot" id="crawler-queue">' + queueHtml(c) + '</div><div class="crawler-compose"><div class="crawler-mentions" id="crawler-mentions" hidden></div>' + attachmentsHtml(c) + '<textarea id="crawler-chat-input" placeholder="告诉 Agent 要做什么，例如：给一个影视站生成电影搜索规则… 输入 @ 可引用规则" rows="2" autocomplete="off">' + esc(c.chatDraft || '') + '</textarea><div class="crawler-compose-row"><div class="crawler-compose-tools"><button type="button" class="crawler-attach" data-action="crawler-image-pick" title="添加图片" aria-label="添加图片">' + icon('image') + '</button><input type="file" id="crawler-image-input" accept="image/*" multiple hidden><select id="crawler-session-model" class="crawler-compose-select" aria-label="本会话模型" title="只影响当前会话，切换后从下一条消息生效">' + modelOptions(c) + '</select><select id="crawler-session-reasoning" class="crawler-compose-select" aria-label="本会话思考强度" title="只影响当前会话">' + effortOptions + '</select></div><div class="crawler-compose-actions"><button type="button" class="crawler-stop-btn" id="crawler-chat-stop" data-action="crawler-chat-stop" title="停止生成" aria-label="停止生成" hidden>' + icon('stop') + '</button><button type="button" class="crawler-send-btn" id="crawler-chat-send" data-action="crawler-chat-send" title="发送" aria-label="发送">' + icon('arrow') + '</button></div></div></div></div>';
+    return '<div class="crawler-agent"><section class="panel crawler-chat-panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('chat') + '</span><h2>Agent 对话</h2></div><small id="crawler-chat-status">' + (c.chatSending ? '正在连接…' : c.runBusy ? '正在执行…' : '可多轮') + '</small></div>' + sessions + '<div class="crawler-chat" id="crawler-chat">' + messagesHtml(c) + '</div>' + compose + '</section>' + '</div>';
+  }
+  function aboutPanel(c) {
+    return '<div class="crawler-about">' + statusCard(c) + helpPanel() + '</div>';
+  }
+
+  const SUBMISSION_STATUS = {
+    pending: ['待处理', ''],
+    queued: ['排队中', ''],
+    processing: ['生成中', 'green'],
+    done: ['已生成', 'green'],
+    failed: ['失败', 'danger'],
+    ignored: ['已忽略', '']
+  };
+  function submissionStatus(item) {
+    const entry = SUBMISSION_STATUS[item.status] || [item.status || '未知', ''];
+    const tone = entry[1] === 'danger' ? 'pill red' : entry[1] === 'green' ? 'pill green' : 'pill';
+    let label = entry[0];
+    if (item.status === 'queued' && item.queuePosition) label += ' · 第 ' + item.queuePosition + ' 位';
+    return '<span class="' + tone + '"><i></i>' + esc(label) + '</span>';
+  }
+  function submissionRow(item) {
+    const id = item.id || '';
+    const ruleText = item.ruleName || item.ruleId ? '规则：' + (item.ruleName || item.ruleId) : '';
+    const errorText = item.error ? '<p class="field-note">失败原因：' + esc(item.error) + '</p>' : '';
+    const canGenerate = item.status !== 'processing' && item.status !== 'queued';
+    return '<div class="crawler-rule"><div class="crawler-rule-main"><div class="crawler-rule-title"><strong>' + esc(item.name || item.site || id) + '</strong>' + submissionStatus(item) + (item.duplicate ? tag('重复提交') : '') + '</div><div class="crawler-rule-meta"><span>' + esc(item.site || '') + '</span><span>' + esc(item.url || '') + '</span><span>搜索词 ' + esc(item.keyword || '未填') + '</span><span>' + esc(item.roomName || item.roomId || '未带房间') + '</span><span>' + esc(item.submittedBy || '匿名成员') + '</span><span>' + esc((item.createdAt || '').slice(0, 19)) + '</span></div>' + (ruleText ? '<p class="field-note">' + esc(ruleText) + '</p>' : '') + errorText + '</div><div class="crawler-rule-actions">' + (canGenerate ? '<button class="text-button" data-crawler-submission="' + esc(id) + '" data-crawler-do="generate">生成规则</button>' : '') + (item.sessionId ? '<button class="text-button" data-crawler-submission="' + esc(id) + '" data-crawler-do="session">查看会话</button>' : '') + '<button class="text-button" data-crawler-submission="' + esc(id) + '" data-crawler-do="add">手动添加</button><button class="text-button danger" data-crawler-submission="' + esc(id) + '" data-crawler-do="delete">删除</button></div></div>';
+  }
+  function submissionsPanel(c) {
+    const pending = c.submissions.filter(function (item) { return item.status === 'pending' || item.status === 'failed'; }).length;
+    const rows = c.submissions.length ? c.submissions.map(submissionRow).join('') : '<div class="empty">还没有成员提交。成员在一起看页面提交新站点后会显示在这里。</div>';
+    const toggle = '<label class="check-item crawler-toggle"><input type="checkbox" id="crawler-auto-generate"' + (c.autoGenerate ? ' checked' : '') + '><div><strong>自动添加</strong><br>打开后，成员提交站点即自动唤醒大模型生成搜索规则。</div></label>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>成员提交</h2></div><small>' + c.submissions.length + ' 条 · ' + pending + ' 条待处理</small></div><div class="live-toolbar">' + button('手动提交站点', 'crawler-submission-new', 'plus', 'primary') + button('刷新', 'crawler-submissions-refresh', 'refresh') + '</div>' + toggle + '<p class="field-note">成员提交的站点保存在引擎 data/submissions.json；生成规则后可到「站点规则」里微调，或在 Agent 对话里继续调整。</p><div class="crawler-rules">' + rows + '</div></section>';
+  }
+  function browserPanel(c) {
+    const b = c.browser || {};
+    const stateText = b.running ? (b.mode === 'visible' ? '登录窗口已打开' : '无头运行中') : (b.available ? '未运行' : '未找到 Edge/Chrome');
+    const pillTone = b.running ? 'pill green' : (b.available ? 'pill' : 'pill red');
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>站点登录</h2></div><span class="' + pillTone + '"><i></i>' + esc(stateText) + '</span></div><p class="field-note">需要登录才能搜索的站点，Agent 遇到登录墙时会自己把浏览器窗口显示出来（也可以在这里手动打开）；你在窗口里登录后点「保存登录态」，Cookie 会存成本地账号（不会显示给大模型），再让 Agent 把规则绑定到该账号。</p><div class="form-row"><label class="field"><span>站点地址</span><input id="crawler-login-url" value="' + esc(c.loginUrl || '') + '" placeholder="https://example.com" autocomplete="off"></label><label class="field"><span>域名（可选）</span><input id="crawler-login-site" value="' + esc(c.loginSite || '') + '" placeholder="example.com" autocomplete="off"></label></div><label class="field"><span>账号名称（可选）</span><input id="crawler-login-name" value="' + esc(c.loginName || '') + '" placeholder="例如 站长账号" autocomplete="off"></label><div class="form-actions">' + button('显示登录窗口', 'crawler-login-open', 'globe', 'primary') + button('保存登录态', 'crawler-login-save', 'check') + button('关闭浏览器', 'crawler-login-close', 'stop') + '</div><p class="field-note">要让引擎带上登录态，请用「显示登录窗口」在受控浏览器里登录，再点「保存登录态」；系统浏览器的登录不会同步给引擎。</p><p class="field-note">浏览器：' + esc(b.bin || '自动检测 Edge/Chrome') + ' · 调试端口 ' + esc(String(b.debugPort || '—')) + '。登录态保存在 data/accounts.json（权限 600）。</p></section>';
+  }
+  const EFFORT_LEVELS = [['', '默认（不指定）'], ['minimal', '极低'], ['low', '低'], ['medium', '中'], ['high', '高']];
+  function effortSelect(id, current, note) {
+    const options = EFFORT_LEVELS.map(function (item) {
+      return '<option value="' + item[0] + '"' + (item[0] === (current || '') ? ' selected' : '') + '>' + item[1] + '</option>';
+    }).join('');
+    return '<label class="field"><span>思考强度</span><select id="' + id + '">' + options + '</select><small>' + esc(note || '') + '</small></label>';
+  }
+  function modelDatalist(c) {
+    if (!c.models.length) return '';
+    return '<datalist id="crawler-model-options">' + c.models.map(function (item) {
+      return '<option value="' + esc(item.id) + '">' + esc(item.ownedBy || '') + '</option>';
+    }).join('') + '</datalist>';
+  }
+  function settingsPanel(c) {
+    const config = (c.info && c.info.config) || {};
+    const modelNote = c.modelsLoading ? '正在获取模型列表…' : (c.modelError ? ('获取失败：' + c.modelError) : (c.models.length ? ('可用 ' + c.models.length + ' 个模型，可直接输入或从列表选择') : '填入 API Key 后点「获取模型」，也可以直接填模型名'));
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('settings') + '</span><h2>大模型设置</h2></div><small>OpenAI 兼容接口</small></div><div class="form-row"><label class="field"><span>服务地址</span><input id="crawler-base-url" value="' + esc(config.baseUrl || '') + '" placeholder="https://api.deepseek.com/v1" autocomplete="off"></label><label class="field"><span>模型</span><input id="crawler-model" value="' + esc(config.model || '') + '" list="crawler-model-options" placeholder="deepseek-chat" autocomplete="off"></label></div>' + modelDatalist(c) + '<label class="field"><span>API Key <small>' + (config.apiKeyConfigured ? '已保存，留空沿用' : '必填') + '</small></span><input id="crawler-api-key" type="password" placeholder="' + (config.apiKeyConfigured ? '已配置 ' + esc(config.apiKeyMasked || '') : 'sk-…') + '" autocomplete="off"></label><div class="form-actions">' + button('获取模型', 'crawler-models-load', 'refresh') + button('保存设置', 'crawler-config-save', 'check', 'primary') + '</div><p class="field-note" id="crawler-model-note">' + esc(modelNote) + '</p><div class="form-row">' + effortSelect('crawler-reasoning-effort', c.settingsEffort, 'Agent 对话新建会话时默认使用这个强度') + effortSelect('crawler-submission-reasoning-effort', c.submissionEffort, '成员提交站点后自动生成规则的强度') + '</div>' + '<label class="field"><span>自定义提示词 <small>追加到 Agent 系统提示词末尾，留空则不追加</small></span><textarea id="crawler-custom-prompt" rows="4" maxlength="4000" placeholder="例如：优先使用 hls 线路；只有 test_play 通过才保存规则；站点名用网页标题…">' + esc(config.customPrompt || '') + '</textarea><span class="field-note">对 Agent 对话、生成规则、自动修复都会生效，保存在 crawler/config.json。</span></label><label class="check-item crawler-toggle"><input type="checkbox" id="crawler-repair-enabled"' + (c.repairEnabled ? ' checked' : '') + '><div><strong>规则自动修复</strong><br>搜索解析失败时自动让大模型修复规则并重试一次；同一规则 10 分钟内最多修一次。</div></label><p class="field-note">Key 保存在 crawler/config.json，仅本机可见；Agent 与规则生成都使用这里的配置。思考强度留「默认」时不会向接口发送该字段。</p></section>';
+  }
+  // ---------------------------------------------------------------- markdown
+  function mdInline(text) {
+    let out = esc(text);
+    out = out.replace(/\x60([^\x60]+)\x60/g, '<code>$1</code>');
+    out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    return out;
+  }
+  function mdCells(line) {
+    return line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (cell) { return cell.trim(); });
+  }
+  function mdTable(header, rows) {
+    const head = mdCells(header).map(function (cell) { return '<th>' + mdInline(cell) + '</th>'; }).join('');
+    const body = rows.map(function (row) {
+      return '<tr>' + mdCells(row).map(function (cell) { return '<td>' + mdInline(cell) + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    return '<div class="crawler-doc-table"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  function renderMarkdown(md) {
+    const lines = String(md || '').split(/\r?\n/);
+    const out = [];
+    let index = 0;
+    const isFence = function (line) { return line.indexOf('\x60\x60\x60') === 0; };
+    const isBlockStart = function (line) { return /^(#{1,6}\s|\x60{3}|\||\s*[-*]\s)/.test(line); };
+    while (index < lines.length) {
+      const line = lines[index];
+      if (isFence(line)) {
+        index += 1;
+        const buffer = [];
+        while (index < lines.length && !isFence(lines[index])) { buffer.push(lines[index]); index += 1; }
+        index += 1;
+        out.push('<pre class="crawler-doc-code"><code>' + esc(buffer.join('\n')) + '</code></pre>');
+        continue;
+      }
+      if (/^\s*$/.test(line)) { index += 1; continue; }
+      const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (heading) {
+        const level = Math.min(6, heading[1].length + 1);
+        out.push('<h' + level + '>' + mdInline(heading[2]) + '</h' + level + '>');
+        index += 1;
+        continue;
+      }
+      if (line.charAt(0) === '|' && index + 1 < lines.length && /^\|?[\s:|-]+\|[\s:|-]*$/.test(lines[index + 1])) {
+        const rows = [];
+        index += 2;
+        while (index < lines.length && lines[index].charAt(0) === '|') { rows.push(lines[index]); index += 1; }
+        out.push(mdTable(line, rows));
+        continue;
+      }
+      if (/^\s*[-*]\s+/.test(line)) {
+        const items = [];
+        while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+          items.push('<li>' + mdInline(lines[index].replace(/^\s*[-*]\s+/, '')) + '</li>');
+          index += 1;
+        }
+        out.push('<ul>' + items.join('') + '</ul>');
+        continue;
+      }
+      const paragraph = [];
+      while (index < lines.length && !/^\s*$/.test(lines[index]) && !isBlockStart(lines[index])) {
+        paragraph.push(mdInline(lines[index]));
+        index += 1;
+      }
+      if (paragraph.length) out.push('<p>' + paragraph.join('<br>') + '</p>');
+      else index += 1;
+    }
+    return out.join('');
+  }
+  async function openDocs() {
+    const doc = await cmd('crawler-doc');
+    ui.modal('<h2>爬虫规则文档</h2><p class="field-note">' + esc(doc.path || '') + '</p><div class="crawler-doc">' + renderMarkdown(doc.content) + '</div><div class="modal-actions">' + button('关闭', 'close-modal') + '</div>');
+  }
+
+  // ----------------------------------------------------------- manual submission
+  function submissionModal() {
+    ui.modal('<h2>手动提交站点</h2><p class="field-note">提交后可以立即让大模型在真实会话里生成规则；生成过程可在「Agent 对话」里查看和继续调整。</p><label class="field"><span>站点地址</span><input id="crawler-new-url" placeholder="https://example.com" autocomplete="off"></label><div class="form-row"><label class="field"><span>站点名称（可选）</span><input id="crawler-new-name" placeholder="例如 示例影视" autocomplete="off"></label><label class="field"><span>想看的影片（可选）</span><input id="crawler-new-keyword" placeholder="测试关键词，默认 电影" autocomplete="off"></label></div><label class="field"><span>备注（可选）</span><input id="crawler-new-note" placeholder="例如 只能搜电影、需要登录" autocomplete="off"></label><div class="modal-actions">' + button('取消', 'close-modal') + button('提交', 'crawler-submission-save', 'check', 'primary') + '</div>');
+  }
+  async function saveSubmission() {
+    const c = cs();
+    const url = (($('#crawler-new-url') || {}).value || '').trim();
+    if (!url) { ui.toast('请填写站点地址'); return; }
+    const body = {
+      url: url,
+      name: (($('#crawler-new-name') || {}).value || '').trim(),
+      keyword: (($('#crawler-new-keyword') || {}).value || '').trim(),
+      note: (($('#crawler-new-note') || {}).value || '').trim()
+    };
+    try {
+      const result = await api('POST', '/api/crawler/submissions', body);
+      $('#modal').close();
+      await refreshSubmissions();
+      if (result.autoQueued) {
+        const sub = result.submission || {};
+        ui.toast(sub.status === 'queued'
+          ? '已提交并加入生成队列' + (sub.queuePosition ? '（第 ' + sub.queuePosition + ' 位）' : '') + '，上一个任务结束后自动开始'
+          : '已提交，正在用大模型生成规则；可在提交记录里查看会话');
+        schedulePoll();
+      } else if (result.duplicate) {
+        ui.toast('这个站点已经提交过');
+      } else {
+        ui.toast(result.llmConfigured ? '已提交，可点「生成规则」开始' : '已提交；配置 API Key 后可自动生成规则');
+      }
+    } catch (error) { ui.toast(message(error)); }
+  }
+  // 把正在跑的生成 run 接到当前会话上，实时显示 thinking/tool（排队后启动的任务也能看过程）。
+  async function attachSubmissionRun(item) {
+    const c = cs();
+    if (!item || !item.runId || !item.sessionId || c.runBusy) return false;
+    c.tab = 'agent';
+    await loadSession(item.sessionId);
+    c.messages.push({ role: 'assistant', content: '', pending: true, events: [] });
+    c.runBusy = true;
+    c.chatBusy = true;
+    c.runStatus = 'running';
+    c.runId = item.runId;
+    c.runCursor = 0;
+    c.runSteps = 0;
+    c.generatingSession = '';
+    stopSessionWatch();
+    renderIf();
+    renderChat(true);
+    scrollChat();
+    scheduleRunPoll();
+    return true;
+  }
+  async function viewSubmissionSession(item, forceWatch) {
+    if (!item || !item.sessionId) return;
+    const c = cs();
+    if (!c.sessions.some(function (entry) { return entry.id === item.sessionId; })) {
+      try {
+        const data = await api('GET', '/api/crawler/agent/sessions');
+        c.sessions = data.sessions || [];
+      } catch (error) { /* 会话列表拉取失败也可以直接打开 */ }
+    }
+    c.tab = 'agent';
+    if (await attachSubmissionRun(item)) return;
+    await loadSession(item.sessionId);
+    if (forceWatch || item.status === 'queued' || item.status === 'processing' || item.status === 'pending') {
+      c.generatingSession = item.sessionId;
+      watchGeneratingSession(item.sessionId, item.id);
+    }
+    renderIf();
+    // renderIf 只重绘整页 HTML，状态文案是硬编码的，这里再刷一次聊天区把「规则生成中…」显示出来。
+    renderChat();
+  }
+
+  let sessionWatchTimer = null;
+  function stopSessionWatch() {
+    if (sessionWatchTimer) { clearInterval(sessionWatchTimer); sessionWatchTimer = null; }
+  }
+  // 成员提交的规则在后台线程里生成，期间会话里只有用户消息；这里每 2.5s 看一次提交状态，
+  // 生成结束（成功/失败）就自动重载会话，避免用户停留在空会话 / 半截内容上。
+  function watchGeneratingSession(sessionId, submissionId) {
+    stopSessionWatch();
+    const startedAt = Date.now();
+    sessionWatchTimer = setInterval(async function () {
+      const c = cs();
+      if (!c.sessionId || c.sessionId !== sessionId) { stopSessionWatch(); return; }
+      if (Date.now() - startedAt > 30 * 60 * 1000) { stopSessionWatch(); return; }
+      try {
+        const data = await api('GET', '/api/crawler/submissions');
+        const item = (data.submissions || []).find(function (entry) { return entry.id === submissionId; });
+        if (!item) return;
+        // 排队中的任务轮到它时会带上 runId，这时把事件流接到会话上实时显示。
+        if (item.status === 'processing' && item.runId) {
+          stopSessionWatch();
+          if (await attachSubmissionRun(item)) { ui.toast('已开始生成规则，正在实时显示过程'); }
+          return;
+        }
+        if (item.status === 'queued' || item.status === 'processing') return;
+        stopSessionWatch();
+        c.generatingSession = '';
+        await loadSession(sessionId);
+        ui.toast(item.status === 'done' ? '规则已生成，会话已刷新' : '生成结束，会话已刷新');
+      } catch (error) { /* 轮询失败就等下一轮 */ }
+    }, 2500);
+  }
+  let pollTimer = null;
+  function hasActiveSubmissions() {
+    return cs().submissions.some(function (item) { return item.status === 'queued' || item.status === 'processing'; });
+  }
+  function schedulePoll() {
+    if (pollTimer || !hasActiveSubmissions()) return;
+    pollTimer = window.setTimeout(async function () {
+      pollTimer = null;
+      await refreshSubmissions();
+      if (hasActiveSubmissions()) schedulePoll();
+    }, 2500);
+  }
+
+  function bodyFor(c) {
+    if (c.starting) return '<section class="panel"><div class="empty">正在启动爬虫引擎…</div></section>';
+    if (c.loading && !c.info) return '<section class="panel"><div class="empty">正在读取爬虫引擎状态…</div></section>';
+    if (c.info && c.info.available === false) {
+      return notice('当前运行包没有找到爬虫引擎：' + esc(c.info.reason || '未找到 crawler/engine') + '。开发期请在仓库根运行，分发版需把 crawler 目录放进运行包。', true);
+    }
+    if (!c.info && c.error) return notice(esc(c.error), true);
+    const content = c.tab === 'agent' ? agentPanel(c) : c.tab === 'about' ? aboutPanel(c) : c.tab === 'settings' ? settingsPanel(c) : c.tab === 'rules' ? rulesPanel(c) : c.tab === 'challenges' ? challengesPanel(c) : submissionsPanel(c);
+    return tabs(c) + (c.error ? notice(esc(c.error), true) : '') + content;
+  }
+  function page() {
+    const c = cs();
+    if (!c.info && !c.loading) ensure(false);
+    return heading('爬虫引擎', '用大模型生成站点规则，供一起看搜索影视。', enginePill(c) + button('刷新', 'crawler-refresh', 'refresh')) + bodyFor(c);
+  }
+
+  function ruleModal(rule) {
+    const initial = rule || { name: '', site: '', description: '', enabled: true, visibility: 'public', allowed_rooms: [], search: { mode: 'http', request: { url: 'https://example.com/search?q={keyword}', method: 'GET', headers: {} }, account_id: '' }, parse: { type: 'html', container: '.result', fields: { title: { selector: '.title' }, url: { selector: 'a', attr: 'href', absolute: true } } } };
+    const json = JSON.stringify(initial, null, 2);
+    ui.modal('<h2>' + (rule ? '编辑规则' : '新建规则') + '</h2><label class="field"><span>规则名称</span><input id="crawler-rule-name" value="' + esc(initial.name || '') + '" data-initial-name="' + esc(initial.name || '') + '" placeholder="例如：某某影视（前端「全网搜片」的站点名显示这里）" autocomplete="off"></label><p class="field-note">规则名称由 Agent 生成时自动填写，也可以在这里自己改；保存后网页端会立即显示新名称。</p><p class="field-note">完整 JSON 规则。search.mode 可为 http 或 script；parse.type 可为 html、json 或 script。</p><textarea class="codebox config-editor crawler-json" id="crawler-rule-json" spellcheck="false" autocomplete="off">' + esc(json) + '</textarea><div class="modal-actions">' + button('取消', 'close-modal') + button('保存规则', 'crawler-rule-save', 'check', 'primary') + '</div>');
+  }
+
+  async function saveRule() {
+    const editor = $('#crawler-rule-json');
+    if (!editor) return;
+    let rule;
+    try { rule = JSON.parse(editor.value); } catch (error) { ui.toast('规则不是有效 JSON：' + message(error)); return; }
+    const nameInput = $('#crawler-rule-name');
+    const name = nameInput ? nameInput.value.trim() : '';
+    const initialName = nameInput ? String(nameInput.dataset.initialName || '') : '';
+    // 名称输入框改名时以输入框为准；如果只改了下方 JSON 里的 name，则沿用 JSON 的新名字。
+    if (name && name !== initialName) rule.name = name;
+    else if (!rule.name) rule.name = name;
+    if (!rule.name) { ui.toast('请填写规则名称'); return; }
+    await api('POST', '/api/crawler/rules', { rule: rule });
+    $('#modal').close();
+    await loadRules();
+    ui.toast('规则已保存');
+  }
+  async function toggleRule(id) {
+    const c = cs();
+    const rule = c.rules.find(function (item) { return item.id === id; });
+    if (!rule) return;
+    const enabled = rule.enabled === false;
+    await api('PUT', '/api/crawler/rules/' + encodeURIComponent(id), { patch: { enabled: enabled } });
+    await loadRules();
+    ui.toast(enabled ? '规则已启用' : '规则已停用，网页端将不再显示');
+  }
+  async function deleteRule(id) {
+    if (!id) return;
+    if (!window.confirm('确定删除规则 ' + id + '？')) return;
+    await api('DELETE', '/api/crawler/rules/' + encodeURIComponent(id));
+    await loadRules();
+    ui.toast('规则已删除');
+  }
+  function scrollChat() {
+    const box = $('#crawler-chat');
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+  function modelOptionsHtml(c) {
+    return c.models.map(function (item) { return '<option value="' + esc(item.id) + '">' + esc(item.ownedBy || '') + '</option>'; }).join('');
+  }
+  function setModelNote(text) {
+    const note = $('#crawler-model-note');
+    if (note) note.textContent = text;
+  }
+  async function loadModels() {
+    const c = cs();
+    if (c.modelsLoading) return;
+    const config = (c.info && c.info.config) || {};
+    const baseInput = $('#crawler-base-url');
+    const keyInput = $('#crawler-api-key');
+    const modelInput = $('#crawler-model');
+    const baseUrl = baseInput ? baseInput.value.trim() : (config.baseUrl || '');
+    const apiKey = keyInput ? keyInput.value.trim() : '';
+    if (!apiKey && !config.apiKeyConfigured) {
+      c.modelError = '请先填写 API Key';
+      setModelNote('请先填写 API Key，再获取模型列表');
+      ui.toast('请先填写 API Key');
+      return;
+    }
+    c.modelsLoading = true;
+    c.modelError = '';
+    setModelNote('正在获取模型列表…');
+    try {
+      const data = await api('POST', '/api/crawler/models', { baseUrl: baseUrl, apiKey: apiKey });
+      if (!data.success) throw new Error(data.error || '获取模型列表失败');
+      c.models = data.models || [];
+      if (!c.models.length) {
+        c.modelError = '接口没有返回任何模型';
+        setModelNote('接口没有返回模型，可以直接手填模型名');
+        return;
+      }
+      let list = document.getElementById('crawler-model-options');
+      if (!list) {
+        list = document.createElement('datalist');
+        list.id = 'crawler-model-options';
+        document.body.appendChild(list);
+      }
+      list.innerHTML = modelOptionsHtml(c);
+      if (modelInput) {
+        modelInput.setAttribute('list', 'crawler-model-options');
+        if (!modelInput.value.trim()) modelInput.value = c.models[0].id;
+      }
+      const sessionModelSelect = document.getElementById('crawler-session-model');
+      if (sessionModelSelect) sessionModelSelect.innerHTML = modelOptions(c);
+      setModelNote('可用 ' + c.models.length + ' 个模型，可直接输入或从列表选择');
+      ui.toast('已获取 ' + c.models.length + ' 个可用模型');
+    } catch (error) {
+      c.modelError = message(error);
+      setModelNote('获取失败：' + c.modelError);
+      ui.toast(c.modelError);
+    } finally {
+      c.modelsLoading = false;
+    }
+  }
+  async function setSessionEffort(effort) {
+    const c = cs();
+    c.sessionEffort = effort || '';
+    if (!c.sessionId) { renderIf(); return; }
+    try {
+      const data = await api('PUT', '/api/crawler/agent/sessions/' + encodeURIComponent(c.sessionId), { reasoningEffort: c.sessionEffort });
+      if (data.session && typeof data.session.reasoningEffort === 'string') c.sessionEffort = data.session.reasoningEffort;
+      ui.toast('本会话思考强度已更新');
+    } catch (error) { ui.toast(message(error)); }
+    renderIf();
+  }
+  async function setSessionModel(model) {
+    const c = cs();
+    c.sessionModel = model || '';
+    if (!c.sessionId) { renderIf(); return; }
+    try {
+      const data = await api('PUT', '/api/crawler/agent/sessions/' + encodeURIComponent(c.sessionId), { model: c.sessionModel });
+      if (data.session && typeof data.session.model === 'string') c.sessionModel = data.session.model;
+      await refreshSessions(c);
+      ui.toast('本会话模型已切换，从下一条消息生效');
+    } catch (error) { ui.toast(message(error)); }
+    renderIf();
+  }
+  let runPollTimer = null;
+  function scheduleRunPoll() {
+    if (runPollTimer) window.clearTimeout(runPollTimer);
+    runPollTimer = window.setTimeout(pollRun, 450);
+  }
+  async function refreshSessions(c) {
+    try {
+      const data = await api('GET', '/api/crawler/agent/sessions');
+      c.sessions = data.sessions || [];
+    } catch (error) { /* 会话列表刷新失败不影响本轮 */ }
+  }
+  function copyText(value) {
+    const text = String(value || '');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { ui.toast('已复制'); }).catch(function () { ui.toast('复制失败'); });
+      return;
+    }
+    const area = document.createElement('textarea');
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand('copy'); ui.toast('已复制'); } catch (error) { ui.toast('复制失败'); }
+    document.body.removeChild(area);
+  }
+  function runContext(ruleIds, text) {
+    const refs = referencedRules(ruleIds).filter(function (rule) { return !text || text.indexOf('@' + rule.name) >= 0; });
+    return refs.length ? { rules: refs } : undefined;
+  }
+  async function legacyChat(text, images, ruleIds) {
+    const c = cs();
+    try {
+      const result = await api('POST', '/api/crawler/agent/chat', { sessionId: c.sessionId, message: text, reasoningEffort: c.sessionEffort || undefined, model: c.sessionModel || undefined, context: runContext(ruleIds, text), images: (images || []).map(function (image) { return image.data; }) });
+      c.messages = result.messages || c.messages.concat([{ role: 'assistant', content: result.reply || '' }]);
+      c.runBusy = false;
+      c.chatBusy = false;
+      c.runStatus = 'done';
+      renderChat(true);
+      scrollChat();
+      await refreshSessions(c);
+    } catch (error) {
+      const last = c.messages[c.messages.length - 1];
+      if (last && last.role === 'assistant') { last.pending = false; last.content = '请求失败：' + message(error); }
+      c.runBusy = false;
+      c.chatBusy = false;
+      c.runStatus = 'error';
+      renderChat(true);
+      ui.toast(message(error));
+    }
+  }
+  async function beginRun(text, images, ruleIds) {
+    const c = cs();
+    if (!c.info || !c.info.running) { ui.toast('引擎未运行，请先启动引擎'); return false; }
+    c.error = '';
+    if (!c.sessionId) {
+      try {
+        const created = await api('POST', '/api/crawler/agent/sessions', { reasoningEffort: c.sessionEffort || undefined, model: c.sessionModel || undefined });
+        c.sessionId = created.session && created.session.id || '';
+        if (created.session && typeof created.session.reasoningEffort === 'string') c.sessionEffort = created.session.reasoningEffort;
+        if (created.session && typeof created.session.model === 'string') c.sessionModel = created.session.model;
+      } catch (error) { ui.toast(message(error)); return false; }
+    }
+    const placeholder = { role: 'assistant', content: '', pending: true, events: [] };
+    c.messages.push({ role: 'user', content: text, images: (images || []).map(function (image) { return image.data; }) });
+    c.messages.push(placeholder);
+    c.runBusy = true;
+    c.chatBusy = true;
+    c.runStatus = 'starting';
+    c.runId = '';
+    c.runCursor = 0;
+    c.runSteps = 0;
+    renderChat(true);
+    scrollChat();
+    try {
+      let started;
+      try {
+        started = await api('POST', '/api/crawler/agent/runs', { sessionId: c.sessionId, message: text, reasoningEffort: c.sessionEffort || undefined, model: c.sessionModel || undefined, context: runContext(ruleIds, text), images: (images || []).map(function (image) { return image.data; }) });
+      } catch (error) {
+        if (error && error.status === 404) { await legacyChat(text, images, ruleIds); return true; }
+        throw error;
+      }
+      c.runId = started.runId || '';
+      if (started.sessionId) c.sessionId = started.sessionId;
+      c.runStatus = 'running';
+      if (!c.runId) throw new Error('引擎没有返回 runId');
+      renderChat();
+      scheduleRunPoll();
+    } catch (error) {
+      placeholder.pending = false;
+      placeholder.content = '请求失败：' + message(error);
+      c.runBusy = false;
+      c.chatBusy = false;
+      c.runStatus = 'error';
+      renderChat(true);
+      ui.toast(message(error));
+    }
+    return true;
+  }
+  async function startRunMessage(text, images, ruleIds) {
+    const c = cs();
+    if (c.chatSending || c.runBusy) return false;
+    c.chatSending = true;
+    renderChat();
+    try { return await beginRun(text, images, ruleIds); }
+    finally { c.chatSending = false; renderChat(); }
+  }
+  function enqueueChat(text, images, ruleIds) {
+    const c = cs();
+    if (!text && !(images || []).length) return;
+    if (c.queue.length >= 20) { ui.toast('排队消息最多 20 条'); return; }
+    c.queueSeq += 1;
+    c.queue.push({ id: 'q' + c.queueSeq, text: text, images: images || [], ruleIds: ruleIds || [] });
+    c.chatDraft = '';
+    c.chatImages = [];
+    c.chatRuleRefs = [];
+    closeMentions();
+    const input = $('#crawler-chat-input');
+    if (input) input.value = '';
+    renderAttachments();
+    renderChat(true);
+    ui.toast('已加入队列，当前任务结束后自动发送');
+  }
+  async function startNextQueued() {
+    const c = cs();
+    if (c.runBusy || c.chatSending || !c.queue.length) return;
+    const next = c.queue.shift();
+    if (!next) return;
+    renderChat(true);
+    const ok = await startRunMessage(next.text, next.images || [], next.ruleIds || []);
+    if (!ok) {
+      c.queue.unshift(next);
+      renderChat();
+    }
+  }
+  async function sendChat() {
+    const input = $('#crawler-chat-input');
+    const c = cs();
+    if (!input || c.chatSending) return;
+    const text = input.value.trim();
+    const images = (c.chatImages || []).slice();
+    const ruleIds = (c.chatRuleRefs || []).slice();
+    if (!text && !images.length) { ui.toast(c.runBusy ? '输入内容或添加图片后回车会加入队列' : '请先输入内容或添加图片'); return; }
+    if (c.runBusy) { enqueueChat(text, images, ruleIds); return; }
+    input.value = '';
+    c.chatDraft = '';
+    c.chatImages = [];
+    c.chatRuleRefs = [];
+    closeMentions();
+    renderAttachments();
+    const ok = await startRunMessage(text, images, ruleIds);
+    if (!ok) {
+      c.chatDraft = text;
+      c.chatImages = images;
+      c.chatRuleRefs = ruleIds;
+      if (input) input.value = text;
+      renderAttachments();
+      renderChat();
+    }
+  }
+  async function pollRun() {
+    runPollTimer = null;
+    const c = cs();
+    if (!c.runBusy || !c.runId) return;
+    let payload;
+    try {
+      payload = await api('GET', '/api/crawler/agent/runs/' + encodeURIComponent(c.runId) + '?cursor=' + encodeURIComponent(c.runCursor || 0));
+    } catch (error) {
+      await finishRun({ status: 'error', error: message(error), reply: '' });
+      return;
+    }
+    // 引擎返回 {success, run:{status,events,nextCursor,done,...}}，这里必须解包，
+    // 否则 events/done 全是 undefined，会一直空轮询、界面永远停在「正在执行」。
+    const snap = (payload && payload.run) ? payload.run : (payload || {});
+    const msg = c.messages[c.messages.length - 1];
+    if (msg && msg.role === 'assistant' && msg.pending) {
+      msg.events = msg.events || [];
+      mergeRunEvents(msg.events, snap.events || []);
+    }
+    c.runCursor = Number(snap.nextCursor || c.runCursor || 0);
+    c.runSteps = Number(snap.steps || 0);
+    c.runStatus = snap.status || 'running';
+    renderChat();
+    if (snap.done) { await finishRun(snap); return; }
+    scheduleRunPoll();
+  }
+  async function finishRun(snap) {
+    const c = cs();
+    if (runPollTimer) { window.clearTimeout(runPollTimer); runPollTimer = null; }
+    const status = snap && snap.status || 'done';
+    c.runBusy = false;
+    c.chatBusy = false;
+    c.runStatus = status;
+    c.runId = '';
+    c.runCursor = 0;
+    c.runSteps = 0;
+    const msg = c.messages[c.messages.length - 1];
+    if (msg && msg.role === 'assistant') {
+      msg.pending = false;
+      if (snap && snap.reply) msg.content = snap.reply;
+      if (!msg.content) {
+        if (status === 'cancelled') msg.content = '已停止生成。';
+        else if (status === 'error') msg.content = '请求失败：' + ((snap && snap.error) || '未知错误');
+        else msg.content = '（模型没有返回内容）';
+      }
+    }
+    renderChat();
+    await refreshSessions(c);
+    // 生成规则 run 结束后提交状态会被引擎回写，这里同步刷新成员提交列表。
+    try { await refreshSubmissions(); } catch (error) { /* 列表刷新失败不阻塞对话 */ }
+    renderChat();
+    if (c.tab === 'rules') { loadRules().catch(function () { /* 规则页刷新失败不阻塞对话 */ }); }
+    // 当前任务结束后自动继续执行排队消息。
+    if (c.queue.length) await startNextQueued();
+  }
+  async function stopChat() {
+    const c = cs();
+    if (!c.runId) return;
+    c.runStatus = 'cancelling';
+    renderChat();
+    try {
+      await api('POST', '/api/crawler/agent/runs/' + encodeURIComponent(c.runId) + '/cancel');
+      ui.toast('已请求停止');
+    } catch (error) { ui.toast(message(error)); }
+  }
+  async function refreshSubmissions() {
+    const c = cs();
+    try {
+      const data = await api('GET', '/api/crawler/submissions');
+      c.submissions = data.submissions || [];
+    } catch (error) { ui.toast(message(error)); }
+    renderIf();
+    schedulePoll();
+  }
+  async function refreshBrowser() {
+    const c = cs();
+    try {
+      const status = await api('GET', '/api/crawler/status');
+      c.autoGenerate = Boolean(status.autoGenerate);
+      c.browser = status.browser || null;
+    } catch (error) { ui.toast(message(error)); }
+    renderIf();
+  }
+  async function generateSubmission(id) {
+    const c = cs();
+    if (!id) return;
+    try {
+      // 和人工操作完全一致：新建会话 + 发一条消息，再接管这次 run 的事件流。
+      // 引擎保证同一时间只跑一个生成任务，忙的时候会排队，结束后自动开始。
+      const started = await api('POST', '/api/crawler/submissions/' + encodeURIComponent(id) + '/run', {
+        reasoningEffort: c.submissionEffort || undefined
+      });
+      if (!started || !started.success) {
+        throw new Error((started && started.error) || '引擎拒绝了生成请求');
+      }
+      if (started.queued && !started.runId) {
+        await refreshSubmissions();
+        ui.toast(started.running
+          ? '这个站点正在生成规则，完成后可查看会话'
+          : (started.position
+            ? '已加入生成队列（第 ' + started.position + ' 位），上一个任务结束后自动开始'
+            : '已加入生成队列，上一个任务结束后自动开始'));
+        schedulePoll();
+        return;
+      }
+      if (!started.runId || !started.sessionId) {
+        throw new Error((started && started.error) || '引擎没有返回 runId');
+      }
+      const prompt = String(started.message || '').trim();
+      c.tab = 'agent';
+      await loadSession(started.sessionId);
+      if (!c.messages.some(function (msg) { return msg.role === 'user' && String(msg.content || '').trim() === prompt; })) {
+        c.messages.push({ role: 'user', content: prompt });
+      }
+      c.messages.push({ role: 'assistant', content: '', pending: true, events: [] });
+      c.runBusy = true;
+      c.chatBusy = true;
+      c.runStatus = 'running';
+      c.runId = started.runId;
+      c.runCursor = 0;
+      c.runSteps = 0;
+      c.generatingSession = '';
+      stopSessionWatch();
+      renderIf();
+      renderChat(true);
+      scrollChat();
+      scheduleRunPoll();
+      ui.toast('已新建会话，正在生成规则');
+    } catch (error) { ui.toast(message(error)); }
+  }
+  function submissionRule(item) {
+    const site = item.site || '';
+    return {
+      name: item.name || site,
+      site: site,
+      description: '由成员提交的站点（' + (item.submittedBy || '匿名') + '）',
+      enabled: true,
+      visibility: 'public',
+      allowed_rooms: [],
+      search: { mode: 'http', request: { url: 'https://' + site + '/search?q={keyword}', method: 'GET', headers: {} }, account_id: '' },
+      parse: { type: 'html', container: '.result', fields: { title: { selector: '.title' }, url: { selector: 'a', attr: 'href', absolute: true } } }
+    };
+  }
+  async function deleteSubmission(id) {
+    if (!id || !window.confirm('确定删除这条成员提交？')) return;
+    try {
+      await api('DELETE', '/api/crawler/submissions/' + encodeURIComponent(id));
+      await refreshSubmissions();
+      ui.toast('提交已删除');
+    } catch (error) { ui.toast(message(error)); }
+  }
+  async function setAutoGenerate(enabled) {
+    const c = cs();
+    try {
+      await api('PUT', '/api/crawler/config', { submissions: { auto_generate: Boolean(enabled) } });
+      c.autoGenerate = Boolean(enabled);
+      ui.toast(enabled ? '已打开自动添加：成员提交后会自动生成规则' : '已关闭自动添加');
+    } catch (error) {
+      ui.toast(message(error));
+    }
+    renderIf();
+  }
+  async function setRepair(enabled) {
+    const c = cs();
+    try {
+      await api('PUT', '/api/crawler/config', { repair: { enabled: Boolean(enabled) } });
+      c.repairEnabled = Boolean(enabled);
+      ui.toast(enabled ? '已打开规则自动修复' : '已关闭规则自动修复');
+    } catch (error) {
+      ui.toast(message(error));
+    }
+    renderIf();
+  }
+  function loginSite() {
+    const siteInput = $('#crawler-login-site');
+    const urlInput = $('#crawler-login-url');
+    let site = ((siteInput && siteInput.value) || '').trim().toLowerCase();
+    if (!site && urlInput && urlInput.value.trim()) {
+      try { site = new URL(urlInput.value.trim()).hostname; } catch (error) { site = ''; }
+    }
+    return site.replace(/^www./, '');
+  }
+  async function openLogin(urlOverride) {
+    const c = cs();
+    let url = String(urlOverride || '').trim();
+    if (!url) {
+      const urlInput = $('#crawler-login-url');
+      url = (urlInput && urlInput.value.trim()) || '';
+      if (!url) { url = 'https://' + (loginSite() || ''); }
+    }
+    if (!url || url === 'https://') { ui.toast('请先填写站点地址'); return; }
+    c.loginBusy = true;
+    renderIf();
+    try {
+      await api('POST', '/api/crawler/browser/open-login', { url: url });
+      ui.toast('已打开该站点的登录窗口，登录完成后点「保存登录态」');
+      await refreshBrowser();
+    } catch (error) { ui.toast(message(error)); }
+    c.loginBusy = false;
+    renderIf();
+  }
+  async function saveLogin() {
+    const site = loginSite();
+    if (!site) { ui.toast('请填写站点地址或域名'); return; }
+    const nameInput = $('#crawler-login-name');
+    const name = (nameInput && nameInput.value.trim()) || '';
+    try {
+      const result = await api('POST', '/api/crawler/browser/save-login', { site: site, name: name });
+      ui.toast('登录态已保存：' + ((result.account && result.account.name) || site));
+      if (site && $('#crawler-login-site')) $('#crawler-login-site').value = site;
+      cs().loginSite = site;
+      await refreshBrowser();
+    } catch (error) { ui.toast(message(error)); }
+  }
+  function ruleSite(rule) {
+    let site = String((rule && rule.site) || '').trim().toLowerCase();
+    if (!site) {
+      try { site = new URL(((rule.search || {}).request || {}).url || '').hostname; } catch (error) { site = ''; }
+    }
+    return site.replace(/^www\./, '');
+  }
+  async function startSiteLogin(ruleId) {
+    const c = cs();
+    const rule = (c.rules || []).find(function (item) { return item.id === ruleId; });
+    if (!rule) { ui.toast('找不到这条规则'); return; }
+    const site = ruleSite(rule);
+    if (!site) { ui.toast('这条规则没有站点域名，无法启动登录'); return; }
+    c.tab = 'challenges';
+    c.loginUrl = 'https://' + site;
+    c.loginSite = site;
+    c.loginName = rule.name || '';
+    renderIf();
+    await openLogin(c.loginUrl);
+  }
+
+  async function closeBrowser() {
+    try {
+      await api('POST', '/api/crawler/browser/close', {});
+      ui.toast('浏览器已关闭');
+      await refreshBrowser();
+    } catch (error) { ui.toast(message(error)); }
+  }
+
+  async function refreshChallenges() {
+    const c = cs();
+    const data = await api('GET', '/api/crawler/challenges');
+    c.challenges = data.challenges || [];
+    renderIf();
+  }
+  function challengeUrl(item) {
+    const c = cs();
+    const port = c.info && c.info.port;
+    if (!item || !item.proxyUrl || !port) return '';
+    return 'http://127.0.0.1:' + port + item.proxyUrl;
+  }
+  function openChallenge(id) {
+    const item = (cs().challenges || []).find(function (entry) { return entry.id === id; });
+    const url = challengeUrl(item);
+    if (!url) { ui.toast('验证页地址还没准备好，请刷新后重试'); return; }
+    if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
+    else window.open(url, '_blank', 'noreferrer');
+  }
+  async function verifyChallenge(id) {
+    const data = await api('POST', '/api/crawler/challenge/' + encodeURIComponent(id) + '/verify');
+    const result = data.result || {};
+    const count = Number(result.count || (result.items || []).length || 0);
+    ui.toast('验证通过，已获取 ' + count + ' 条结果');
+    await refreshChallenges();
+  }
+  async function deleteChallenge(id) {
+    await api('DELETE', '/api/crawler/challenge/' + encodeURIComponent(id));
+    ui.toast('已删除验证会话');
+    await refreshChallenges();
+  }
+  async function act(name) {
+    const c = cs();
+    if (name === 'crawler-refresh') { ensure(true); return; }
+    if (name === 'crawler-challenges-refresh') {
+      refreshChallenges().catch(function (error) { ui.toast(message(error)); });
+      return;
+    }
+    if (name === 'crawler-start' || name === 'crawler-stop') {
+      c.starting = name === 'crawler-start';
+      renderIf();
+      try {
+        c.info = await cmd(name);
+        if (name === 'crawler-start') await loadData();
+      } catch (error) {
+        c.error = message(error);
+        ui.toast(c.error);
+      } finally {
+        c.starting = false;
+        renderIf();
+      }
+      return;
+    }
+    if (name === 'crawler-rule-new') { ruleModal(null); return; }
+    if (name === 'crawler-doc') { await openDocs(); return; }
+    if (name === 'crawler-submission-new') { submissionModal(); return; }
+    if (name === 'crawler-submission-save') { await saveSubmission(); return; }
+    if (name === 'crawler-rule-save') { await saveRule(); return; }
+    if (name === 'crawler-import') {
+      const report = await cmd('crawler-import', { mode: 'merge' });
+      if (!report || report.canceled) return;
+      await loadRules();
+      ui.toast('导入完成：新增 ' + (report.imported || 0) + '，更新 ' + (report.updated || 0) + '，失败 ' + (report.failed || 0));
+      return;
+    }
+    if (name === 'crawler-export') {
+      const result = await cmd('crawler-export');
+      if (!result || result.canceled) return;
+      ui.toast('已导出 ' + (result.count || 0) + ' 条规则');
+      return;
+    }
+    if (name === 'crawler-chat-send') { await sendChat(); return; }
+    if (name === 'crawler-chat-stop') { await stopChat(); return; }
+    if (name === 'crawler-image-pick') {
+      const picker = document.getElementById('crawler-image-input');
+      if (picker) picker.click();
+      return;
+    }
+    if (name === 'crawler-queue-clear') { c.queue = []; renderChat(); return; }
+    if (name === 'crawler-session-new') {
+      if (c.runBusy) { ui.toast('正在执行，先停止或等待完成再新建会话'); return; }
+      c.sessionId = '';
+      c.messages = [];
+      c.sessionEffort = c.settingsEffort || '';
+      c.sessionModel = '';
+      c.workOpen = {};
+      c.stepOpen = {};
+      c.chatDraft = '';
+      c.runId = '';
+      c.runCursor = 0;
+      c.runStatus = 'idle';
+      c.tab = 'agent';
+      renderIf();
+      return;
+    }
+    if (name === 'crawler-session-rename') {
+      if (!c.sessionId) return;
+      const current = (c.sessions.find(function (item) { return item.id === c.sessionId; }) || {}).title || '';
+      ui.modal('<h2>重命名会话</h2><p class="field-note">标题只用于会话列表，最多 32 个字符；Agent 在对话中也可以自动修改。</p><label class="field"><span>会话标题</span><input id="crawler-session-title" maxlength="32" value="' + esc(current) + '" placeholder="例如：某影视站的搜索规则" autocomplete="off"></label><div class="modal-actions">' + button('取消', 'close-modal') + button('保存', 'crawler-session-rename-save', 'check', 'primary') + '</div>');
+      const input = document.getElementById('crawler-session-title');
+      if (input) { input.focus(); input.select(); }
+      return;
+    }
+    if (name === 'crawler-session-rename-save') {
+      const input = document.getElementById('crawler-session-title');
+      const title = ((input && input.value) || '').trim();
+      if (!title) { ui.toast('标题不能为空'); return; }
+      const result = await api('PUT', '/api/crawler/agent/sessions/' + encodeURIComponent(c.sessionId), { title: title });
+      const session = result.session || {};
+      const entry = c.sessions.find(function (item) { return item.id === c.sessionId; });
+      if (entry) entry.title = session.title || title;
+      $('#modal').close();
+      renderIf();
+      ui.toast('会话已重命名');
+      return;
+    }
+    if (name === 'crawler-session-delete') {
+      if (c.runBusy) { ui.toast('正在执行，先停止或等待完成再删除会话'); return; }
+      if (!c.sessionId || !window.confirm('删除当前对话？')) return;
+      await api('DELETE', '/api/crawler/agent/sessions/' + encodeURIComponent(c.sessionId));
+      c.sessionId = '';
+      c.messages = [];
+      const data = await api('GET', '/api/crawler/agent/sessions');
+      c.sessions = data.sessions || [];
+      renderIf();
+      ui.toast('对话已删除');
+      return;
+    }
+    if (name === 'crawler-submissions-refresh') { await refreshSubmissions(); await refreshBrowser(); return; }
+    if (name === 'crawler-auto-save') { await setAutoGenerate(Boolean($('#crawler-auto-generate') && $('#crawler-auto-generate').checked)); return; }
+    if (name === 'crawler-login-open') { await openLogin(); return; }
+    if (name === 'crawler-login-save') { await saveLogin(); return; }
+    if (name === 'crawler-login-close') { await closeBrowser(); return; }
+    if (name === 'crawler-models-load') { await loadModels(); return; }
+    if (name === 'crawler-config-save') {
+      const payload = {
+        baseUrl: ($('#crawler-base-url') || {}).value || '',
+        model: ($('#crawler-model') || {}).value || '',
+        apiKey: ($('#crawler-api-key') || {}).value || '',
+        reasoningEffort: ($('#crawler-reasoning-effort') || {}).value || '',
+        submissionReasoningEffort: ($('#crawler-submission-reasoning-effort') || {}).value || '',
+        customPrompt: ($('#crawler-custom-prompt') || {}).value || ''
+      };
+      const saved = await cmd('crawler-config-save', payload);
+      if (c.info) c.info.config = saved;
+      c.settingsEffort = saved.reasoningEffort || '';
+      c.submissionEffort = saved.submissionReasoningEffort || '';
+      renderIf();
+      ui.toast('大模型设置已保存');
+      if (!c.models.length) loadModels();
+      return;
+    }
+  }
+
+  document.addEventListener('click', function (event) {
+    const stateNow = cs();
+    if (stateNow.mentionOpen && event.target.id !== 'crawler-chat-input' && !event.target.closest('#crawler-mentions')) closeMentions();
+    const mentionButton = event.target.closest('[data-crawler-mention]');
+    if (mentionButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      selectMention(mentionButton.dataset.crawlerMention);
+      return;
+    }
+    const imageRemove = event.target.closest('[data-crawler-image-remove]');
+    if (imageRemove) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const c = cs();
+      const id = imageRemove.dataset.crawlerImageRemove;
+      c.chatImages = c.chatImages.filter(function (image) { return image.id !== id; });
+      renderAttachments();
+      return;
+    }
+    const workHead = event.target.closest('[data-crawler-work]');
+    if (workHead) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const c = cs();
+      const key = workHead.dataset.crawlerWork;
+      const index = Number(key.slice(1));
+      const item = c.messages[index];
+      c.workOpen[key] = !isOpen(c.workOpen, key, Boolean(item && item.pending));
+      renderChat();
+      return;
+    }
+    const stepHead = event.target.closest('[data-crawler-step]');
+    if (stepHead) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const c = cs();
+      const key = stepHead.dataset.crawlerStep;
+      c.stepOpen[key] = !isOpen(c.stepOpen, key, false);
+      renderChat();
+      return;
+    }
+    const copyButton = event.target.closest('[data-crawler-copy]');
+    if (copyButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const item = cs().messages[Number(copyButton.dataset.crawlerCopy)];
+      if (item) copyText(item.content || '');
+      return;
+    }
+    const suggestButton = event.target.closest('[data-crawler-suggest]');
+    if (suggestButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const input = $('#crawler-chat-input');
+      if (input) {
+        input.value = suggestButton.dataset.crawlerSuggest || '';
+        cs().chatDraft = input.value;
+        input.focus();
+      }
+      return;
+    }
+    const tab = event.target.closest('[data-crawler-tab]');
+    if (tab) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      cs().tab = tab.dataset.crawlerTab;
+      renderIf();
+      return;
+    }
+    const ruleButton = event.target.closest('[data-crawler-rule]');
+    if (ruleButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const id = ruleButton.dataset.crawlerRule;
+      const c = cs();
+      const ruleAction = ruleButton.dataset.crawlerDo;
+      if (ruleAction === 'delete') deleteRule(id).catch(function (error) { ui.toast(message(error)); });
+      else if (ruleAction === 'login') startSiteLogin(id).catch(function (error) { ui.toast(message(error)); });
+      else if (ruleAction === 'toggle') toggleRule(id).catch(function (error) { ui.toast(message(error)); });
+      else {
+        const rule = c.rules.find(function (item) { return item.id === id; });
+        if (rule) ruleModal(rule);
+      }
+      return;
+    }
+    const challengeButton = event.target.closest('[data-crawler-challenge]');
+    if (challengeButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const id = challengeButton.dataset.crawlerChallenge;
+      const action = challengeButton.dataset.crawlerDo;
+      if (action === 'open') openChallenge(id);
+      else if (action === 'verify') verifyChallenge(id).catch(function (error) { ui.toast(message(error)); });
+      else if (action === 'delete') deleteChallenge(id).catch(function (error) { ui.toast(message(error)); });
+      return;
+    }
+    const submissionButton = event.target.closest('[data-crawler-submission]');
+    if (submissionButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const id = submissionButton.dataset.crawlerSubmission;
+      const c = cs();
+      const item = c.submissions.find(function (entry) { return entry.id === id; });
+      if (submissionButton.dataset.crawlerDo === 'delete') deleteSubmission(id).catch(function (error) { ui.toast(message(error)); });
+      else if (submissionButton.dataset.crawlerDo === 'generate') generateSubmission(id).catch(function (error) { ui.toast(message(error)); });
+      else if (submissionButton.dataset.crawlerDo === 'session') viewSubmissionSession(item).catch(function (error) { ui.toast(message(error)); });
+      else if (item) ruleModal(submissionRule(item));
+      return;
+    }
+    const queueRemove = event.target.closest('[data-crawler-queue-remove]');
+    if (queueRemove) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const c = cs();
+      const id = queueRemove.dataset.crawlerQueueRemove;
+      c.queue = c.queue.filter(function (item) { return item.id !== id; });
+      renderChat();
+      return;
+    }
+    const action = event.target.closest('[data-action]');
+    if (action && action.dataset.action.indexOf('crawler-') === 0) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      act(action.dataset.action).catch(function (error) { ui.toast(message(error)); });
+    }
+  }, true);
+
+  document.addEventListener('change', function (event) {
+    if (event.target && event.target.id === 'crawler-session') {
+      const c = cs();
+      if (c.runBusy) {
+        event.target.value = c.sessionId || '';
+        ui.toast('正在执行，先停止或等待完成再切换会话');
+        return;
+      }
+      loadSession(event.target.value).catch(function (error) { ui.toast(message(error)); });
+    }
+    if (event.target && event.target.id === 'crawler-session-model') {
+      setSessionModel(event.target.value).catch(function (error) { ui.toast(message(error)); });
+      return;
+    }
+    if (event.target && event.target.id === 'crawler-session-reasoning') {
+      setSessionEffort(event.target.value).catch(function (error) { ui.toast(message(error)); });
+    }
+    if (event.target && event.target.id === 'crawler-api-key' && event.target.value.trim()) {
+      loadModels().catch(function (error) { ui.toast(message(error)); });
+    }
+    if (event.target && event.target.id === 'crawler-auto-generate') {
+      setAutoGenerate(event.target.checked).catch(function (error) { ui.toast(message(error)); });
+    }
+    if (event.target && event.target.id === 'crawler-repair-enabled') {
+      setRepair(event.target.checked).catch(function (error) { ui.toast(message(error)); });
+    }
+    if (event.target && event.target.id === 'crawler-image-input') {
+      addImageFiles(event.target.files).catch(function (error) { ui.toast(message(error)); });
+      event.target.value = '';
+    }
+  });
+  document.addEventListener('input', function (event) {
+    if (event.target && event.target.id === 'crawler-chat-input') {
+      cs().chatDraft = event.target.value;
+      updateMentions();
+    }
+  });
+  document.addEventListener('paste', function (event) {
+    if (!event.target || event.target.id !== 'crawler-chat-input') return;
+    const items = event.clipboardData && event.clipboardData.items ? Array.prototype.slice.call(event.clipboardData.items) : [];
+    const files = items.filter(function (item) { return item.kind === 'file' && item.type.indexOf('image/') === 0; }).map(function (item) { return item.getAsFile(); }).filter(Boolean);
+    if (!files.length) return;
+    event.preventDefault();
+    addImageFiles(files).catch(function (error) { ui.toast(message(error)); });
+  });
+  document.addEventListener('keydown', function (event) {
+    if (!event.target || event.target.id !== 'crawler-chat-input') return;
+    const c = cs();
+    if (c.mentionOpen) {
+      const items = mentionCandidates(c, c.mentionQuery);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (items.length) c.mentionIndex = (c.mentionIndex + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        renderMentions();
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        if (items.length) {
+          event.preventDefault();
+          selectMention(items[Math.max(0, Math.min(c.mentionIndex, items.length - 1))].id);
+          return;
+        }
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMentions();
+        return;
+      }
+    }
+    if (event.key !== 'Enter') return;
+    if (event.isComposing || event.keyCode === 229) return;
+    // Ctrl+Enter 在光标处插入换行（浏览器默认不会给 textarea 插入）。
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const input = event.target;
+      const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+      const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+      input.setRangeText('\n', start, end, 'end');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    // Shift/Alt+Enter 保留默认换行；输入法组合中的回车不触发发送。
+    if (event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    sendChat().catch(function (error) { ui.toast(message(error)); });
+  });
+
+  if (window.zviewerDesktop && window.zviewerDesktop.onCrawlerChallenge) {
+    window.zviewerDesktop.onCrawlerChallenge(function () {
+      if (state.page !== 'crawler') return;
+      refreshChallenges().catch(function () {});
+    });
+  }
+  window.setInterval(function () {
+    const c = cs();
+    if (state.page !== 'crawler' || c.tab !== 'challenges' || !c.info || c.info.available === false) return;
+    refreshChallenges().catch(function () {});
+  }, 15000);
+
+  window.ZViewerCrawlerPage = { page: page, ensure: ensure };
+})();

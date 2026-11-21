@@ -105,7 +105,6 @@
     "Enter the room ID",
     "Enter the room password",
     "Enter the room ID to join",
-    "Stop the stream in OBS before switching to WebRTC sharing",
     "Confirm join",
     "Confirm ending",
     "Mostly speech, saves bandwidth",
@@ -119,6 +118,7 @@
     "Video resolution",
     "Enter the room password",
     "Refresh the connection",
-    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing."
+    "Tip: stop streaming in OBS with “Stop Streaming”. Switching to another share method disconnects the OBS stream immediately.",
+    "Stream URL copied (without the stream key)"
   ]
 }

@@ -507,6 +507,7 @@ func (s *Server) authorizePublish(ctx context.Context, key string) bool {
 	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM room WHERE streamKey = ? AND status = 'active' AND mode = 'screen-share' AND shareMethod = 'stream-push'`, key).Scan(&count)
 	return err == nil && count == 1
 }
+
 func (s *Server) authorizeFLV(ctx context.Context, key, ticket string) bool {
 	if s.Tokens == nil {
 		return false

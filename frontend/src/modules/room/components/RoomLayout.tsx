@@ -17,6 +17,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { useRoomStore, type RoomMode } from '@/store/roomStore'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import { useListenLyricsSlot } from '@/modules/music/hooks/useListenLyricsSlot'
 import { SharingStatusPanel } from '@/modules/room/components/SharingStatusPanel'
 import {
@@ -169,6 +170,10 @@ export function RoomLayout({
   const isSharing =
     sharingActive ?? (roomMode === 'screen-share' && storeIsSharing)
 
+  // 移动端（窄屏 <768px）：评论区改为常驻播放器正下方，
+  // 不再渲染右侧抽屉与「展开/收起侧栏」按钮（抽屉在手机上会盖住播放器）。
+  const isMobile = useIsMobile()
+
   // 播放器容器使用固定高度（calc(100vh - 220px)），不使用 aspect-video，
   // 避免右侧面板内容撑开导致播放器高度变化。
 
@@ -268,6 +273,20 @@ export function RoomLayout({
   const mobileCardLabels = controlLabels?.length
     ? controlLabels.slice(0, controlChildren.length)
     : controlChildren.map((_, i) => t('卡片 {{value}}', { value: i + 1 }))
+
+  // 移动端卡片区：评论区已固定在播放器下方，共享模式下把原先只在侧栏出现的
+  // 「共享情况」补成一张卡片，保持信息不丢。
+  const mobileControlChildren =
+    isMobile && isSharing
+      ? [
+          ...controlChildren.slice(0, controlChildren.length - 1),
+          effectiveRightPanel,
+        ]
+      : controlChildren
+  const mobileCardLabelsFinal =
+    isMobile && isSharing
+      ? [...mobileCardLabels.slice(0, -1), t('共享情况')]
+      : mobileCardLabels
 
   // 移动端控制卡片横向滚动的当前索引与滚动处理
   const mobileCardsScrollRef = useRef<HTMLDivElement>(null)
@@ -370,8 +389,8 @@ export function RoomLayout({
             {isNativeFullscreen && !webFullscreen && rightPanelNode}
           </div>
         </div>
-        {/* 移动端抽屉背景遮罩：点击可关闭侧栏 */}
-        {!isNativeFullscreen && !webFullscreen && isRightPanelOpen && (
+        {/* 窄屏抽屉背景遮罩：点击可关闭侧栏（仅桌面端分支，移动端评论区在播放器下方） */}
+        {!isMobile && !isNativeFullscreen && !webFullscreen && isRightPanelOpen && (
             <div
               className="absolute inset-0 z-10 bg-black/50 md:hidden"
               aria-hidden="true"
@@ -379,7 +398,7 @@ export function RoomLayout({
             />
           )}
         {/* 右侧占位区：仅桌面端显示，宽度动画与绝对定位面板同步滑动 */}
-        {!isNativeFullscreen && !webFullscreen && (
+        {!isMobile && !isNativeFullscreen && !webFullscreen && (
           <div
             className={cn(
               'hidden flex-shrink-0 overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block',
@@ -388,8 +407,8 @@ export function RoomLayout({
             aria-hidden="true"
           />
         )}
-        {/* 右侧面板：移动端为全宽抽屉覆盖在视频上方，桌面端为固定宽度侧边栏 */}
-        {!isNativeFullscreen && !webFullscreen && (
+        {/* 右侧面板：桌面端为固定宽度侧边栏（窄屏改为播放器下方内嵌，见下方 mobile 评论区） */}
+        {!isMobile && !isNativeFullscreen && !webFullscreen && (
           <div
             className={cn(
               'pointer-events-none fixed inset-y-0 right-0 z-[9999] w-full overflow-hidden transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:absolute md:top-0 md:h-full md:w-[320px]',
@@ -403,6 +422,16 @@ export function RoomLayout({
           </div>
         )}
       </div>
+
+      {/* 移动端：评论区常驻播放器正下方（窄屏下抽屉会盖住视频，故改为内嵌卡片） */}
+      {isMobile && !isNativeFullscreen && !webFullscreen && rightPanel && (
+        <div
+          className="mt-3 flex flex-none flex-col overflow-hidden"
+          style={{ height: 'min(340px, 48dvh)' }}
+        >
+          {rightPanel}
+        </div>
+      )}
     </>
   )
 
@@ -450,10 +479,10 @@ export function RoomLayout({
                 <>
                   {/* 移动端：横向滚动卡片，顶部显示 Tab 标签便于切换 */}
                   <div className="flex flex-col gap-2 lg:hidden">
-                    {controlChildren.length > 1 && (
+                    {mobileControlChildren.length > 1 && (
                       <div className="flex items-center justify-between gap-1 px-1">
                         <div className="flex flex-1 items-center justify-center gap-1">
-                          {mobileCardLabels.map((label, index) => (
+                          {mobileCardLabelsFinal.map((label, index) => (
                             <button
                               key={index}
                               type="button"
@@ -470,30 +499,6 @@ export function RoomLayout({
                             </button>
                           ))}
                         </div>
-                        <button
-                          onClick={toggleRightPanel}
-                          aria-label={
-                            isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')
-                          }
-                          aria-expanded={isRightPanelOpen}
-                          title={
-                            isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')
-                          }
-                          className="glass flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95"
-                          style={{
-                            borderColor:
-                              'var(--md-sys-color-outline-variant)',
-                            color: isRightPanelOpen
-                              ? 'var(--md-sys-color-primary)'
-                              : 'var(--md-sys-color-on-surface-variant)',
-                          }}
-                        >
-                          {isRightPanelOpen ? (
-                            <PanelRightClose className="h-4 w-4" />
-                          ) : (
-                            <PanelRight className="h-4 w-4" />
-                          )}
-                        </button>
                       </div>
                     )}
                     <div
@@ -501,7 +506,7 @@ export function RoomLayout({
                       className="flex h-[340px] snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]"
                       onScroll={handleMobileCardsScroll}
                     >
-                      {controlChildren.map((child, index) => (
+                      {mobileControlChildren.map((child, index) => (
                         <div
                           key={index}
                           className="h-full w-[80vw] max-w-[320px] flex-shrink-0 snap-start"

@@ -26,10 +26,17 @@ import { useSocket } from '@/hooks/useSocket'
 import { useSubtitles, type EmbeddedSource } from '@/hooks/useSubtitles'
 import { useCliAgent } from '@/hooks/useCliAgent'
 import { useWakeLock } from '@/hooks/useWakeLock'
+import { useFullscreenOverlayHost } from '@/hooks/useFullscreenOverlayHost'
+import { usePlayerRotation } from '@/lib/player-orientation'
 import { useRoomStore } from '@/store/roomStore'
 import { usePlayerPrefsStore } from '@/store/playerPrefsStore'
 import { useCliAgentStore } from '@/store/cliAgentStore'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
+import {
+  buildQualityOptions,
+  resolveQualitySelectValue,
+  type QualitySelectOption,
+} from '@/modules/bilibili/qualityLabel'
 import { DanmakuLayer } from '@/modules/danmaku/components/DanmakuLayer'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { useWatchTogether } from './useWatchTogether'
@@ -37,7 +44,7 @@ import { useRequestChannel, type PendingApproval } from './useRequestChannel'
 import { useDanmakuBridge } from './useDanmakuBridge'
 import { useControlBarVisibility } from './useControlBarVisibility'
 import { ATTACH_STAGE_LABELS } from '@/modules/sync-playback/hooks/useVideoSource'
-import { FullscreenCommentDock } from './FullscreenCommentDock'
+
 import {
   RequestNotification,
   type RequestNotificationItem,
@@ -57,7 +64,7 @@ import type { ArtSlots } from './types'
 import {
   isIOSDevice,
   supportsContainerFullscreen,
-  getFullscreenElement,
+  isElementFullscreen,
   exitFullscreen,
   requestFullscreen,
   onFullscreenChange,
@@ -74,6 +81,10 @@ interface WatchTogetherCoreProps {
   slots: ArtSlots
   isWebFullscreen?: boolean
   onToggleWebFullscreen?: () => void
+  /** 全屏评论区二分屏是否已展开（状态由 WatchTogetherPanel 持有） */
+  commentSplitOpen?: boolean
+  /** 切换全屏评论区二分屏 */
+  onToggleCommentSplit?: () => void
   initialPlayback?: {
     currentTime: number
     isPlaying: boolean
@@ -104,6 +115,8 @@ export function WatchTogetherCore({
   slots,
   isWebFullscreen,
   onToggleWebFullscreen,
+  commentSplitOpen = false,
+  onToggleCommentSplit,
   initialPlayback,
 }: WatchTogetherCoreProps) {
   const { socket } = useSocket()
@@ -155,6 +168,8 @@ export function WatchTogetherCore({
     attachProgress,
     currentQuality,
     availableQualities,
+    isSwitchingQuality,
+    changeQuality,
     reloadVideo,
     reloadBilibili,
     loadMovieError,
@@ -548,6 +563,9 @@ export function WatchTogetherCore({
     useControlBarVisibility({
       stageRef,
       isMobile,
+      // 全屏评论侧边栏渲染在 stage 内部，触摸它不应唤醒控制栏。
+      ignoreSelector:
+        '[data-comment-split-pane], [data-comment-split] [role="separator"]',
     })
 
   // ── 原生全屏状态跟踪 ────────────────────────────────
@@ -559,7 +577,10 @@ export function WatchTogetherCore({
   useEffect(() => {
     if (iosDevice) return
     const onFsChange = () => {
-      const active = Boolean(getFullscreenElement())
+      // 只认「播放器舞台自身全屏」：右上角「网页全屏」是 documentElement
+      // 全屏，播放器并没有真正全屏，此时浮层必须留在 body 上，不能 portal
+      // 进播放器内部（否则语音/音乐浮球会"跳进"播放器）。
+      const active = isElementFullscreen(stageRef.current)
       setIsNativeFs(active)
       // 容器全屏切换后触发全局 resize，帮助 ArtPlayer / 浏览器
       // 重新计算 video 容器尺寸，避免某些浏览器下 MSE video 黑屏。
@@ -571,6 +592,27 @@ export function WatchTogetherCore({
 
   // iOS 降级：原生全屏状态等同于网页全屏状态
   const isFullscreen = iosDevice ? Boolean(isWebFullscreen) : isNativeFs
+
+  // 控制栏容器：全屏浮层要抬到控制栏上方，而控制栏高度随视口宽度变化
+  // （窄屏按钮换行时更高），所以把元素交给宿主 hook 实测。
+  const controlBarRef = useRef<HTMLDivElement | null>(null)
+
+  // 全屏时把舞台注册为浮层宿主：语音悬浮按钮需 portal 进全屏元素内，
+  // 并与控制栏同步显隐（原生全屏下 body 上的 fixed 浮层看不到）
+  useFullscreenOverlayHost({
+    owner: 'watch-together',
+    stageRef,
+    active: isFullscreen || Boolean(isWebFullscreen),
+    controlBarVisible,
+    barRef: controlBarRef,
+  })
+
+  // ── 全屏横竖屏切换（触屏设备）──────────────────────────
+  const rotation = usePlayerRotation({
+    stageRef,
+    active: isFullscreen || Boolean(isWebFullscreen),
+    cssFallbackActive: Boolean(isWebFullscreen),
+  })
 
   const handleToggleFullscreen = useCallback(() => {
     // iOS 不支持对 div 容器的原生全屏，降级为网页全屏（CSS 模拟全屏）。
@@ -587,7 +629,9 @@ export function WatchTogetherCore({
     // backdrop-filter / will-change: transform 影响。
     const stage = stageRef.current
     if (!stage) return
-    if (getFullscreenElement()) {
+    // 只在自己（舞台）全屏时退出：若当前是「网页全屏」（documentElement），
+    // 按播放器全屏按钮应把播放器切进全屏，而不是退出整个网页全屏。
+    if (isElementFullscreen(stage)) {
       void exitFullscreen()
     } else {
       void requestFullscreen(stage).catch(() => {
@@ -811,26 +855,14 @@ export function WatchTogetherCore({
   const setCommentDockHotkey = usePlayerPrefsStore(
     (s) => s.setCommentDockHotkey
   )
-  const commentDockEdgeHover = usePlayerPrefsStore(
-    (s) => s.commentDockEdgeHover
-  )
-  const setCommentDockEdgeHover = usePlayerPrefsStore(
-    (s) => s.setCommentDockEdgeHover
-  )
-  const [commentDockPinned, setCommentDockPinned] = useState(false)
-
-  // 退全屏时解除钉住,避免下次进全屏时侧边栏莫名常开。
-  // 全屏状态由 Fullscreen API / 网页全屏外部驱动,无法在渲染期推导,
-  // 此处的同步属于「响应外部系统状态变化」的合法用法。
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 全屏退出事件驱动
-    if (!isFullscreen) setCommentDockPinned(false)
-  }, [isFullscreen])
+  // 分屏开关状态与「退全屏自动收起」由 WatchTogetherPanel 的 useCommentSplit 负责，
+  // Core 只把当前状态透传给控制栏按钮，并把点击转给 Panel。
 
   // 双击检测:400ms 内两次按下同一控制键且期间未按其他键(e.repeat 忽略长按)。
   // 单击不 preventDefault,组合键(Ctrl+C / Alt+Tab 等)不受影响。
   useEffect(() => {
-    if (!isFullscreen || commentDockHotkey === 'off') return
+    if ((!isFullscreen && !isWebFullscreen) || commentDockHotkey === 'off')
+      return
     const DOUBLE_PRESS_MS = 400
     let lastPressAt = 0
     let lastKey = ''
@@ -847,7 +879,7 @@ export function WatchTogetherCore({
           e.preventDefault()
           lastPressAt = 0
           lastKey = ''
-          setCommentDockPinned((v) => !v)
+          onToggleCommentSplit?.()
           return
         }
         lastPressAt = now
@@ -860,7 +892,7 @@ export function WatchTogetherCore({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isFullscreen, commentDockHotkey])
+  }, [isFullscreen, isWebFullscreen, commentDockHotkey, onToggleCommentSplit])
 
   // ── 补充快捷键（F 全屏 / M 静音 / 方向键 跳转+音量）──
   useEffect(() => {
@@ -1043,6 +1075,26 @@ export function WatchTogetherCore({
     },
     [clearSeekRequest, clearPauseRequest, clearPlayRequest]
   )
+
+  // ── 播放器清晰度下拉 ──
+  // B站 acceptQuality（qn 档位）→ 走 changeQuality 重新解析播放地址
+  const qualityOptions: QualitySelectOption[] = buildQualityOptions(
+    availableQualities,
+    currentQuality ?? undefined
+  )
+  const currentQualityValue = resolveQualitySelectValue(
+    qualityOptions,
+    undefined,
+    currentQuality ?? undefined
+  )
+  const handleQualityChange = useCallback(
+    (value: string) => {
+      const qn = Number(value)
+      if (Number.isFinite(qn)) void changeQuality(qn)
+    },
+    [changeQuality]
+  )
+  const qualitySwitching = isSwitchingQuality
 
   return (
     <>
@@ -1298,8 +1350,6 @@ export function WatchTogetherCore({
               onResetDanmakuStyle={resetStyle}
               commentDockHotkey={commentDockHotkey}
               onCommentDockHotkeyChange={setCommentDockHotkey}
-              commentDockEdgeHover={commentDockEdgeHover}
-              onCommentDockEdgeHoverChange={setCommentDockEdgeHover}
             />
           )}
         </div>,
@@ -1318,6 +1368,9 @@ export function WatchTogetherCore({
           onToggleFullscreen={handleToggleFullscreen}
           isWebFullscreen={isWebFullscreen}
           onToggleWebFullscreen={onToggleWebFullscreen}
+          canRotate={rotation.canRotate}
+          forcedLandscape={rotation.forcedLandscape}
+          onToggleRotate={rotation.toggle}
           danmakuEnabled={danmakuEnabled}
           onToggleDanmaku={handleToggleDanmaku}
           onSendDanmaku={handleSendDanmaku}
@@ -1326,14 +1379,21 @@ export function WatchTogetherCore({
           settingsOpen={settingsOpen}
           onToggleSettings={() => setSettingsOpen((v) => !v)}
           settingsButtonRef={settingsButtonRef}
+          qualityOptions={qualityOptions}
+          currentQualityValue={currentQualityValue}
+          onQualityChange={handleQualityChange}
+          qualitySwitching={qualitySwitching}
           onRequestSeek={handleRequestSeek}
           onRequestPause={handleRequestPause}
           onRequestPlay={handleRequestPlay}
           pausePending={pausePending}
           playPending={playPending}
+          commentPanelOpen={commentSplitOpen}
+          onToggleCommentPanel={onToggleCommentSplit}
           controlBarVisible={controlBarVisible}
           controlBarHideMode={controlBarHideMode}
           onToggleHideMode={handleToggleHideMode}
+          containerRef={controlBarRef}
         />
       )}
 
@@ -1368,18 +1428,6 @@ export function WatchTogetherCore({
           />
         )
       })()}
-
-      {/* 全屏评论区侧边栏:鼠标移到屏幕右缘滑出(仅全屏状态挂载,
-          原生全屏与网页全屏均覆盖;渲染为 stage 直接子节点保证 top layer 可见) */}
-      {(isFullscreen || Boolean(isWebFullscreen)) && (
-        <FullscreenCommentDock
-          socket={socket}
-          roomId={roomId}
-          stageRef={stageRef}
-          pinned={commentDockPinned}
-          edgeHover={commentDockEdgeHover}
-        />
-      )}
 
       <RequestNotification
         items={requestNotifications}

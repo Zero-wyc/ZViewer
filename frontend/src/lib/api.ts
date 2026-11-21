@@ -312,11 +312,16 @@ export async function apiFetch(
       ? `${currentApiUrl}${input}`
       : input
 
+  // 反向代理（如 LuCI 的 _rp_login 反代）会给同源响应强行加
+  // Cache-Control: private, max-age=3600 之类的缓存头，覆盖后端下发的 no-store，
+  // 导致浏览器把 API 结果缓存一小时；API 响应永不复用，默认绕过 HTTP 缓存
+  // （调用方仍可通过 options.cache 覆盖）。
   // 房间上下文：后端据此把账号类请求（网易云 / B站）解析到房间共享账号。
   // 调用方显式传的同名 header 优先（允许单次请求覆盖）。
   const roomContextId = getApiRoomContext()
 
   const res = await fetch(url, {
+    cache: 'no-store',
     ...rest,
     credentials: 'include',
     headers: {

@@ -101,6 +101,9 @@ export function generateMonetTheme(
     const argb = scheme[role]
     if (typeof argb !== 'number') return
     vars[varName] = hexFromArgb(argb)
+    // 同时输出 rgb 分量形式，供 rgba(var(--md-sys-color-*-rgb), alpha) 使用
+    const rgb = rgbComponents(argb)
+    vars[`${varName}-rgb`] = `${rgb.r}, ${rgb.g}, ${rgb.b}`
   })
 
   // surfaceContainer 系列在 0.4.0 的 Scheme 类中未直接提供，
@@ -121,14 +124,9 @@ export function generateMonetTheme(
   Object.entries(containerTones).forEach(([varName, tone]) => {
     const argb = neutral.tone(tone)
     vars[varName] = hexFromArgb(argb)
+    const rgb = rgbComponents(argb)
+    vars[`${varName}-rgb`] = `${rgb.r}, ${rgb.g}, ${rgb.b}`
   })
-
-  // 为玻璃拟态背景提供 surface-container 的 RGB 分量形式
-  const surfaceContainerArgb = neutral.tone(
-    containerTones['--md-sys-color-surface-container']
-  )
-  const rgb = rgbComponents(surfaceContainerArgb)
-  vars['--md-sys-color-surface-container-rgb'] = `${rgb.r}, ${rgb.g}, ${rgb.b}`
 
   // 主色、次色、第三色的色调阶（0/10/20/30/40/50/60/70/80/90/95/99/100）
   const tones = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
