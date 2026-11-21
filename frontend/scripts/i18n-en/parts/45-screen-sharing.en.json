@@ -84,7 +84,6 @@
     "Connection lost, click Refresh to retry",
     "The browser adjusted {{names}}; the actual output may be below your settings",
     "Your browser muted the audio; click to unmute",
-    "Smooth",
     "Stream key",
     "Stream key copied",
     "Wrong password",
@@ -119,6 +118,7 @@
     "Live decode frame rate",
     "Video resolution",
     "Enter the room password",
-    "Refresh the connection"
+    "Refresh the connection",
+    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing."
   ]
 }

@@ -22,11 +22,7 @@ import {
   uploadLibraryModel,
   type Live2DLibraryEntry,
 } from '../core/model-library'
-import {
-  clearAllDragPrefs,
-  saveCropPref,
-  saveDragPref,
-} from '../core/drag-prefs'
+import { clearAllDragPrefs, saveDragPref } from '../core/drag-prefs'
 import { peerScaleOf, setPeerScale } from '../core/peer-scale'
 import { getEntry, listEntries, moveDragTo, slotX } from '../core/scene'
 import { pickVisiblePeers, resolveEffectiveModel } from '../core/visibility'
@@ -46,7 +42,6 @@ import { useSpeakingSids } from '../hooks/useSpeakingSids'
 import { useLive2DPointer } from '../hooks/useLive2DPointer'
 import { useLive2DStore } from '../store/live2dStore'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
-import type { CropRange } from '../core/live2d-renderer'
 import { Live2DContextMenu } from './Live2DContextMenu'
 import { Live2DBadge } from './Live2DBadge'
 import { Live2DDragLayer } from './Live2DDragLayer'
@@ -774,40 +769,20 @@ export function RoomLive2DHost({
   )
 
   /**
-   * 调整显示区域（裁剪）。
-   *
-   * 拖拽模式里拖上下边缘、或点「半身像」都会走到这里。裁剪是**本机视角**，
-   * 不上行：别人看到的你还是完整的，跟你把角色拖到哪、放多大一样。
-   */
-  const handleCrop = useCallback(
-    (crop: CropRange, final: boolean) => {
-      if (!mySid) return
-      renderer?.setCrop(mySid, crop)
-      // 拖动中不写盘：每帧一次 localStorage 太贵，且中间值没人要
-      if (final && effModelId) saveCropPref(effKind, effModelId, crop)
-    },
-    [renderer, mySid, effKind, effModelId]
-  )
-
-  /**
    * 回到默认站位。
    *
-   * 三件事必须一起做，少一件都表现为「按钮没生效」：
+   * 两件事必须一起做，少一件都表现为「按钮没生效」：
    *   1. 场景里的偏移归零（平滑过去，不要瞬移）；
-   *   2. 显示区域恢复全显示（裁到腰之后再点回位，用户期望的是"整个人回来"）；
-   *   3. 本机记的站位与裁剪全部清掉（只清当前模型的话，切一次模型就撞回旧值）。
+   *   2. 本机记的站位全部清掉（只清当前模型的话，切一次模型就撞回旧值）。
    *
    * 位置是纯本机状态，所以这里不需要网络；角色被拖到画面外时，这条路径是
    * **唯一**能把它找回来的入口（右键已经打不中它了）。
    */
   const handleResetPosition = useCallback(() => {
-    if (mySid) {
-      moveDragTo(mySid, 0, 0)
-      renderer?.setCrop(mySid, { top: 0, bottom: 1 })
-    }
+    if (mySid) moveDragTo(mySid, 0, 0)
     clearAllDragPrefs()
     closeMenu()
-  }, [mySid, renderer, closeMenu])
+  }, [mySid, closeMenu])
 
   // ---- 8e. 进房 / 换模型后应用本机的拖拽偏好 ----
   //
@@ -821,7 +796,6 @@ export function RoomLive2DHost({
     kind: effKind,
     modelId: effModelId,
     inRoster: myInRoster,
-    renderer,
   })
 
   const exitDragMode = useCallback(() => setDragMode(false), [])
@@ -1344,7 +1318,6 @@ export function RoomLive2DHost({
           sid={mySid}
           container={menu.root}
           onDrag={handleDrag}
-          onCrop={handleCrop}
           onReset={handleResetPosition}
           onExit={exitDragMode}
         />

@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { loadCropPref, loadDragPref } from '../core/drag-prefs'
+import { loadDragPref } from '../core/drag-prefs'
 import { setLocalDrag } from '../core/scene'
-import type { Live2DRenderer } from '../core/live2d-renderer'
 import type { Live2DModelKind } from '../types'
 
-// 进房 / 换模型后把本机记住的站位与显示区域套回去。
+// 进房 / 换模型后把本机记住的站位套回去。
 //
 // 触发点是「我出现在名册里」，不是固定延时：以前等 800ms 赌服务端的 join
 // 快照一定会到，网络慢时快照还没来就被随后的 upsert 覆盖成默认位置，网络快
@@ -24,8 +23,6 @@ export interface UseDragPrefOptions {
   modelId: string
   /** 我是否已经出现在名册里 */
   inRoster: boolean
-  /** 渲染器：裁剪必须落在这里，没有它就只恢复位置 */
-  renderer?: Live2DRenderer | null
 }
 
 export function useDragPref({
@@ -33,7 +30,6 @@ export function useDragPref({
   kind,
   modelId,
   inRoster,
-  renderer,
 }: UseDragPrefOptions): void {
   const appliedRef = useRef('')
   useEffect(() => {
@@ -47,8 +43,5 @@ export function useDragPref({
       // 目标与当前一起写：名册刚建出来，再平滑过去反而像"飘"
       setLocalDrag(sid, pref.x, pref.y)
     }
-    // 裁剪和位置分开读：只裁过、没拖过位置的人，位置那段是空的
-    const crop = loadCropPref(kind, modelId)
-    if (crop) renderer?.setCrop(sid, crop)
-  }, [sid, kind, modelId, inRoster, renderer])
+  }, [sid, kind, modelId, inRoster])
 }
