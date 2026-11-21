@@ -104,6 +104,14 @@ import {
 } from './movie-submit'
 import { t } from '@/i18n'
 
+/**
+ * 下拉里的「全网搜片」不是数据源，而是一个动作项。
+ *
+ * Dropdown 的 value 受控于 sourceType，所以这个值永远不会被选中；onChange 里
+ * 单独拦截它、打开搜片弹窗后直接 return，select 看起来就停在原来的数据源上。
+ */
+const CRAWLER_SEARCH_VALUE = '__crawler-search__'
+
 const ALL_SOURCE_OPTIONS: {
   value: string
   label: string
@@ -120,6 +128,7 @@ const ALL_SOURCE_OPTIONS: {
   { value: 'kazumi', label: 'Kazumi 番剧源' },
   { value: 'cms', label: 'TVBox 采集源' },
   { value: 'server-files', label: '服务器文件', rootOnly: true },
+  { value: CRAWLER_SEARCH_VALUE, label: '全网搜片（多站点）' },
 ]
 
 interface MoviePushPanelProps {
@@ -1271,7 +1280,6 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             disabled={!isHost}
             onResolve={() => void handleResolve()}
             onOpenSearch={() => setBiliSearchOpen(true)}
-            onOpenCrawlerSearch={() => setCrawlerSearchOpen(true)}
           />
         )
       case 'mp4':
@@ -1439,7 +1447,15 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                   ) && mounts.filter((m) => m.type === opt.value).length === 0
                 )
             )}
-            onChange={(value) => setSourceType(value as SourceType)}
+            onChange={(value) => {
+              // 动作项：只开弹窗，不改数据源（Dropdown 的值受控于 sourceType，
+              // 因此点完仍停留在原选项上，不会出现「选了却什么都没变」）
+              if (value === CRAWLER_SEARCH_VALUE) {
+                setCrawlerSearchOpen(true)
+                return
+              }
+              setSourceType(value as SourceType)
+            }}
           />
 
           {renderSourceForm()}

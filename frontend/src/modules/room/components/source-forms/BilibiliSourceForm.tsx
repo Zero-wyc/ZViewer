@@ -1,4 +1,4 @@
-import { Globe, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { SingleLineInput } from './shared'
 import { t } from '@/i18n'
@@ -9,18 +9,16 @@ interface BilibiliSourceFormProps {
   /** 回车/点「解析」：解析视频地址 */
   onResolve: () => void
   onOpenSearch: () => void
-  /** 打开爬虫引擎多站点聚合搜索 */
-  onOpenCrawlerSearch: () => void
   disabled?: boolean
 }
 
-/** B站来源：地址输入（视频 / 番剧 / 直播间）+ 站内搜索入口 */
+/** B站来源：地址输入（视频 / 番剧 / 直播间）+ 站内搜索入口。
+ * 「全网搜片」入口已移到上方的数据源下拉里（见 MoviePushPanel 的 CRAWLER_SEARCH_VALUE）。 */
 export function BilibiliSourceForm({
   url,
   onChangeUrl,
   onResolve,
   onOpenSearch,
-  onOpenCrawlerSearch,
   disabled,
 }: BilibiliSourceFormProps) {
   return (
@@ -39,15 +37,6 @@ export function BilibiliSourceForm({
         onClick={onOpenSearch}
       >
         <Search className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="secondary"
-        size="sm"
-        title={t('全网搜片（多站点）')}
-        disabled={disabled}
-        onClick={onOpenCrawlerSearch}
-      >
-        <Globe className="h-4 w-4" />
       </Button>
     </div>
   )
