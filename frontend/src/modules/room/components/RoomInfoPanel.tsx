@@ -18,6 +18,7 @@ import {
   Zap,
   Mic,
   ShieldCheck,
+  Clapperboard,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
@@ -36,6 +37,7 @@ import {
 } from '@/modules/room/lib/displayName'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
+import { updateMoviePermission } from '@/store/moviePermission'
 import { useAuthStore } from '@/store/authStore'
 import {
   useSystemSettingsStore,
@@ -100,6 +102,9 @@ export function RoomInfoPanel({
   const role = useAuthStore((state) => state.user?.role)
   const matrix = useSystemSettingsStore((state) => state.roomPermissionMatrix)
   const { updateFeature } = useRoomFeatures(socket, roomId)
+  const moviePermission = useRoomStore((state) => state.moviePermission)
+  const setMoviePermission = useRoomStore((state) => state.setMoviePermission)
+  const [moviePermissionBusy, setMoviePermissionBusy] = useState(false)
 
   const [showUsers, setShowUsers] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -420,6 +425,31 @@ export function RoomInfoPanel({
         }
       }
     )
+  }
+
+  /**
+   * 添加影片权限（房间级点片开关）总开关。
+   *
+   * 只影响「成员能不能往影片列表里加片」，不影响已加入影片的切换播放；
+   * 房主/root 与权限矩阵放行的人不受它约束。写库走 PUT movie-permission，
+   * 成功后后端广播 movie:permission-changed，观众端据此显示/隐藏「添加影片」。
+   */
+  const handleToggleMoviePermission = async () => {
+    if (!roomId || moviePermissionBusy) return
+    const next = !moviePermission.allowMembers
+    setMoviePermissionBusy(true)
+    try {
+      const updated = await updateMoviePermission(roomId, {
+        allowMembers: next,
+      })
+      setMoviePermission(updated)
+      message.info(next ? t('已允许成员添加影片') : t('已关闭成员添加影片'))
+    } catch (err) {
+      console.error('[RoomInfoPanel] 更新添加影片权限失败:', err)
+      message.error(err instanceof Error ? err.message : t('更新点片权限失败'))
+    } finally {
+      setMoviePermissionBusy(false)
+    }
   }
 
   const handleToggleRequireApproval = () => {
@@ -869,6 +899,24 @@ export function RoomInfoPanel({
                   {roomSettings.requireApproval
                     ? t('需要审批：开')
                     : t('需要审批：关')}
+                </Button>
+              )}
+              {isHost && (
+                <Button
+                  variant={
+                    moviePermission.allowMembers ? 'primary' : 'secondary'
+                  }
+                  size="sm"
+                  icon={<Clapperboard className="h-3.5 w-3.5" />}
+                  disabled={moviePermissionBusy}
+                  onClick={() => void handleToggleMoviePermission()}
+                  title={t(
+                    '开启后，房间成员可以把影片添加到影片列表；房主与权限矩阵放行的人始终可以添加'
+                  )}
+                >
+                  {moviePermission.allowMembers
+                    ? t('添加影片权限：开')
+                    : t('添加影片权限：关')}
                 </Button>
               )}
             </div>

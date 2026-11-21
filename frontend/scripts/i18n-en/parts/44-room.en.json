@@ -1,6 +1,5 @@
 {
   "items": [
-    "Please enter the site address",
     "Pick an item with “Browse the {{label}} library”, or paste an itemId",
     "Select a server file",
     "Select a saved {{label}} mount",
@@ -70,6 +69,8 @@
     "Submit movie/TV site",
     "Submit site",
     "Add movie",
+    "Add movie permission: off",
+    "Add movie permission: on",
     "Failed to add the movie",
     "Failed to add the whole movie",
     "Seek request",
@@ -118,7 +119,6 @@
     "Verification complete; search results loaded",
     "Verifying…",
     "Clear all",
-    "Watch together",
-    "Remove from room"
+    "Watch together"
   ]
 }

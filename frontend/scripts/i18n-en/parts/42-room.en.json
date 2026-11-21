@@ -2,7 +2,7 @@
   "items": [
     " and {{length}} other viewers",
     "), allow it?",
-    "[MoviePermissionSection] Failed to update movie request permission:",
+    "[RoomInfoPanel] failed to update add-movie permission:",
     "[useRoomFeatures] failed to load room feature flags:",
     "[useRoomFeatures] failed to update room feature flags:",
     "[useRoomMoviePermission] Failed to get movie request permission:",
@@ -68,7 +68,6 @@
     "Waiting for the connection",
     "Click to copy",
     "Click to load qualities",
-    "Movie request permission",
     "Loss {{value}}",
     "Port, default 21",
     "Send danmaku",
@@ -87,7 +86,6 @@
     "Room name",
     "Room name cannot be empty",
     "Room name updated",
-    "No other members in the room",
     "Room settings saved",
     "Room info",
     "The room is closed, you can close this window",
@@ -119,6 +117,8 @@
     "This movie can only be watched in CLI mode",
     "This movie uses “CLI only”: install and connect ZViewer CLI first",
     "This user",
-    "The main feature on this site requires membership or cannot be played directly; open the original site to watch"
+    "The main feature on this site requires membership or cannot be played directly; open the original site to watch",
+    "That account is already in this room",
+    "More"
   ]
 }
