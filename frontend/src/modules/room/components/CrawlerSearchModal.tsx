@@ -121,7 +121,7 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
     const query = keyword.trim()
     if (!query || !roomId) return
     if (sites.length === 0) {
-      message.info(t('还没有可用的站点规则，请先在桌面控制台生成'))
+      message.info(t('还没有可用的站点规则，请先在爬虫引擎里添加'))
       return
     }
     const seq = ++requestSeqRef.current
@@ -416,7 +416,7 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
             <div className="flex flex-col items-start gap-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-3 text-xs">
               <Text type="secondary">
                 {t(
-                  '还没有可用的站点规则。先提交站点，再在桌面控制台用 Agent 生成规则。'
+                  '还没有可用的站点规则。请在爬虫引擎（crawler/）里添加或导入站点规则后再试。'
                 )}
               </Text>
             </div>
@@ -496,7 +496,7 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
                 {t('输入片名后，会同时在全部可用站点搜索')}
               </Text>
               <Text type="secondary" className="text-xs opacity-70">
-                {t('结果解析在桌面端爬虫引擎完成，网页端只负责展示')}
+                {t('结果解析在本机爬虫引擎完成，网页端只负责展示')}
               </Text>
             </div>
           ) : pending.length > 0 &&
