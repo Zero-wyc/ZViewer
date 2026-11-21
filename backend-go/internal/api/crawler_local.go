@@ -108,6 +108,12 @@ func localBundle() *localCrawlerBundle {
 		Fetcher: fetcher,
 		JS:      js,
 	})
+	// 离屏浏览器：反爬/JS 渲染站点的最终兜底。二进制找不到时 Available() 为 false，
+	// PlayResolver 会自动跳过这一步。
+	play.SetBrowser(crawler.NewBrowser(crawler.BrowserOptions{
+		ProfileDir: filepath.Join(root, "data", "browser-profile"),
+		Headless:   true,
+	}))
 	challenges := crawler.NewChallengeStore(0, 0)
 	search.SetChallengeSessions(challenges)
 	crawlerBundle = &localCrawlerBundle{search: search, play: play, challenge: challenges}

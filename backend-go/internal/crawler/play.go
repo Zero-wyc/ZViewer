@@ -246,7 +246,8 @@ func playHeaders(rule *Rule, pageURL string) map[string]string {
 }
 
 func pageTitleOf(htmlText string) string {
-	for _, pattern := range []*regexp.Regexp{ogTitleRe, h1TitleRe} {
+	// og:title 最准，其次 h1，最后退回 <title>（浏览器兜底时页面常常只有 title）。
+	for _, pattern := range []*regexp.Regexp{ogTitleRe, h1TitleRe, htmlTitleRe} {
 		match := pattern.FindStringSubmatch(htmlText)
 		if match == nil {
 			continue
