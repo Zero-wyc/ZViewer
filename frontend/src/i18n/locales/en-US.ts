@@ -1097,7 +1097,7 @@ const enUS: Record<string, string> = {
   '统一角色期间不能删除自己的角色': 'You can\'t remove your character while the host uses a room-wide one',
   '统一使用的模型': 'Shared model',
   '退出拖拽模式': 'Exit drag mode',
-  '拖动角色移动 · 拖上下边缘裁剪显示区域': 'Drag the character to move · drag the top/bottom edges to crop the display area',
+  '拖动角色移动': 'Drag the character to move',
   '拖拽模式': 'Drag mode',
   '歪头': 'Tilt',
   '完成': 'Done',

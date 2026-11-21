@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  CROP_MIN_SPAN,
-  clampCrop,
   clearAllDragPrefs,
   clearDragPref,
-  loadCropPref,
   loadDragPref,
-  saveCropPref,
   saveDragPref,
   type DragPrefStorage,
 } from '../core/drag-prefs.ts'
@@ -126,70 +122,26 @@ test('条目超过上限时淘汰最久没写过的', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 显示区域裁剪
+// 旧版本留下的「显示区域裁剪」字段
 // ---------------------------------------------------------------------------
 
-test('裁剪比例存进去能读回来', () => {
-  const storage = memStorage()
-  saveCropPref('builtin', 'm', { top: 0.1, bottom: 0.55 }, storage)
-  const got = loadCropPref('builtin', 'm', storage)
-  assert.ok(got)
-  assert.ok(Math.abs(got.top - 0.1) < 1e-6)
-  assert.ok(Math.abs(got.bottom - 0.55) < 1e-6)
-})
-
-test('全显示不当作偏好（进房不必多一次 setCrop）', () => {
-  const storage = memStorage()
-  saveCropPref('builtin', 'm', { top: 0, bottom: 1 }, storage)
-  assert.equal(loadCropPref('builtin', 'm', storage), null)
-})
-
-test('旧数据里只有 x/y 时读不到裁剪', () => {
-  const storage = memStorage(JSON.stringify({ 'builtin:m': { x: 0.1, y: 0 } }))
-  assert.equal(loadCropPref('builtin', 'm', storage), null)
-})
-
-test('位置与裁剪互不覆盖', () => {
-  const storage = memStorage()
-  saveDragPref('builtin', 'm', 0.2, -0.1, storage)
-  saveCropPref('builtin', 'm', { top: 0.05, bottom: 0.6 }, storage)
-  // 只拖位置（宿主松手时只写 offset）不能把裁剪冲掉
-  saveDragPref('builtin', 'm', 0.3, -0.2, storage)
-  const crop = loadCropPref('builtin', 'm', storage)
-  assert.ok(crop)
-  assert.ok(Math.abs(crop.bottom - 0.6) < 1e-6)
-  assert.ok(Math.abs(loadDragPref('builtin', 'm', storage)!.x - 0.3) < 1e-6)
-})
-
-test('先写裁剪再拖位置时位置不丢', () => {
-  const storage = memStorage()
-  saveCropPref('builtin', 'm', { top: 0, bottom: 0.5 }, storage)
-  saveDragPref('builtin', 'm', 0.4, 0, storage)
-  assert.ok(
-    Math.abs(loadCropPref('builtin', 'm', storage)!.bottom - 0.5) < 1e-6
+// 裁剪功能已删除（它会让 Live2D 卡死），但 localStorage 里可能还留着 top/bottom。
+// 这里锁住两件事：旧的裁剪数据不会让读取出错，也不会被当成位置读回来。
+test('旧记录里的 top/bottom 被忽略，位置照常读回', () => {
+  const storage = memStorage(
+    JSON.stringify({ 'builtin:m': { x: 0.1, y: -0.2, top: 0, bottom: 0.55 } })
   )
-  assert.ok(Math.abs(loadDragPref('builtin', 'm', storage)!.x - 0.4) < 1e-6)
+  const pref = loadDragPref('builtin', 'm', storage)
+  assert.ok(pref)
+  assert.ok(Math.abs(pref.x - 0.1) < 1e-6)
+  assert.ok(Math.abs(pref.y - -0.2) < 1e-6)
 })
 
-test('反着拖（top > bottom）会被摆正，且保留最小跨度', () => {
-  const crop = clampCrop(0.9, 0.2)
-  assert.ok(crop.top <= crop.bottom)
-  assert.ok(crop.bottom - crop.top >= CROP_MIN_SPAN - 1e-9)
-})
-
-test('拖成一条线时也不会小于最小跨度', () => {
-  const crop = clampCrop(0.5, 0.5)
-  assert.ok(crop.bottom - crop.top >= CROP_MIN_SPAN - 1e-9)
-})
-
-test('越界与非法值都被夹回 0~1', () => {
-  assert.deepEqual(clampCrop(-3, 9), { top: 0, bottom: 1 })
-  assert.deepEqual(clampCrop(Number.NaN, Number.NaN), { top: 0, bottom: 1 })
-})
-
-test('clearAll 会同时清掉裁剪', () => {
-  const storage = memStorage()
-  saveCropPref('builtin', 'm', { top: 0, bottom: 0.5 }, storage)
-  clearAllDragPrefs(storage)
-  assert.equal(loadCropPref('builtin', 'm', storage), null)
+test('再保存一次就把旧裁剪字段清掉', () => {
+  const storage = memStorage(
+    JSON.stringify({ 'builtin:m': { x: 0.1, y: 0, top: 0.2, bottom: 0.5 } })
+  )
+  saveDragPref('builtin', 'm', 0.3, 0, storage)
+  const dumped = JSON.parse(storage.dump()) as Record<string, unknown>
+  assert.deepEqual(dumped['builtin:m'], { x: 0.3, y: 0 })
 })
