@@ -151,6 +151,12 @@ func (s *Server) handleCrawlerSites(w http.ResponseWriter, r *http.Request) {
 	query := url.Values{}
 	query.Set("roomId", roomID)
 	query.Set("role", crawlerRole(claims))
+	// 本地引擎优先：Go 版已完成规则解析、可见性过滤与结果抽取，省掉一次进程间转发。
+	if service := localCrawler(); service != nil {
+		sites := service.ListSites(roomID, crawlerRole(claims))
+		httpx.OK(w, map[string]any{"success": true, "sites": sites, "count": len(sites)})
+		return
+	}
 	result, status, err := s.crawlerProxy(r.Context(), http.MethodGet, "/api/crawler/sites?"+query.Encode(), nil, 15*time.Second)
 	if err != nil {
 		log.Printf("[crawler] 引擎不可达: %v", err)
@@ -221,6 +227,16 @@ func (s *Server) handleCrawlerSearch(w http.ResponseWriter, r *http.Request) {
 		"roomId":  body.RoomID,
 		"role":    crawlerRole(claims),
 		"limit":   body.Limit,
+	}
+	// 本地引擎优先：规则解析、关键词编码、验证页识别都在进程内完成。
+	if service := localCrawler(); service != nil {
+		result, searchErr := service.Search(body.Site, body.Keyword, body.RoomID, crawlerRole(claims), body.Limit, nil, true)
+		if searchErr != nil {
+			writeCrawlerError(w, searchErr)
+			return
+		}
+		httpx.OK(w, result)
+		return
 	}
 	result, status, err := s.crawlerProxy(r.Context(), http.MethodPost, "/api/crawler/search", payload, 90*time.Second)
 	if err != nil {

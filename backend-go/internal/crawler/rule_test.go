@@ -50,11 +50,11 @@ func htmlRule() *Rule {
 			Type:      "html",
 			Container: ".result-item",
 			Fields: map[string]Field{
-				"title":      {Selector: ".title"},
-				"url":        {Selector: ".title", Attr: "href"},
-				"cover":      {Selector: "img.cover", Attr: "src"},
+				"title":       {Selector: ".title"},
+				"url":         {Selector: ".title", Attr: "href"},
+				"cover":       {Selector: "img.cover", Attr: "src"},
 				"description": {Selector: ".desc"},
-				"duration":   {Selector: ".duration"},
+				"duration":    {Selector: ".duration"},
 			},
 		},
 	}
@@ -196,11 +196,11 @@ func TestJSONPathForms(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	cases := map[string]int{
-		"a.b":          1, // 命中一个 list 本身
-		"a.b[*].t":     2,
-		"$.a.b[1].t":   1,
-		"a.b[0]":       1,
-		"c[0][1]":      1,
+		"a.b":            1, // 命中一个 list 本身
+		"a.b[*].t":       2,
+		"$.a.b[1].t":     1,
+		"a.b[0]":         1,
+		"c[0][1]":        1,
 		"a.b[*].missing": 0,
 	}
 	for path, want := range cases {

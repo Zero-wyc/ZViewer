@@ -30,9 +30,9 @@ func newTestRule(name, site string) *Rule {
 func TestSlugify(t *testing.T) {
 	cases := map[string]string{
 		"示例站 Example": "example",
-		"  A B  ":       "a-b",
-		"a/b\\c":        "a-b-c",
-		"":              "",
+		"  A B  ":     "a-b",
+		"a/b\\c":      "a-b-c",
+		"":            "",
 	}
 	for input, want := range cases {
 		if got := Slugify(input); got != want {
