@@ -26,6 +26,7 @@ import { CommentPanel } from '@/components/CommentPanel'
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
+import { useIsLandscapeShort } from '@/hooks/useMediaQuery'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { usePiikShareViewer } from '@/modules/piik-share/usePiikShareViewer'
 import { ViewerAudio, type ViewerAudioSnapshot } from '../core/viewer-audio'
@@ -123,6 +124,10 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
 
   // WebRTC 控制栏自动隐藏（逻辑仿照 WatchTogetherCore）
   const webrtcControlBarVisible = useControlBarAutoHide(webrtcStageRef)
+
+  // 横屏矮窗（手机横屏全屏 / 网页全屏横屏）：批注工具条改成横排，否则竖向
+  // 面板会从底部顶到画面上沿，360~450px 高的视口里只剩一条缝。
+  const compactAnnotationToolbar = useIsLandscapeShort()
 
   // 防息屏：移动/平板观众正在观看共享画面时保持屏幕常亮
   // （移植自 mirotalk wakeLock；桌面设备与页面不可见时内部自动失效）
@@ -348,7 +353,14 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         width={annotationWidth}
       />
       {showAnnotationToolbar && (
-        <div className="absolute bottom-20 right-3 z-30 max-w-[220px]">
+        <div
+          className={cn(
+            'absolute bottom-20 right-3 z-30',
+            compactAnnotationToolbar
+              ? 'max-w-[min(94vw,32rem)]'
+              : 'max-w-[220px]'
+          )}
+        >
           <AnnotationToolbar
             tool={annotationTool}
             color={annotationColor}
@@ -358,6 +370,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
             onWidthChange={setAnnotationWidth}
             onClear={() => annotationRef.current?.clear()}
             canClear
+            compact={compactAnnotationToolbar}
           />
         </div>
       )}

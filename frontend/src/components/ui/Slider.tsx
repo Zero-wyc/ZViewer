@@ -97,7 +97,8 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
           />
           <div
             className={cn(
-              'absolute rounded-full transition-all duration-150',
+              // 只过渡颜色/阴影：宽度必须跟手即时变化，否则拖动时进度条会滞后
+              'absolute rounded-full transition-[background-color,box-shadow] duration-150',
               isSm ? 'h-1' : 'h-1.5'
             )}
             style={{
@@ -131,7 +132,8 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
           />
           <div
             className={cn(
-              'pointer-events-none absolute rounded-full border-2 shadow transition-all duration-200',
+              // 只过渡缩放/阴影：left 不能带过渡，否则拖动时滑块永远追不上手指
+              'pointer-events-none absolute rounded-full border-2 shadow transition-[transform,box-shadow] duration-200',
               isSm ? 'h-3.5 w-3.5' : 'h-4 w-4',
               'bg-[var(--md-sys-color-primary)] border-[var(--md-sys-color-primary)]'
             )}
