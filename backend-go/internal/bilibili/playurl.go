@@ -73,6 +73,17 @@ type rawDashMedia struct {
 	FrameAlt   string   `json:"frame_rate"`
 }
 
+// Only decode tracks used by NormalizePlayURLData. Optional Hi-Res metadata
+// may contain a single flac.audio object instead of a track list.
+type rawDash struct {
+	Video []rawDashMedia `json:"video"`
+	Audio []rawDashMedia `json:"audio"`
+	Dolby *struct {
+		Type  int            `json:"type"`
+		Audio []rawDashMedia `json:"audio"`
+	} `json:"dolby"`
+}
+
 // rawPlayURLData 是 playurl 接口的 data 载荷。
 type rawPlayURLData struct {
 	Durl []struct {
@@ -80,18 +91,7 @@ type rawPlayURLData struct {
 		Size   int64  `json:"size"`
 		Length int64  `json:"length"`
 	} `json:"durl"`
-	Dash *struct {
-		Video []rawDashMedia `json:"video"`
-		Audio []rawDashMedia `json:"audio"`
-		Dolby *struct {
-			Type  int            `json:"type"`
-			Audio []rawDashMedia `json:"audio"`
-		} `json:"dolby"`
-		Flac *struct {
-			Display bool           `json:"display"`
-			Audio   []rawDashMedia `json:"audio"`
-		} `json:"flac"`
-	} `json:"dash"`
+	Dash *rawDash `json:"dash"`
 	// Quality 用指针：语义是「B站 实际返回的清晰度」，
 	// 缺失与 0 是两回事，用零值会把缺失误当成 0。
 	Quality       *int  `json:"quality"`
