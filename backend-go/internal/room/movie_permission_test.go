@@ -20,42 +20,42 @@ func TestParseMoviePermission(t *testing.T) {
 		{
 			name: "空串默认关闭",
 			raw:  "",
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 		},
 		{
 			name: "空对象默认关闭",
 			raw:  "{}",
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 		},
 		{
 			name: "null 默认关闭",
 			raw:  "null",
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 		},
 		{
 			name: "非法 JSON 默认关闭",
 			raw:  "{not-json",
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 		},
 		{
 			name: "字段类型非法默认关闭",
 			raw:  `{"allowMembers":"yes","allowedUserIds":[1]}`,
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 		},
 		{
 			name: "显式开启",
 			raw:  `{"allowMembers":true}`,
-			want: MoviePermission{AllowMembers: true, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: true, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 		},
 		{
 			name: "只配白名单时开关仍关闭",
 			raw:  `{"allowedUserIds":[7]}`,
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{7}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{7}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 		},
 		{
 			name: "完整配置且黑名单优先",
 			raw:  `{"allowMembers":true,"allowedUserIds":[5,5,-1],"deniedUserIds":[6,5]}`,
-			want: MoviePermission{AllowMembers: true, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{6, 5}},
+			want: MoviePermission{AllowMembers: true, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{6, 5}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 		},
 	}
 	for _, c := range cases {
@@ -75,16 +75,19 @@ func TestMoviePermissionNormalized(t *testing.T) {
 		DeniedUserIDs:  []int64{2, 2, 0, 4},
 	}.Normalized()
 	want := MoviePermission{
-		AllowMembers:   true,
-		AllowedUserIDs: []int64{3, 1},
-		DeniedUserIDs:  []int64{2, 4},
+		AllowMembers:    true,
+		AllowedUserIDs:  []int64{3, 1},
+		DeniedUserIDs:   []int64{2, 4},
+		AllowedGuestIDs: []string{},
+		DeniedGuestIDs:  []string{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Normalized = %+v, want %+v", got, want)
 	}
 
 	empty := MoviePermission{}.Normalized()
-	if empty.AllowedUserIDs == nil || empty.DeniedUserIDs == nil {
+	if empty.AllowedUserIDs == nil || empty.DeniedUserIDs == nil ||
+		empty.AllowedGuestIDs == nil || empty.DeniedGuestIDs == nil {
 		t.Fatalf("空名单必须归一化成空数组而非 nil: %+v", empty)
 	}
 }
@@ -94,7 +97,7 @@ func TestMoviePermissionJSONShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("编码失败: %v", err)
 	}
-	want := `{"allowMembers":false,"allowedUserIds":[],"deniedUserIds":[]}`
+	want := `{"allowMembers":false,"allowedUserIds":[],"deniedUserIds":[],"allowedGuestIds":[],"deniedGuestIds":[]}`
 	if string(encoded) != want {
 		t.Fatalf("默认权限 JSON = %s, want %s", encoded, want)
 	}
@@ -141,6 +144,71 @@ func TestMoviePermissionAllowsUser(t *testing.T) {
 	}
 }
 
+// 游客没有 userId，逐人名单按 guestId 记账，与登录用户名单互不影响。
+func TestMoviePermissionGuestLists(t *testing.T) {
+	perm := ParseMoviePermission(`{"allowMembers":false,"allowedGuestIds":["g-allow"],"deniedGuestIds":["g-deny","g-deny"]}`)
+	if !reflect.DeepEqual(perm.DeniedGuestIDs, []string{"g-deny"}) {
+		t.Fatalf("游客黑名单未去重: %+v", perm.DeniedGuestIDs)
+	}
+	if got := perm.Allows(nil, "g-allow"); !got {
+		t.Fatal("白名单里的游客应允许")
+	}
+	if got := perm.Allows(nil, "g-other"); got {
+		t.Fatal("总开关关闭时名单外游客应拒绝")
+	}
+
+	open := ParseMoviePermission(`{"allowMembers":true,"deniedGuestIds":["g-bad"]}`)
+	if got := open.Allows(nil, "g-bad"); got {
+		t.Fatal("黑名单里的游客应拒绝")
+	}
+	if got := open.Allows(nil, "g-ok"); !got {
+		t.Fatal("总开关开启时名单外游客应允许")
+	}
+	// 游客名单不影响登录用户
+	five := int64(5)
+	if got := open.Allows(&five, "g-bad"); !got {
+		t.Fatal("游客黑名单不应影响到登录用户")
+	}
+	// userId<=0 视同游客
+	zero := int64(0)
+	if got := open.Allows(&zero, "g-bad"); got {
+		t.Fatal("uid<=0 应按 guestId 判定")
+	}
+}
+
+func TestApplyMoviePermissionGuestUpdate(t *testing.T) {
+	base := ParseMoviePermission("")
+	guest := "g-1"
+	allow := true
+	next, ok := ApplyMoviePermissionUpdate(base, MoviePermissionUpdate{
+		GuestID: &guest,
+		Allowed: &allow,
+	})
+	if !ok || !reflect.DeepEqual(next.AllowedGuestIDs, []string{"g-1"}) {
+		t.Fatalf("游客白名单未写入: ok=%v perm=%+v", ok, next)
+	}
+	if got := next.Allows(nil, "g-1"); !got {
+		t.Fatal("写入白名单后应允许")
+	}
+
+	deny := false
+	next, ok = ApplyMoviePermissionUpdate(next, MoviePermissionUpdate{
+		GuestID: &guest,
+		Allowed: &deny,
+	})
+	if !ok || len(next.AllowedGuestIDs) != 0 || !reflect.DeepEqual(next.DeniedGuestIDs, []string{"g-1"}) {
+		t.Fatalf("游客白转黑失败: ok=%v perm=%+v", ok, next)
+	}
+
+	empty := "  "
+	if _, ok := ApplyMoviePermissionUpdate(base, MoviePermissionUpdate{GuestID: &empty, Allowed: &allow}); ok {
+		t.Fatal("空 guestId 应判定为参数无效")
+	}
+	if _, ok := ApplyMoviePermissionUpdate(base, MoviePermissionUpdate{GuestID: &guest}); ok {
+		t.Fatal("缺 allowed 应判定为参数无效")
+	}
+}
+
 func TestApplyMoviePermissionUpdate(t *testing.T) {
 	trueVal := true
 	falseVal := false
@@ -162,35 +230,35 @@ func TestApplyMoviePermissionUpdate(t *testing.T) {
 			name: "只改开关",
 			perm: base,
 			upd:  MoviePermissionUpdate{AllowMembers: &falseVal},
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{7}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{7}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 			ok:   true,
 		},
 		{
 			name: "加白名单",
 			perm: base,
 			upd:  MoviePermissionUpdate{UserID: &user5, Allowed: &trueVal},
-			want: MoviePermission{AllowMembers: true, AllowedUserIDs: []int64{7, 5}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: true, AllowedUserIDs: []int64{7, 5}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 			ok:   true,
 		},
 		{
 			name: "加黑名单",
 			perm: base,
 			upd:  MoviePermissionUpdate{UserID: &user5, Allowed: &falseVal},
-			want: MoviePermission{AllowMembers: true, AllowedUserIDs: []int64{7}, DeniedUserIDs: []int64{5}},
+			want: MoviePermission{AllowMembers: true, AllowedUserIDs: []int64{7}, DeniedUserIDs: []int64{5}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 			ok:   true,
 		},
 		{
 			name: "把白名单用户改黑",
 			perm: white5,
 			upd:  MoviePermissionUpdate{UserID: &user5, Allowed: &falseVal},
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{5}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{}, DeniedUserIDs: []int64{5}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 			ok:   true,
 		},
 		{
 			name: "把黑名单用户洗白",
 			perm: black5,
 			upd:  MoviePermissionUpdate{UserID: &user5, Allowed: &trueVal},
-			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{5}, DeniedUserIDs: []int64{}},
+			want: MoviePermission{AllowMembers: false, AllowedUserIDs: []int64{5}, DeniedUserIDs: []int64{}, AllowedGuestIDs: []string{}, DeniedGuestIDs: []string{}},
 			ok:   true,
 		},
 		{

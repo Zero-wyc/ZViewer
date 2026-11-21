@@ -236,11 +236,13 @@ func moviePermissionOf(raw string) room.MoviePermission {
 
 // moviePermissionBody 是 PUT movie-permission 的入参。
 //
-// userId 与 allowed 必须成对出现：只给一半无法表达「加白还是加黑」。
+// userId/guestId 与 allowed 必须成对出现：只给一半无法表达「加白还是加黑」。
+// 游客没有 userId，前端用 guestId 指定具体的人。
 type moviePermissionBody struct {
-	AllowMembers *bool  `json:"allowMembers"`
-	UserID       *int64 `json:"userId"`
-	Allowed      *bool  `json:"allowed"`
+	AllowMembers *bool   `json:"allowMembers"`
+	UserID       *int64  `json:"userId"`
+	GuestID      *string `json:"guestId"`
+	Allowed      *bool   `json:"allowed"`
 }
 
 // canRequestMovie 判定成员（非 root/房主）能否向房间点片。
@@ -256,7 +258,7 @@ func (s *Server) canRequestMovie(ctx context.Context, claims *auth.Claims, roomI
 		id := claims.UserID
 		userID = &id
 	}
-	return s.RoomSvc.CanRequestMovie(ctx, userID, claims.Role, roomID)
+	return s.RoomSvc.CanRequestMovieAs(ctx, userID, claims.GuestID, claims.Role, roomID)
 }
 
 // handleGetMoviePermission 返回房间当前的点片权限（房间内可读即可）。
@@ -292,6 +294,7 @@ func (s *Server) handleUpdateMoviePermission(w http.ResponseWriter, r *http.Requ
 	perm, ok := room.ApplyMoviePermissionUpdate(moviePermissionOf(rm.MoviePermission), room.MoviePermissionUpdate{
 		AllowMembers: body.AllowMembers,
 		UserID:       body.UserID,
+		GuestID:      body.GuestID,
 		Allowed:      body.Allowed,
 	})
 	if !ok {

@@ -108,9 +108,9 @@ export function RoomInfoPanel({
   const moviePermission = useRoomStore((state) => state.moviePermission)
   const setMoviePermission = useRoomStore((state) => state.setMoviePermission)
   const [moviePermissionBusy, setMoviePermissionBusy] = useState(false)
-  // 逐人开关按 userId 记忙碌态，避免连点同一行
-  const [moviePermissionBusyId, setMoviePermissionBusyId] = useState<
-    number | null
+  // 逐人开关按目标记忙碌态（u:<id> / g:<guestId>），避免连点同一行
+  const [moviePermissionBusyKey, setMoviePermissionBusyKey] = useState<
+    string | null
   >(null)
 
   const [showUsers, setShowUsers] = useState(false)
@@ -462,23 +462,32 @@ export function RoomInfoPanel({
   /**
    * 逐人点片权限：白名单（总开关关闭时单独放开）/ 黑名单（总开关开启时单独禁止）。
    *
-   * 只对登录用户有效——游客 userId 恒为 0，白/黑名单都无法定位到人，
-   * 只能受总开关控制（所以成员行的这个按钮对游客不显示）。
+   * 登录用户按 userId 记账；游客没有 userId，改按 guestId（浏览器侧稳定标识）
+   * 记账，两种身份各有独立的名单，互不影响。
    */
   const handleToggleMemberMoviePermission = async (
-    userId: number,
+    target: { userId?: number; guestId?: string },
     allowed: boolean
   ) => {
-    if (!roomId || moviePermissionBusyId !== null) return
-    setMoviePermissionBusyId(userId)
+    const key =
+      target.userId && target.userId > 0
+        ? `u:${target.userId}`
+        : `g:${target.guestId ?? ''}`
+    if (!roomId || moviePermissionBusyKey !== null) return
+    setMoviePermissionBusyKey(key)
     try {
-      const updated = await updateMoviePermission(roomId, { userId, allowed })
+      const updated = await updateMoviePermission(roomId, {
+        ...(target.userId && target.userId > 0
+          ? { userId: target.userId }
+          : { guestId: target.guestId }),
+        allowed,
+      })
       setMoviePermission(updated)
     } catch (err) {
       console.error('[RoomInfoPanel] 更新成员点片权限失败:', err)
       message.error(err instanceof Error ? err.message : t('更新点片权限失败'))
     } finally {
-      setMoviePermissionBusyId(null)
+      setMoviePermissionBusyKey(null)
     }
   }
 
@@ -512,6 +521,18 @@ export function RoomInfoPanel({
     const viewerIsModerator =
       (viewer.userId != null && moderators.includes(Number(viewer.userId))) ||
       guestModerators.includes(viewer.socketId)
+    // 逐人点片权限目标：登录用户按 userId、游客按 guestId
+    const movieTarget =
+      viewer.userId != null && viewer.userId > 0
+        ? { userId: Number(viewer.userId) }
+        : viewer.guestId
+          ? { guestId: viewer.guestId }
+          : null
+    const movieAllowed = memberCanRequestMovie(
+      moviePermission,
+      Number(viewer.userId) || 0,
+      viewer.guestId
+    )
     // 管理权限（禁言/踢出/房管任命）：房主，或权限矩阵允许的观众
     const canManage =
       withActions &&
@@ -613,54 +634,37 @@ export function RoomInfoPanel({
                 )}
               </button>
             )}
-            {/* 点片权限：房主按人放行/禁止（仅登录用户；游客只受总开关控制） */}
-            {isHost &&
-              viewer.userId != null &&
-              viewer.userId > 0 &&
-              !isSelf && (
-                <button
-                  onClick={() =>
-                    void handleToggleMemberMoviePermission(
-                      Number(viewer.userId),
-                      !memberCanRequestMovie(
-                        moviePermission,
-                        Number(viewer.userId)
-                      )
-                    )
-                  }
-                  disabled={moviePermissionBusyId !== null}
-                  className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
-                  style={{ color: 'var(--md-sys-color-primary)' }}
-                  title={
-                    memberCanRequestMovie(
-                      moviePermission,
-                      Number(viewer.userId)
-                    )
-                      ? t('禁止该成员添加影片')
-                      : t('允许该成员添加影片')
-                  }
-                  aria-label={
-                    memberCanRequestMovie(
-                      moviePermission,
-                      Number(viewer.userId)
-                    )
-                      ? t('禁止该成员添加影片')
-                      : t('允许该成员添加影片')
-                  }
-                >
-                  <Clapperboard
-                    className={cn(
-                      'h-3.5 w-3.5',
-                      memberCanRequestMovie(
-                        moviePermission,
-                        Number(viewer.userId)
-                      )
-                        ? 'opacity-100'
-                        : 'opacity-35'
-                    )}
-                  />
-                </button>
-              )}
+            {/* 点片权限：房主按人放行/禁止（登录用户按 userId、游客按 guestId） */}
+            {isHost && movieTarget && !isSelf && (
+              <button
+                onClick={() =>
+                  void handleToggleMemberMoviePermission(
+                    movieTarget,
+                    !movieAllowed
+                  )
+                }
+                disabled={moviePermissionBusyKey !== null}
+                className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
+                style={{ color: 'var(--md-sys-color-primary)' }}
+                title={
+                  movieAllowed
+                    ? t('禁止该成员添加影片')
+                    : t('允许该成员添加影片')
+                }
+                aria-label={
+                  movieAllowed
+                    ? t('禁止该成员添加影片')
+                    : t('允许该成员添加影片')
+                }
+              >
+                <Clapperboard
+                  className={cn(
+                    'h-3.5 w-3.5',
+                    movieAllowed ? 'opacity-100' : 'opacity-35'
+                  )}
+                />
+              </button>
+            )}
             {/* 房管任命/撤销：仅房主可见（登录用户按 userId、游客按 socketId） */}
             {isHost && (
               <button
@@ -1052,6 +1056,112 @@ export function RoomInfoPanel({
                         {viewer.username || viewer.socketId.slice(0, 8)}
                       </Text>
                       <RoleBadge role={viewer.role} />
+                      {/* 点片权限：房主按人放行/禁止（登录用户按 userId、游客按 guestId） */}
+                      {isHost &&
+                        viewer.userId != null &&
+                        viewer.userId > 0 &&
+                        String(viewer.userId) !== String(currentUserId) && (
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              const target = { userId: Number(viewer.userId) }
+                              const allowed = memberCanRequestMovie(
+                                moviePermission,
+                                Number(viewer.userId)
+                              )
+                              void handleToggleMemberMoviePermission(
+                                target,
+                                !allowed
+                              )
+                            }}
+                            disabled={moviePermissionBusyKey !== null}
+                            className="rounded-[var(--md-sys-shape-corner)] p-0.5 transition-all hover:scale-110 active:scale-95 disabled:opacity-40"
+                            title={
+                              memberCanRequestMovie(
+                                moviePermission,
+                                Number(viewer.userId)
+                              )
+                                ? t('禁止该成员添加影片')
+                                : t('允许该成员添加影片')
+                            }
+                            aria-label={
+                              memberCanRequestMovie(
+                                moviePermission,
+                                Number(viewer.userId)
+                              )
+                                ? t('禁止该成员添加影片')
+                                : t('允许该成员添加影片')
+                            }
+                          >
+                            <Clapperboard
+                              className={cn(
+                                'h-3 w-3 shrink-0',
+                                memberCanRequestMovie(
+                                  moviePermission,
+                                  Number(viewer.userId)
+                                )
+                                  ? 'opacity-100'
+                                  : 'opacity-35'
+                              )}
+                              style={{ color: 'var(--md-sys-color-primary)' }}
+                            />
+                          </button>
+                        )}
+                      {/* 游客：没有 userId，逐人权限按 guestId 记账 */}
+                      {isHost &&
+                        (viewer.userId == null || viewer.userId <= 0) &&
+                        !!viewer.guestId &&
+                        String(viewer.socketId) !== String(socket?.id) && (
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              const guestId = viewer.guestId as string
+                              const allowed = memberCanRequestMovie(
+                                moviePermission,
+                                0,
+                                guestId
+                              )
+                              void handleToggleMemberMoviePermission(
+                                { guestId },
+                                !allowed
+                              )
+                            }}
+                            disabled={moviePermissionBusyKey !== null}
+                            className="rounded-[var(--md-sys-shape-corner)] p-0.5 transition-all hover:scale-110 active:scale-95 disabled:opacity-40"
+                            title={
+                              memberCanRequestMovie(
+                                moviePermission,
+                                0,
+                                viewer.guestId
+                              )
+                                ? t('禁止该成员添加影片')
+                                : t('允许该成员添加影片')
+                            }
+                            aria-label={
+                              memberCanRequestMovie(
+                                moviePermission,
+                                0,
+                                viewer.guestId
+                              )
+                                ? t('禁止该成员添加影片')
+                                : t('允许该成员添加影片')
+                            }
+                          >
+                            <Clapperboard
+                              className={cn(
+                                'h-3 w-3 shrink-0',
+                                memberCanRequestMovie(
+                                  moviePermission,
+                                  0,
+                                  viewer.guestId
+                                )
+                                  ? 'opacity-100'
+                                  : 'opacity-35'
+                              )}
+                              style={{ color: 'var(--md-sys-color-primary)' }}
+                            />
+                          </button>
+                        )}
                       {isHost && (
                         <button
                           onClick={(event) => {

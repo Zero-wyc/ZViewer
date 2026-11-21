@@ -10,6 +10,8 @@ import (
 type roomViewer struct {
 	SocketID string `json:"socketId"`
 	UserID   *int64 `json:"userId"`
+	// GuestID 仅游客有值：逐人点片权限对游客按它记账。
+	GuestID  string `json:"guestId,omitempty"`
 	Username string `json:"username"`
 	Role     string `json:"role"`
 }
@@ -46,8 +48,12 @@ func (s *Service) memberSnapshot(ctx context.Context, roomID string) (*roomMembe
 		if role == "" {
 			role = RoleGuest
 		}
+		guestID := ""
+		if viewer.GuestID != nil {
+			guestID = *viewer.GuestID
+		}
 		snapshot.Viewers = append(snapshot.Viewers, roomViewer{
-			SocketID: viewer.SocketID, UserID: viewer.UserID,
+			SocketID: viewer.SocketID, UserID: viewer.UserID, GuestID: guestID,
 			Username: usernameFromData(data), Role: role,
 		})
 	}

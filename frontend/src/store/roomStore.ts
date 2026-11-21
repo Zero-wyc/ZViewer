@@ -75,6 +75,8 @@ function jsonHeaders(): Record<string, string> {
 export interface Viewer {
   socketId: string
   userId?: number
+  /** 游客身份：逐人点片权限对游客按它记账（登录用户为空） */
+  guestId?: string
   username?: string
   // socket.data.role: 'root' | 'admin' | 'user' | 'guest'
   role?: string

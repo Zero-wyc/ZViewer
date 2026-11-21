@@ -1,8 +1,9 @@
 /**
  * 一起看「允许成员点片」房间级权限（前端共享模型 + REST 封装）。
  *
- * 形状与音乐的 musicPermission 完全一致：
- *   { allowMembers: boolean, allowedUserIds: number[], deniedUserIds: number[] }
+ * 形状与音乐的 musicPermission 一致，但多了游客名单（游客没有 userId，
+ * 只能按 guestId 记账）：
+ *   { allowMembers, allowedUserIds[], deniedUserIds[], allowedGuestIds[], deniedGuestIds[] }
  * 区别：影片属于敏感操作，缺省（{} / 解析失败）按 allowMembers=false 处理，
  * 必须由房主显式打开。
  */
@@ -13,12 +14,27 @@ export interface MoviePermission {
   allowMembers: boolean
   allowedUserIds: number[]
   deniedUserIds: number[]
+  allowedGuestIds: string[]
+  deniedGuestIds: string[]
 }
 
 export const DEFAULT_MOVIE_PERMISSION: MoviePermission = {
   allowMembers: false,
   allowedUserIds: [],
   deniedUserIds: [],
+  allowedGuestIds: [],
+  deniedGuestIds: [],
+}
+
+function toGuestList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const id = item.trim()
+    if (id && !out.includes(id)) out.push(id)
+  }
+  return out
 }
 
 function toIdList(value: unknown): number[] {
@@ -39,6 +55,8 @@ export function normalizeMoviePermission(raw: unknown): MoviePermission {
     allowMembers: record.allowMembers === true,
     allowedUserIds: toIdList(record.allowedUserIds),
     deniedUserIds: toIdList(record.deniedUserIds),
+    allowedGuestIds: toGuestList(record.allowedGuestIds),
+    deniedGuestIds: toGuestList(record.deniedGuestIds),
   }
 }
 
@@ -54,6 +72,8 @@ export function canRequestMovie(
     isModerator: boolean
     canManageMovie: boolean
     userId?: number | null
+    /** 游客身份：没有 userId 时按 guestId 匹配名单 */
+    guestId?: string | null
   }
 ): boolean {
   if (opts.isHost || opts.isModerator || opts.canManageMovie) return true
@@ -61,6 +81,12 @@ export function canRequestMovie(
   if (userId > 0) {
     if (permission.deniedUserIds.includes(userId)) return false
     if (permission.allowedUserIds.includes(userId)) return true
+    return permission.allowMembers
+  }
+  const guestId = (opts.guestId ?? '').trim()
+  if (guestId) {
+    if (permission.deniedGuestIds.includes(guestId)) return false
+    if (permission.allowedGuestIds.includes(guestId)) return true
   }
   return permission.allowMembers
 }
@@ -68,11 +94,19 @@ export function canRequestMovie(
 /** 房主面板：某成员当前是否被允许（白名单/黑名单/总开关） */
 export function memberCanRequestMovie(
   permission: MoviePermission,
-  userId: number
+  userId: number,
+  guestId?: string | null
 ): boolean {
-  if (userId <= 0) return permission.allowMembers
-  if (permission.deniedUserIds.includes(userId)) return false
-  if (permission.allowedUserIds.includes(userId)) return true
+  if (userId > 0) {
+    if (permission.deniedUserIds.includes(userId)) return false
+    if (permission.allowedUserIds.includes(userId)) return true
+    return permission.allowMembers
+  }
+  const gid = (guestId ?? '').trim()
+  if (gid) {
+    if (permission.deniedGuestIds.includes(gid)) return false
+    if (permission.allowedGuestIds.includes(gid)) return true
+  }
   return permission.allowMembers
 }
 
@@ -104,6 +138,8 @@ export async function fetchMoviePermission(
 export interface MoviePermissionPatch {
   allowMembers?: boolean
   userId?: number
+  /** 游客：没有 userId，用 guestId 指定具体的人 */
+  guestId?: string
   allowed?: boolean
 }
 

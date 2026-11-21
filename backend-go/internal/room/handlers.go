@@ -725,6 +725,10 @@ func (s *Service) finishJoin(ctx context.Context, sc *sio.Socket, room *store.Ro
 		"username":       displayNameOr(sc, "未知用户"),
 		"role":           "viewer",
 	}
+	// 游客没有 userId，逐人点片权限按 guestId 记账，前端要靠这个字段定位到人。
+	if gid := socketGuestID(sc); gid != nil && *gid != "" {
+		joined["guestId"] = *gid
+	}
 	if s.Hub != nil {
 		s.Hub.EmitRoom(roomID, "viewer-joined", joined)
 		s.sendExistingViewers(ctx, sc, roomID)

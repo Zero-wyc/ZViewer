@@ -171,6 +171,8 @@ export interface SyncHeartbeatPayload {
 export interface ViewerJoinedPayload {
   viewerSocketId: string
   userId?: number
+  /** 游客身份：逐人点片权限对游客按它记账 */
+  guestId?: string
   username?: string
   role?: string
 }

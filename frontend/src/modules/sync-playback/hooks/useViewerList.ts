@@ -85,6 +85,7 @@ export function useViewerList(roomId?: string): UseViewerListReturn {
       useRoomStore.getState().addViewer({
         socketId: payload.viewerSocketId,
         userId: payload.userId,
+        guestId: payload.guestId,
         username: payload.username,
         role: payload.role,
       })

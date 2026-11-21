@@ -96,8 +96,14 @@ function WatchPage() {
   // 也能见到对应的影片/队列按钮；真正的校验仍由后端执行
   const movieOpts = { isHost: false, isModerator, role }
   const canManageMovie = canRoomViewerPerform(matrix, 'manageMovie', movieOpts)
-  // 点片能力 = 全局矩阵 addMovie/房管 放行，或房主在房间内单独授权（总开关/白名单）
+  // 点片能力 = 全局矩阵 addMovie/房管 放行，或房主在房间内单独授权（总开关/名单）
   const moviePermission = useRoomStore((state) => state.moviePermission)
+  // 游客没有 userId，白/黑名单按 guestId 记账：从成员快照里找自己的那条
+  const myGuestId = useRoomStore((state) => {
+    const sid = socket?.id
+    if (!sid) return undefined
+    return state.viewers.find((viewer) => viewer.socketId === sid)?.guestId
+  })
   const canAddMovie =
     canRoomViewerPerform(matrix, 'addMovie', movieOpts) ||
     canRequestMovie(moviePermission, {
@@ -105,6 +111,7 @@ function WatchPage() {
       isModerator,
       canManageMovie,
       userId: currentUserId == null ? 0 : Number(currentUserId),
+      guestId: myGuestId,
     })
   const canManageQueue = canRoomViewerPerform(matrix, 'musicQueue', movieOpts)
 
