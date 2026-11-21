@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- iframe 加载本机回环的评论页；脚本/样式只允许自身，IPC 走同源 WebSocket -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src http://127.0.0.1:* http://localhost:*; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>ZViewer · 评论区</title>
+  <style>
+    /* 背景不透明度：滑杆实时改写，0 = 完全透明（只留文字，像桌面歌词） */
+    html { --bg-alpha: 0.35; }
+    html, body {
+      margin: 0; height: 100%; background: transparent; overflow: hidden;
+      font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    /* 只有一层可调透明度的背景，没有边框、没有圆角、没有阴影 */
+    .backdrop {
+      position: fixed; inset: 0; pointer-events: none;
+      background: rgba(8, 10, 14, var(--bg-alpha));
+    }
+    #page {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      border: 0; background: transparent;
+    }
+    /* 悬停工具条：两行 —— 第一行标题 + 置顶/关闭，第二行背景透明度 + 字体颜色 */
+    .toolbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; flex-direction: column; gap: 2px; padding: 4px 8px 5px 10px;
+      background: rgba(0, 0, 0, 0.45); color: #fff; font-size: 11px;
+      backdrop-filter: blur(10px);
+      opacity: 0; pointer-events: none; transition: opacity 0.18s ease;
+      --wails-draggable: drag; user-select: none;
+    }
+    body.hovered .toolbar { opacity: 1; pointer-events: auto; }
+    .toolbar .row { display: flex; align-items: center; gap: 8px; height: 22px; }
+    .toolbar .title { font-weight: 600; letter-spacing: 0.02em; opacity: 0.85; }
+    .toolbar .spacer { flex: 1; }
+    .toolbar label { display: flex; align-items: center; gap: 6px; --wails-draggable: no-drag; }
+    .toolbar input[type="range"] { width: 84px; accent-color: #60a5fa; }
+    .toolbar input[type="color"] {
+      width: 26px; height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 4px; background: transparent; cursor: pointer; --wails-draggable: no-drag;
+    }
+    .toolbar #color-value { min-width: 52px; opacity: 0.8; font-variant-numeric: tabular-nums; }
+    .toolbar button {
+      height: 20px; padding: 0 7px; border-radius: 5px; cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.14);
+      color: #fff; font-size: 11px; --wails-draggable: no-drag;
+    }
+    .toolbar button:hover { background: rgba(255, 255, 255, 0.28); }
+    .toolbar button.active { background: #2563eb; border-color: #2563eb; }
+    /* 右下角缩放抓手（无边框窗口没有原生边框可拖） */
+    .resize {
+      position: fixed; right: 0; bottom: 0; width: 16px; height: 16px; z-index: 11;
+      cursor: nwse-resize; opacity: 0; --wails-draggable: no-drag;
+    }
+    body.hovered .resize { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="backdrop"></div>
+  <iframe id="page" allow="autoplay; clipboard-write"></iframe>
+  <div class="toolbar" id="toolbar">
+    <div class="row">
+      <span class="title">评论区</span>
+      <span class="spacer"></span>
+      <button id="pin" type="button" class="active" title="窗口置顶">置顶</button>
+      <button id="close" type="button" title="关闭评论窗口">关闭</button>
+    </div>
+    <div class="row">
+      <label title="背景不透明度，0% 为完全透明">背景
+        <input id="bg-range" type="range" min="0" max="100" step="1" value="35">
+        <span id="bg-value">35%</span>
+      </label>
+      <label title="评论文字颜色">字体
+        <input id="color" type="color" value="#ffffff">
+        <span id="color-value">#ffffff</span>
+      </label>
+      <span class="spacer"></span>
+    </div>
+  </div>
+  <div class="resize" id="resize" title="拖动调整窗口大小"></div>
+  <script src="comments-window.js"></script>
+</body>
+</html>

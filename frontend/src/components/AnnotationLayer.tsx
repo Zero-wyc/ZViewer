@@ -426,6 +426,7 @@ export const AnnotationLayer = forwardRef<
     >
       <canvas
         ref={canvasRef}
+        data-annotation-canvas=""
         className="absolute inset-0 touch-none"
         style={{ cursor, opacity: 0.95 }}
         onPointerDown={handlePointerDown}
@@ -472,6 +473,11 @@ interface AnnotationToolbarProps {
   onWidthChange: (width: number) => void
   onClear?: () => void
   canClear?: boolean
+  /**
+   * 横屏矮窗（手机横屏 / 网页全屏横屏）：竖向面板会从控制栏往上顶到画面上沿，
+   * 在 360~450px 高的视口里只剩一条缝。改成横排工具条，高度 ~40px。
+   */
+  compact?: boolean
 }
 
 export function AnnotationToolbar({
@@ -483,9 +489,77 @@ export function AnnotationToolbar({
   onWidthChange,
   onClear,
   canClear,
+  compact = false,
 }: AnnotationToolbarProps) {
+  if (compact) {
+    const renderTool = (
+      value: AnnotationTool,
+      label: string,
+      icon: React.ReactNode
+    ) => (
+      <Button
+        variant={tool === value ? 'primary' : 'secondary'}
+        size="sm"
+        icon={icon}
+        aria-label={label}
+        title={label}
+        onClick={() => onToolChange(value)}
+      />
+    )
+
+    return (
+      <div className="flex max-w-[min(94vw,32rem)] items-center gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white/90 px-2 py-1.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-800/90">
+        {renderTool('pen', t('画笔'), <Pencil className="h-4 w-4" />)}
+        {renderTool('text', t('文字'), <Type className="h-4 w-4" />)}
+        {renderTool('erase', t('橡皮擦'), <Eraser className="h-4 w-4" />)}
+        <span className="mx-0.5 h-5 w-px shrink-0 bg-slate-300 dark:bg-slate-600" />
+        {COLORS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onColorChange(c)}
+            aria-label={t('选择颜色 {{c}}', { c })}
+            className="h-5 w-5 shrink-0 rounded-full border border-slate-300 focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{
+              backgroundColor: c,
+              boxShadow:
+                color === c
+                  ? '0 0 0 2px var(--md-sys-color-primary)'
+                  : 'none',
+            }}
+          />
+        ))}
+        <span className="mx-0.5 h-5 w-px shrink-0 bg-slate-300 dark:bg-slate-600" />
+        <Minus className="h-3 w-3 shrink-0 text-slate-400" />
+        <input
+          type="range"
+          min={1}
+          max={20}
+          step={1}
+          value={width}
+          onChange={(e) => onWidthChange(Number(e.target.value))}
+          className="w-16 shrink-0"
+          aria-label={t('粗细')}
+        />
+        <Text className="w-5 shrink-0 text-center text-[11px] tabular-nums">
+          {width}
+        </Text>
+        {canClear && onClear && (
+          <Button
+            variant="danger"
+            size="sm"
+            icon={<Trash2 className="h-4 w-4" />}
+            aria-label={t('清空所有批注')}
+            title={t('清空所有批注')}
+            onClick={onClear}
+          />
+        )}
+      </div>
+    )
+  }
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white/80 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+    <div className="max-w-[min(90vw,20rem)] rounded-lg border border-slate-200 bg-white/80 p-3 dark:border-slate-700 dark:bg-slate-800/80">
       <Text className="mb-2 font-medium">{t('批注工具')}</Text>
       <Space wrap className="justify-start" size="sm">
         <Button

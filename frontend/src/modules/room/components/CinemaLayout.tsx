@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { Card } from '@/components/ui/Card'
 import { cn } from '@/lib/utils'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import { useListenLyricsSlot } from '@/modules/music/hooks/useListenLyricsSlot'
 
 interface CinemaLayoutProps {
@@ -34,6 +35,10 @@ export function CinemaLayout({
   chatPanel,
   webFullscreen = false,
 }: CinemaLayoutProps) {
+  // 手机竖屏：聊天区（评论区）排在播放器正下方，而不是落到所有底部卡片之后。
+  // 桌面端维持「右侧 340px 固定列」的影院布局。
+  const isMobile = useIsMobile()
+  const chatInline = isMobile && !webFullscreen
   // 一起听歌词插槽：非全屏时贴在播放器下方
   const lyricsSlotRef = useListenLyricsSlot()
   // 底部卡片容器统一样式
@@ -105,12 +110,22 @@ export function CinemaLayout({
             {/* 一起听歌词：非全屏时贴在播放器下方 */}
             {!webFullscreen && <div ref={lyricsSlotRef} className="w-full" />}
 
+            {/* 手机端：评论区紧贴播放器（底部信息卡之前），高度受限可滚动 */}
+            {chatInline && (
+              <div
+                className="flex w-full flex-col overflow-hidden"
+                style={{ height: 'min(420px, 55dvh)' }}
+              >
+                {chatPanel}
+              </div>
+            )}
+
             {/* 底部信息/控制/添加区（或投屏状态面板）—— 网页全屏时隐藏 */}
             {!webFullscreen && bottomContent}
           </div>
 
-          {/* 右侧聊天区 —— 网页全屏时隐藏 */}
-          {!webFullscreen && (
+          {/* 右侧聊天区 —— 网页全屏和手机端（已内嵌到播放器下方）时隐藏 */}
+          {!webFullscreen && !chatInline && (
             <div className="glass-card w-full flex-shrink-0 rounded-2xl lg:w-[340px]">
               <div className="p-4">{chatPanel}</div>
             </div>

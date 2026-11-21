@@ -73,6 +73,24 @@ func lanIPv4s() []net.IP {
 	return out
 }
 
+// pickLoopbackHTTPPort 从 preferred 起向上找一个绑定 127.0.0.1 可用的 TCP 端口，
+// 供后端开「控制台内嵌网页端」用的回环 HTTP 监听（HTTPS 模式下免证书加载）。
+// 找不到返回 0：调用方据此不下发端口，后端就不开这个监听，界面退回 HTTPS 地址。
+func pickLoopbackHTTPPort(preferred int) int {
+	if preferred < 1024 || preferred > 65535 {
+		preferred = 40000
+	}
+	for port := preferred; port <= preferred+40 && port <= 65535; port++ {
+		listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			continue
+		}
+		_ = listener.Close()
+		return port
+	}
+	return 0
+}
+
 func udpAvailable(port int, host string) error {
 	base := "udp4"
 	if strings.Contains(host, ":") {

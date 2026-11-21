@@ -28,6 +28,23 @@ func (s *Service) clearStreamOffline(roomID string) {
 	s.mu.Unlock()
 }
 
+// stopStreamPush 在离开 OBS 推流场景时强制断开发布端（切换模式 / 切回 WebRTC）。
+//
+// 不能只等 5 秒授权复查：那段时间里 OBS 仍在推，观众还能拉到流，前端也会
+// 因为 streamStatus 仍是 live 而误判「推流没有停止」，于是切不过去。
+func (s *Service) stopStreamPush(room *store.Room) {
+	if s == nil || room == nil || room.StreamKey == nil || *room.StreamKey == "" || s.NMS == nil {
+		return
+	}
+	stopper, ok := s.NMS.(interface{ StopPublishing(string) bool })
+	if !ok {
+		return
+	}
+	if stopper.StopPublishing(*room.StreamKey) && s.Logger != nil {
+		s.Logger.Printf("[room] 已强制断开 OBS 推流：room=%s", room.RoomID)
+	}
+}
+
 func (s *Service) tracksStreamPresence(room *store.Room) bool {
 	return room != nil && room.Status == "active" && room.Mode == "screen-share" &&
 		room.ShareMethod == "stream-push" && room.StreamKey != nil &&

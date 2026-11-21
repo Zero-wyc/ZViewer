@@ -1,5 +1,6 @@
 {
   "items": [
+    "Signed in, high-quality video is available",
     "Disconnected",
     "Resume request sent, waiting for the host",
     "Seek request sent, waiting for the host",
@@ -26,7 +27,7 @@
     "Switched back to relaying: viewers now stream through this server",
     "Movie list cleared",
     "Appointed {{value}} as moderator",
-    "",
+    "Submitted; the room owner will generate site rules in the desktop console",
     "Added {{added}} movies",
     "Added {{length}} episodes",
     "Added {{length}} episodes, {{value}} failed; you can retry",
@@ -72,9 +73,9 @@
     "Paste a {{name}} itemId (optional; usually picked by browsing)",
     "Expand the sidebar",
     "Expand to see the full movie list",
-    "",
-    "",
-    "",
+    "Site address",
+    "Site name (optional)",
+    "This site has already been submitted; just wait for the rules to be generated",
     "Average time a frame sits in the buffer",
     "Initializing resolution...",
     "Waiting for the host to start sharing",
@@ -82,7 +83,7 @@
     "Restoring the room...",
     "Getting the {{label}} direct link...",
     "Joining the room…",
-    "",
+    "Loading site rules…",
     "Resolving {{label}} items...",
     "Resolving {{label}} files...",
     "Resolving FTP files...",
@@ -94,7 +95,7 @@
     "Listing episodes of “{{name}}”...",
     "Resolving {{length}} files...",
     "Switching quality...",
-    "",
+    "Searching {{count}} sites…",
     "Adding {{value}}/{{length}} episodes...",
     "Adding the movie...",
     "Resolving P{{page}} through the CLI proxy...",
@@ -118,7 +119,6 @@
     "Only the host can play movies",
     "Only the host can add movies",
     "Relay",
-    "Re-resolution failed",
-    "Reload the video"
+    "Re-resolution failed"
   ]
 }

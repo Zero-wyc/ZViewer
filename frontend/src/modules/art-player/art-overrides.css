@@ -108,6 +108,50 @@
   object-fit: contain !important;
 }
 
+/* 强制横屏（CSS 兜底）：iOS Safari 与“网页全屏”都无法用 Screen Orientation API
+   锁定方向，改为把整个舞台旋转 90°，让竖屏设备里的画面呈现为横屏。
+   只在整个视口仍是竖屏时生效——用户把手机转成横屏后媒体查询不再命中，
+   旋转自动撤销，不会出现双重旋转。
+   宽高互换 + translateX(100dvw) 让旋转后的舞台恰好铺满竖屏视口；
+   !important 用于压过 FlvPlayer / WatchTogetherPanel 内联的 100dvw/100dvh。 */
+@media (orientation: portrait) {
+  .zart-stage.zviewer-force-landscape {
+    position: fixed !important;
+    inset: auto !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100dvh !important;
+    height: 100dvw !important;
+    max-width: none !important;
+    max-height: none !important;
+    transform-origin: top left !important;
+    transform: translateX(100dvw) rotate(90deg) !important;
+    z-index: 100 !important;
+    overflow: hidden !important;
+  }
+}
+
+/* 强制竖屏（CSS 兜底）：设备物理横屏时把舞台反向旋转 90°，让画面按竖屏
+   呈现（用户报「全屏状态下无法切换竖屏」）。与上面横屏类互补：只在视口仍是
+   横屏时生效，用户把手机转成竖屏后媒体查询不再命中、旋转自动撤销。
+   宽高互换（宽=100dvh、高=100dvw）+ translateY(100dvh) 让旋转后恰好铺满横屏视口。 */
+@media (orientation: landscape) {
+  .zart-stage.zviewer-force-portrait {
+    position: fixed !important;
+    inset: auto !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100dvh !important;
+    height: 100dvw !important;
+    max-width: none !important;
+    max-height: none !important;
+    transform-origin: top left !important;
+    transform: translateY(100dvh) rotate(-90deg) !important;
+    z-index: 100 !important;
+    overflow: hidden !important;
+  }
+}
+
 /* 原生控制栏已完全由 PlayerControlBar 替代，强制隐藏避免与自定义栏重叠 */
 .zart-stage .art-controls,
 .zart-stage .art-control,

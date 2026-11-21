@@ -4,6 +4,7 @@ import { X, Check, ChevronRight } from 'lucide-react'
 import { Button } from './Button'
 import { cn } from '@/lib/utils'
 import { t } from '@/i18n'
+import { usePortalHost } from '@/lib/portal-host'
 
 export interface RequestNotificationItem {
   /** 唯一标识，用于 React key 与状态管理 */
@@ -49,6 +50,9 @@ export function RequestNotification({
   items,
   onClose,
 }: RequestNotificationProps) {
+  // 观众申请（加入/跳转/暂停）通知：全屏观看时也要能看见
+  const portalHost = usePortalHost()
+
   // ESC 关闭最新一条（仅当有通知时）
   useEffect(() => {
     if (items.length === 0) return
@@ -77,7 +81,7 @@ export function RequestNotification({
         <NotificationCard key={item.id} item={item} onClose={onClose} />
       ))}
     </div>,
-    document.body
+    portalHost
   )
 }
 

@@ -6,6 +6,8 @@ import { Camera, Loader2, RotateCcw, Sparkles } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
+import { useFullscreenOverlayStore } from '@/store/fullscreenOverlayStore'
+import { useRightDockStore } from '@/store/rightDockStore'
 import type { RoomMode } from '@/store/roomStore'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
 import {
@@ -506,6 +508,52 @@ export function RoomLive2DHost({
   // 登录用户都能上传，拿它当条件等于「对观众显示角色」这个开关对除游客以外
   // 的所有人失效。
   const canShowLayer = isHost || isServerAdmin || policy.showToViewers
+
+  // 右下角入口竖列的顶边（距视口底部 px）：角色设置固定 bottom-84 + 48，
+  // 动捕预览再往上接一档（48 + 12 间距）。一起听时整列在左下角，不占右侧。
+  // 登记到 rightDockStore 供音乐浮球避让（两个组件各自 portal，无法靠父容器
+  // 的 gap 排开；写死偏移会随「有没有动捕预览」变化而错位）。
+  // 全屏浮层里播放器控制栏是 z-[80]、贴底的整条；入口列若仍贴 bottom-84
+  // 会被它盖住（用户报「全屏时悬浮按钮挡住控制栏」）。全屏时按宿主实测的
+  // 控制栏高度抬到它上方，顺序与右下角一致：控制栏 → 语音钮 → 角色设置 →
+  // 动捕预览 → 一起听。
+  const overlayActive = useFullscreenOverlayStore((store) => store.target !== null)
+  const overlayBarHeight = useFullscreenOverlayStore(
+    (store) => store.controlBarHeight
+  )
+  // 全屏分屏评论区：竖屏是上下分屏（画面在上、评论在下），浮球要跟着往上让
+  // 出评论区高度；横屏是左右分屏（评论在右），浮球整体左移贴住画面右边界。
+  // 否则展开/收起评论区时入口列不动，会落到评论面板上（用户报「展开收起
+  // 评论区时三个悬浮按钮要跟着动」）。
+  const commentPaneOrientation = useFullscreenOverlayStore(
+    (store) => store.commentPaneOrientation
+  )
+  const commentPaneSize = useFullscreenOverlayStore(
+    (store) => store.commentPaneSize
+  )
+  const paneShift =
+    overlayActive && commentPaneOrientation === 'stacked' ? commentPaneSize : 0
+  const paneRight =
+    overlayActive && commentPaneOrientation === 'side'
+      ? commentPaneSize + 24
+      : null
+  const columnBottom =
+    (mode === 'listen-together'
+      ? overlayActive
+        ? (overlayBarHeight || 88) + 8
+        : 112
+      : overlayActive
+        ? (overlayBarHeight || 88) + 8 + 48 + 12
+        : 84) + paneShift
+  const live2dColumnTop =
+    mode === 'listen-together'
+      ? 0
+      : columnBottom + 48 + (canShowLayer && tracker ? 48 + 12 : 0)
+  const setLive2dTop = useRightDockStore((state) => state.setLive2dTop)
+  useEffect(() => {
+    setLive2dTop(live2dColumnTop)
+    return () => setLive2dTop(0)
+  }, [live2dColumnTop, setLive2dTop])
 
   // 「对观众显示角色」被关掉时，这一层以前是**静默消失**：观众看不到角色，
   // 也不知道是房主关的，只会以为功能坏了（尤其是刚进房就看到一片空白）。
@@ -1276,9 +1324,15 @@ export function RoomLive2DHost({
               // 10px + 安全区），从 112px 起才不压住它；手机上播放条几乎
               // 贴边，按钮同步退到 84px + 安全区。
               'left-4 bottom-[112px] items-start max-md:bottom-[calc(94px+env(safe-area-inset-bottom))]'
-            : 'right-6 bottom-[84px] items-end'
+            : 'right-6 items-end'
         )}
-        style={{ pointerEvents: 'none' }}
+        style={{
+          pointerEvents: 'none',
+          ...(mode === 'listen-together' && !overlayActive
+            ? null
+            : { bottom: columnBottom }),
+          ...(paneRight !== null ? { right: paneRight } : null),
+        }}
       >
         {/* 入口常驻（含房主关掉「对观众显示角色」时）：那是唯一能换/删模型、
             能知道"为什么看不到角色"的地方，见上面那段说明。 */}

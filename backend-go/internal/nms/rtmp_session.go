@@ -241,6 +241,7 @@ func (c *rtmpConn) onPublish(streamID uint32, streamName string) {
 	c.key = key
 	c.publishing = true
 	c.publishStreamID = streamID
+	c.srv.registerPublisher(key, c.conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	c.publishCancel = cancel
 	go func(key string) {
@@ -251,7 +252,13 @@ func (c *rtmpConn) onPublish(streamID uint32, streamName string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				// 房间切走（换共享方式 / 换模式 / 关闭）后这条流就不再被授权：
+				// 正常路径由 room 层主动 StopPublishing 立刻断开，这里只是兜底
+				// （例如直接改库、或前端没走切换接口）。
 				if !c.srv.publishAllowed(ctx, key) {
+					if c.srv.logf != nil {
+						c.srv.logf("[nms] 推流授权已失效，关闭连接（key=%s）", key)
+					}
 					_ = c.conn.Close()
 					return
 				}
@@ -275,6 +282,7 @@ func (c *rtmpConn) unpublish() {
 		return
 	}
 	c.publishing = false
+	c.srv.unregisterPublisher(c.key, c.conn)
 	if c.publishCancel != nil {
 		c.publishCancel()
 		c.publishCancel = nil

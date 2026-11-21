@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Mic,
@@ -17,6 +17,7 @@ import type { Socket } from 'socket.io-client'
 import { useVoiceChat, type VoiceMember } from '../hooks/useVoiceChat'
 import { useVoiceStatus } from '../hooks/useVoiceStatus'
 import { cn } from '@/lib/utils'
+import { useFullscreenOverlayStore } from '@/store/fullscreenOverlayStore'
 import { Button } from '@/components/ui/Button'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Slider } from '@/components/ui/Slider'
@@ -44,6 +45,40 @@ export function VoiceChatPanel({
 }: VoiceChatPanelProps) {
   const [expanded, setExpanded] = useState(false)
   const [editingPeer, setEditingPeer] = useState<string | null>(null)
+
+  // 全屏浮层宿主（播放器全屏时由 PlayerChrome / WatchTogetherCore 注册舞台）：
+  // 有宿主就把浮球 portal 进舞台内部，并按宿主实测的控制栏高度抬到它上方，
+  // 随控制栏一起显隐——否则原生全屏下 body 上的 fixed 浮球根本不可见，网页
+  // 全屏下又会被 z-[100] 的舞台盖住（用户报「全屏时按钮挡住控制栏」）。
+  const overlayTarget = useFullscreenOverlayStore((store) => store.target)
+  const overlayBarVisible = useFullscreenOverlayStore(
+    (store) => store.controlBarVisible
+  )
+  const overlayBarHeight = useFullscreenOverlayStore(
+    (store) => store.controlBarHeight
+  )
+  const commentPaneOrientation = useFullscreenOverlayStore(
+    (store) => store.commentPaneOrientation
+  )
+  const commentPaneSize = useFullscreenOverlayStore(
+    (store) => store.commentPaneSize
+  )
+  const inOverlay = overlayTarget !== null && !embedded
+
+  // portal 容器只创建一次：全屏切换时在舞台/body 之间搬父节点，React 子树
+  // 不重挂，避免语音连接因重挂而断线。
+  const [portalHost] = useState(() => {
+    const host = document.createElement('div')
+    host.style.display = 'contents'
+    return host
+  })
+  useEffect(() => {
+    const parent = inOverlay && overlayTarget ? overlayTarget : document.body
+    parent.appendChild(portalHost)
+    return () => {
+      portalHost.remove()
+    }
+  }, [inOverlay, overlayTarget, portalHost])
   const {
     joined,
     joining,
@@ -418,21 +453,44 @@ export function VoiceChatPanel({
   // 嵌入模式（一起听右侧工具坞）：直接渲染展开态面板，显隐由工具坞控制
   if (embedded) return panel
 
-  return createPortal(
+  const floating = (
     <div
       className={cn(
-        'fixed bottom-6 right-6 flex flex-col items-end gap-3',
+        // 全屏浮层里控制栏是贴底整条（z-[80]），浮球必须按宿主实测高度抬起
+        // 并排到它上面，否则会被整块盖住、点不到。
+        inOverlay
+          ? 'absolute right-6 z-40 flex flex-col items-end gap-3 transition-opacity duration-300'
+          : 'fixed bottom-6 right-6 flex flex-col items-end gap-3',
         // 展开时要压过 Live2D 的宿主层（fixed inset-0，z-60）：那一层虽然
         // pointer-events 为 none，但它的入口圆钮（右下 right-6/bottom-84）
         // 正好落在面板右上角，层级低一点就会被圆钮"贴"在面板上，看着像
         // 面板被戳了个洞。折叠时只是个 48px 圆钮，不跟任何东西抢，保持
         // 原来的 40，不必压过角色画布。
         expanded ? 'z-[70]' : 'z-40',
-        'transition-all duration-300'
+        'transition-all duration-300',
+        // 全屏浮层与控制栏同步显隐；隐藏时放行指针事件（点一下画面控制栏回来）
+        inOverlay && !overlayBarVisible && 'pointer-events-none opacity-0'
       )}
+      style={
+        inOverlay
+          ? {
+              // 控制栏实测高度 + 8px；还没测到时用 88（桌面常见值）。
+              // 竖屏上下分屏时再让出评论面板的高度。
+              bottom:
+                (overlayBarHeight || 88) +
+                8 +
+                (commentPaneOrientation === 'stacked' ? commentPaneSize : 0),
+              // 横屏左右分屏：右边界对齐画面右侧而不是舞台右侧
+              ...(commentPaneOrientation === 'side'
+                ? { right: commentPaneSize + 24 }
+                : null),
+            }
+          : undefined
+      }
     >
-      {/* 展开的语音面板 */}
-      {expanded && panel}
+      {/* 展开的语音面板：收起时用 hidden 隐藏而不是卸载——语音连接与成员状态
+          由面板内的 hook 持有，卸载即断线。 */}
+      <div className={cn(expanded ? '' : 'hidden')}>{panel}</div>
 
       {/* 悬浮触发按钮 */}
       {!expanded && (
@@ -469,7 +527,8 @@ export function VoiceChatPanel({
           )}
         </button>
       )}
-    </div>,
-    document.body
+    </div>
   )
+
+  return createPortal(floating, portalHost)
 }

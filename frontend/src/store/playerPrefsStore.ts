@@ -6,17 +6,11 @@ export type CommentDockHotkey = 'off' | 'ctrl' | 'alt' | 'shift'
 
 interface PlayerPrefsState {
   /**
-   * 双击控制键打开/关闭全屏评论区侧边栏。
-   * 'off' 为关闭快捷键(默认),仅靠鼠标移到屏幕右缘触发。
+   * 双击控制键打开/关闭全屏评论区侧边栏（控制栏按钮之外的快捷键）。
+   * 'off' 为关闭快捷键(默认),仅通过控制栏「评论区」按钮切换。
    */
   commentDockHotkey: CommentDockHotkey
   setCommentDockHotkey: (key: CommentDockHotkey) => void
-  /**
-   * 鼠标移到屏幕右缘自动唤出评论区侧边栏(默认开启)。
-   * 关闭后仅能通过双击快捷键唤出,避免误触发。
-   */
-  commentDockEdgeHover: boolean
-  setCommentDockEdgeHover: (enabled: boolean) => void
 }
 
 /**
@@ -28,9 +22,6 @@ export const usePlayerPrefsStore = create<PlayerPrefsState>()(
     (set) => ({
       commentDockHotkey: 'off',
       setCommentDockHotkey: (commentDockHotkey) => set({ commentDockHotkey }),
-      commentDockEdgeHover: true,
-      setCommentDockEdgeHover: (commentDockEdgeHover) =>
-        set({ commentDockEdgeHover }),
     }),
     { name: 'player-prefs-storage', version: 1 }
   )

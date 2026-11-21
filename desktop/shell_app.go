@@ -34,6 +34,7 @@ type App struct {
 	packaged bool
 
 	ctrl     *controller.Controller
+	crawler  *crawlerBridge
 	quitting atomic.Bool
 	tray     *trayIcon
 }
@@ -66,6 +67,9 @@ func (a *App) bootstrap() error {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if a.crawler != nil {
+		a.crawler.ctx = ctx
+	}
 	a.tray = newTray(a)
 	go a.afterStartup()
 }
@@ -80,6 +84,21 @@ func (a *App) afterStartup() {
 	// 组网与主服务解耦：即使主服务没自动启动，配过自动入网的也会自己起来。
 	go a.ctrl.AutoStartMesh()
 	go a.checkUpdatesPeriodically()
+	// 爬虫引擎是网页端「成员提交站点」的后端依赖，随控制台启动，
+	// 这样房主不打开爬虫页也能收到成员提交。
+	go func() {
+		if a.crawler == nil {
+			return
+		}
+		if available, _ := a.crawler.available(); !available {
+			return
+		}
+		if _, err := a.crawler.start(); err != nil {
+			a.ctrl.Log("爬虫引擎启动失败："+err.Error(), "crawler", "WARN")
+			return
+		}
+		go a.watchChallenges()
+	}()
 }
 
 // checkUpdatesPeriodically 启动后延迟检查一次，此后每 6 小时复检；只检查，不自动下载。
@@ -224,7 +243,14 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 	case "start":
 		return a.ctrl.Start()
 	case "stop":
-		return a.ctrl.Stop()
+		// 停止只结束受管服务与伴生进程，控制台窗口必须继续运行；
+		// 退出程序只走托盘「退出并停止受管服务」或关闭窗口（未开启关闭到托盘时）。
+		snapshot, err := a.ctrl.Stop()
+		if err != nil {
+			return nil, err
+		}
+		a.ctrl.Log("服务已停止，控制台保持运行；关闭窗口只会收起到托盘。", "console", "INFO")
+		return snapshot, nil
 	case "restart":
 		return a.ctrl.Restart()
 	case "save":
@@ -261,10 +287,25 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 		}
 		return true, nil
 	case "open-web":
+		// 网页端内嵌在控制台的「网页端」页；服务没起来时先拉起，再切到该页。
+		if err := a.ensureBackend(); err != nil {
+			return nil, err
+		}
+		a.showWindow()
+		a.navigate("web")
+		return true, nil
+	case "open-web-external":
 		if err := a.openLocalPage(false); err != nil {
 			return nil, err
 		}
 		return true, nil
+	case "trust-ca":
+		message, err := a.ctrl.TrustCA()
+		if err != nil {
+			return nil, err
+		}
+		a.ctrl.Log(message, "cert", "INFO")
+		return message, nil
 	case "cli-start":
 		return a.ctrl.StartCli()
 	case "cli-stop":
@@ -353,6 +394,28 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 		return true, nil
 	case "tunnel-refresh":
 		return a.ctrl.RefreshTunnel()
+	case "crawler-info":
+		return a.crawlerInfo()
+	case "crawler-start":
+		return a.crawler.start()
+	case "crawler-stop":
+		return a.crawler.stop()
+	case "crawler-api":
+		return a.crawlerAPI(payload)
+	case "crawler-rules":
+		return a.crawler.rules()
+	case "crawler-doc":
+		return a.crawler.docs()
+	case "crawler-config":
+		return a.crawler.llmConfig(), nil
+	case "crawler-config-save":
+		return a.crawler.saveLLM(payload)
+	case "crawler-export":
+		return a.crawler.exportRules()
+	case "crawler-import":
+		mode := payloadString(payload, "mode")
+		dryRun, _ := payload["dryRun"].(bool)
+		return a.crawler.importRules(mode, dryRun)
 	case "update-check":
 		return a.ctrl.CheckUpdate(true), nil
 	case "update-download":
@@ -435,12 +498,18 @@ func (a *App) applyUpdate() (bool, error) {
 	return true, nil
 }
 
+// ensureBackend 保证主服务已运行：内嵌网页端和外部浏览器打开都先走这里。
+func (a *App) ensureBackend() error {
+	if a.ctrl.Snapshot().Backend == "running" {
+		return nil
+	}
+	_, err := a.ctrl.Start()
+	return err
+}
+
 func (a *App) openLocalPage(manager bool) error {
-	snapshot := a.ctrl.Snapshot()
-	if snapshot.Backend != "running" {
-		if _, err := a.ctrl.Start(); err != nil {
-			return err
-		}
+	if err := a.ensureBackend(); err != nil {
+		return err
 	}
 	// 未安装本机信任也照常打开：自签证书在浏览器里只会提示一次不安全，
 	// 选择继续访问即可，不必把用户踢回证书页。
@@ -612,6 +681,10 @@ func (a *App) quit() {
 		if err := a.ctrl.Shutdown(); err != nil {
 			a.ctrl.Log("停止受管服务失败："+err.Error(), "console", "ERROR")
 		}
+		// 爬虫引擎是独立子进程，必须在这里一并回收，否则退出后会留下孤儿进程占用端口。
+		if a.crawler != nil {
+			a.crawler.stopQuietly()
+		}
 		if a.tray != nil {
 			a.tray.remove()
 		}
@@ -628,6 +701,9 @@ func (a *App) beforeClose(context.Context) bool {
 }
 
 func (a *App) shutdown(context.Context) {
+	if a.crawler != nil {
+		a.crawler.stopQuietly()
+	}
 	if a.tray != nil {
 		a.tray.remove()
 	}
