@@ -107,11 +107,15 @@ type Controller struct {
 	// components 记录可选组件的下载进度（本体不随运行包分发）。
 	components componentState
 
-	mu                 sync.RWMutex
-	events             []Event
-	redactions         []string
-	backend            *Proc
-	frp                *Proc
+	// desktopToken 是每次启动随机生成的壳内管理令牌：注入后端环境，
+	// 让 GUI 能调用 /api/crawler/* 管理接口（对应 Python 引擎的 admin_token）。
+	desktopToken string
+
+	mu         sync.RWMutex
+	events     []Event
+	redactions []string
+	backend    *Proc
+	frp        *Proc
 	// 语音不再有独立进程：媒体面跑在后端里，语音状态跟随后端状态。
 	tunnel             *Proc
 	backendState       string
@@ -146,7 +150,7 @@ type Controller struct {
 	// updateFallbackURL 是反代不可用时的备用下载地址，为空表示没有备用。
 	updateFallbackURL string
 
-	operation   int32
+	operation int32
 	// 组件随包分发，正常安装里文件一定在；这个等待只兜「用户删了它、又从网页端补回」。
 
 	onUpdate       func()
@@ -183,6 +187,10 @@ func New(opts Options) (*Controller, error) {
 	_, _ = rand.Read(secret)
 	c.voiceKey = hex.EncodeToString(key)
 	c.voiceSecret = hex.EncodeToString(secret)
+	// 壳内管理令牌：每次启动重新生成，只通过子进程环境传递。
+	desktopToken := make([]byte, 32)
+	_, _ = rand.Read(desktopToken)
+	c.desktopToken = hex.EncodeToString(desktopToken)
 	c.certs = NewCertificates(c.dir, c.log)
 	c.cli = NewCliProxy(c.root, opts.CliExecutable, c.hostExe, c.kill, c.verifyCli, c.log, c.emit)
 	c.mesh = NewMeshManager(c.root, filepath.Join(c.dir, "mesh"), c.hostExe, c.kill, c.log, c.emit)
@@ -316,6 +324,9 @@ func processPid(proc *Proc) *int {
 	return &pid
 }
 
+// DesktopToken 返回壳内管理令牌（GUI 转发爬虫管理接口时带在请求头里）。
+func (c *Controller) DesktopToken() string { return c.desktopToken }
+
 func (c *Controller) WebURL() string {
 	c.mu.RLock()
 	active := c.active
@@ -431,6 +442,8 @@ func (c *Controller) environment() ([]string, error) {
 	// 标记后端运行在桌面 GUI 壳内：网页管理端的「版本更新」会因此禁用，
 	// 整包版本由 GUI 自己的更新链路维护（详见 backend services/desktop-runtime.ts）
 	env["ZVIEWER_DESKTOP"] = "1"
+	// 壳内管理令牌：后端只对带 X-Desktop-Token 且值相等的请求放行爬虫管理接口。
+	env["ZVIEWER_DESKTOP_TOKEN"] = c.desktopToken
 	// 语音与屏幕共享共用的媒体面：UDP 跟在网页端口上（沿用既有防火墙规则），
 	// TCP 必须单开一个——3333/tcp 已经是网页本身。
 	env["SHARE_MEDIA_PORT"] = strconv.Itoa(config.Port)

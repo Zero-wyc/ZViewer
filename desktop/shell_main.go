@@ -170,8 +170,8 @@ func main() {
 		cli:      companion(root, exeDir, "zviewer-cli-windows-amd64.exe", []string{"zviewer-cli", "zviewer-cli-windows-amd64.exe"}),
 		hostExe:  resolveHostExe(exeDir, root),
 		packaged: packagedInstall(exeDir),
-		crawler:  newCrawlerBridge(exeDir, root),
 	}
+	app.crawler = newCrawlerBridge(exeDir, root, app)
 	if err := app.bootstrap(); err != nil {
 		fatalDialog("ZViewer 配置读取失败", err.Error()+"\n配置目录："+stateDir)
 		return

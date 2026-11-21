@@ -14,8 +14,6 @@
     "db:init": "cd backend-go && go run ./cmd/zviewer-server --init-db",
     "db:upgrade": "cd backend-go && go run ./cmd/zviewer-server --upgrade-db",
     "db:backup": "cd backend-go && go run ./cmd/zviewer-server --backup-db",
-    "crawler:serve": "cd crawler && python -m engine serve",
-    "crawler:test": "cd crawler && python -X utf8 -m unittest discover -s engine/tests -p \"test_*.py\"",
     "build": "npm run build:backend && npm run build:frontend",
     "build:frontend": "npm run build -w frontend",
     "build:backend": "node scripts/build-backend.js",

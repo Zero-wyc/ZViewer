@@ -7,7 +7,7 @@
   let loading = false;
 
   function crawlerDefaults() {
-    return { info: null, loading: false, starting: false, error: '', tab: 'submissions', rules: [], ruleSource: '', sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
+    return { info: null, loading: false, starting: false, error: '', tab: 'rules', rules: [], ruleSource: '', sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
   }
   function cs() {
     // app.js 里的初始状态可能落后于本文件新增的字段，这里原地补齐，不能替换对象：
@@ -152,9 +152,9 @@
     const config = info.config || {};
     const running = Boolean(info.running);
     const facts = [
-      fact('引擎地址', running ? 'http://127.0.0.1:' + info.port : '未启动'),
+      fact('引擎状态', running ? '随服务运行' : '未运行'),
       fact('站点规则', String((info.ruleCount == null ? c.rules.length : info.ruleCount)) + ' 条'),
-      fact('运行环境', info.python || '未找到 Python'),
+      fact('运行环境', '内置引擎（Go）'),
       fact('工作目录', info.root || ''),
       fact('API Key', config.apiKeyConfigured ? ('已配置 ' + (config.apiKeyMasked || '')) : '尚未配置'),
       fact('最后错误', info.lastError || c.error || '')
@@ -162,11 +162,11 @@
     const controls = running
       ? button('停止引擎', 'crawler-stop', 'stop') + button('刷新', 'crawler-refresh', 'refresh')
       : button('启动引擎', 'crawler-start', 'play', 'primary') + button('刷新', 'crawler-refresh', 'refresh');
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎是本地 Python 服务，随 GUI 启动；日志在 ' + esc(info.logPath || '') + '。</p></section>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎随服务进程一起运行，没有单独进程需要启动；日志目录 ' + esc(info.logPath || '') + '。</p></section>';
   }
   function tabs(c) {
     const pendingChallenges = (c.challenges || []).filter(function (item) { return !item.completed; }).length;
-    const items = [['submissions', '成员提交'], ['rules', '站点规则'], ['challenges', '登录/验证' + (pendingChallenges ? ' (' + pendingChallenges + ')' : '')], ['agent', 'Agent 对话'], ['about', '引擎信息'], ['settings', '设置']];
+    const items = [['rules', '站点规则'], ['challenges', '登录/验证' + (pendingChallenges ? ' (' + pendingChallenges + ')' : '')], ['agent', 'Agent 对话'], ['about', '引擎信息'], ['settings', '设置']];
     return '<div class="tabs crawler-tabs">' + items.map(function (item) {
       return '<button data-crawler-tab="' + item[0] + '" class="' + (c.tab === item[0] ? 'active' : '') + '">' + item[1] + '</button>';
     }).join('') + '</div>';

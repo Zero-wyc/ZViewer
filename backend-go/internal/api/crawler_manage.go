@@ -20,13 +20,21 @@ import (
 
 // registerCrawlerManageRoutes 挂载管理路由（admin only）。
 func (s *Server) registerCrawlerManageRoutes(mux *http.ServeMux) {
-	admin := s.Auth.RequireAdmin
+	admin := s.Auth.RequireDesktopOrAdmin
 	mux.HandleFunc("GET /api/crawler/status", admin(s.handleCrawlerStatus))
 	mux.HandleFunc("GET /api/crawler/rules", admin(s.handleCrawlerRulesList))
 	mux.HandleFunc("POST /api/crawler/rules", admin(s.handleCrawlerRuleSave))
 	mux.HandleFunc("GET /api/crawler/rules/{id}", admin(s.handleCrawlerRuleGet))
 	mux.HandleFunc("PUT /api/crawler/rules/{id}", admin(s.handleCrawlerRuleUpdate))
 	mux.HandleFunc("DELETE /api/crawler/rules/{id}", admin(s.handleCrawlerRuleDelete))
+	mux.HandleFunc("GET /api/crawler/rules/export", admin(s.handleCrawlerRulesExport))
+	mux.HandleFunc("POST /api/crawler/rules/import", admin(s.handleCrawlerRulesImport))
+	mux.HandleFunc("GET /api/crawler/browser/status", admin(s.handleCrawlerBrowserStatus))
+	mux.HandleFunc("POST /api/crawler/browser/open-login", admin(s.handleCrawlerBrowserOpenLogin))
+	mux.HandleFunc("POST /api/crawler/browser/save-login", admin(s.handleCrawlerBrowserSaveLogin))
+	mux.HandleFunc("POST /api/crawler/browser/close", admin(s.handleCrawlerBrowserClose))
+	mux.HandleFunc("POST /api/crawler/browser/clear-profile", admin(s.handleCrawlerBrowserClearProfile))
+	mux.HandleFunc("GET /api/crawler/submissions", admin(s.handleCrawlerSubmissions))
 	mux.HandleFunc("GET /api/crawler/accounts", admin(s.handleCrawlerAccountsList))
 	mux.HandleFunc("POST /api/crawler/accounts", admin(s.handleCrawlerAccountSave))
 	mux.HandleFunc("GET /api/crawler/accounts/{id}", admin(s.handleCrawlerAccountGet))
@@ -427,4 +435,136 @@ func (s *Server) crawlerModels(w http.ResponseWriter, ctx context.Context, apiKe
 		return
 	}
 	httpx.OK(w, map[string]any{"success": true, "models": models, "count": len(models)})
+}
+
+// ---------------------------------------------------------------- 规则包
+
+func (s *Server) handleCrawlerRulesExport(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 30*time.Second)
+		return
+	}
+	ids := []string{}
+	if raw := r.URL.Query().Get("ids"); raw != "" {
+		ids = strings.Split(raw, ",")
+	}
+	payload := bundle.store.ExportBundle(ids)
+	httpx.OK(w, payload)
+}
+
+func (s *Server) handleCrawlerRulesImport(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 60*time.Second)
+		return
+	}
+	var body map[string]any
+	if err := httpx.DecodeJSON(r, &body); err != nil {
+		httpx.BadRequest(w, "请求体不是有效 JSON")
+		return
+	}
+	payload := body["bundle"]
+	if payload == nil {
+		payload = body["rules"]
+	}
+	if payload == nil {
+		httpx.BadRequest(w, "缺少要导入的规则")
+		return
+	}
+	dryRun, _ := body["dryRun"].(bool)
+	if !dryRun {
+		dryRun, _ = body["dry_run"].(bool)
+	}
+	mode, _ := body["mode"].(string)
+	report, err := bundle.store.ImportBundle(payload, mode, dryRun)
+	if err != nil {
+		writeCrawlerError(w, err)
+		return
+	}
+	httpx.OK(w, report)
+}
+
+// ---------------------------------------------------------------- 浏览器
+
+func (s *Server) handleCrawlerBrowserStatus(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 15*time.Second)
+		return
+	}
+	httpx.OK(w, map[string]any{"success": true, "browser": bundle.browser.Status()})
+}
+
+func (s *Server) handleCrawlerBrowserOpenLogin(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 120*time.Second)
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	_ = httpx.DecodeJSON(r, &body)
+	result, err := bundle.browser.OpenLogin(r.Context(), body.URL)
+	if err != nil {
+		writeCrawlerError(w, err)
+		return
+	}
+	httpx.OK(w, result)
+}
+
+func (s *Server) handleCrawlerBrowserSaveLogin(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 60*time.Second)
+		return
+	}
+	var body struct {
+		Site string `json:"site"`
+		Name string `json:"name"`
+	}
+	_ = httpx.DecodeJSON(r, &body)
+	result, err := bundle.browser.SaveLogin(r.Context(), body.Site, body.Name, bundle.accounts)
+	if err != nil {
+		writeCrawlerError(w, err)
+		return
+	}
+	httpx.OK(w, result)
+}
+
+func (s *Server) handleCrawlerBrowserClose(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 30*time.Second)
+		return
+	}
+	result, err := bundle.browser.CloseBrowser(r.Context())
+	if err != nil {
+		writeCrawlerError(w, err)
+		return
+	}
+	httpx.OK(w, result)
+}
+
+func (s *Server) handleCrawlerBrowserClearProfile(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 30*time.Second)
+		return
+	}
+	result, err := bundle.browser.ClearProfile()
+	if err != nil {
+		writeCrawlerError(w, err)
+		return
+	}
+	httpx.OK(w, map[string]any{"success": true, "browser": bundle.browser.Status(), "cleared": result["cleared"]})
+}
+
+// handleCrawlerSubmissions 返回空列表。
+//
+// 「成员提交站点」功能已从网页端移除（只保留 agent 直接建规则），
+// 但 GUI 的提交页仍会拉这个列表；返回空数组让它渲染成「暂无提交」。
+func (s *Server) handleCrawlerSubmissions(w http.ResponseWriter, r *http.Request) {
+	httpx.OK(w, map[string]any{"success": true, "submissions": []map[string]any{}, "count": 0})
 }

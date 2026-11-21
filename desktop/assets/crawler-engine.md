@@ -1,13 +1,19 @@
 # 爬虫引擎使用手册
 
-本文档对应 `crawler/engine`（2026-11-13）。引擎是独立的本机 HTTP 服务，默认 `127.0.0.1:3789`：桌面控制台（GUI）负责启动/停止并托管进程，backend-go 通过 `/api/crawler/*` 反代调用，网页端「一起看 → 全网搜片」只做展示；规则生成与解析全部在引擎/后端完成。
+本文档对应 Go 实现（`backend-go/internal/crawler`，2026-11-22 起）。引擎已并入后端进程：没有独立服务、没有 3789 端口、不需要 Python 或 Node。网页端与桌面控制台都通过 `/api/crawler/*` 访问，规则生成、搜索、播放解析、Agent 对话与离屏浏览器全部在后端内完成。
+
+`crawler/` 目录现在只放「本机数据 + 文档」：`config.json`（大模型与 Agent 配置）、`data/rules`、`data/accounts.json`、`data/sessions`、`data/browser-profile`、`docs/engine.md`。
 
 ## 1. 运行环境
 
-- Python 3.10+（当前验证版本 3.15.2），只用标准库。
-- Node.js 仅脚本规则需要；可用 `node_bin` 或 `CRAWLER_NODE_BIN` 指定，未找到时 HTTP/JSON 规则仍可用。
-- 无第三方 Python 依赖，不需要 pip install。
-- 引擎由桌面控制台托管：GUI 退出时会一并停止（不会留下孤儿进程）；若上次被强制结束，下次启动会先回收同一端口的旧引擎再拉起。启动/回收诊断写 `crawler/log/bridge.log`。
+- 随 `zviewer-backend.exe` 一起分发，不需要安装 Python / Node，也没有独立进程。
+- 脚本规则跑在内置 JavaScript 沙箱（goja）：支持 `async/await`、`Promise`、`fetch`、`URL`、`URLSearchParams`、`TextEncoder/TextDecoder`、`atob/btoa`、`setTimeout`。
+- 离屏浏览器复用本机 Edge/Chrome（可用 `CRAWLER_BROWSER_BIN` 指定）；找不到时会跳过「浏览器兜底」这一步，其它解析方式不受影响。
+- 规则、账号、会话、搜索日志、浏览器 profile 都在 `crawler/data/`；备份整个目录即可搬家。
+
+## 1.1 权限
+
+管理接口（规则、Agent、配置、浏览器登录）要求管理员身份。桌面控制台不是登录用户，改用后端启动时注入的壳内令牌：环境变量 `ZVIEWER_DESKTOP_TOKEN`，请求头 `X-Desktop-Token`。该令牌每次启动随机生成，仅在 GUI 托管（`ZVIEWER_DESKTOP=1`）时生效。
 
 ## 2. 配置
 
@@ -23,16 +29,11 @@
     "max_tokens": 2048,
     "timeout_sec": 90
   },
-  "engine": {
-    "host": "127.0.0.1",
-    "port": 3789,
-    "admin_token": "",
-    "request_timeout_sec": 25,
-    "max_bytes": 3145728,
-    "user_agent": "Mozilla/5.0 ... Chrome/131 ...",
-    "max_concurrent": 2,
-    "node_bin": "",
-    "script_timeout_sec": 20
+  "browser": {
+    "enabled": true,
+    "bin": "",
+    "debug_port": 9333,
+    "profile_dir": ""
   },
   "agent": {
     "max_steps": 0,
@@ -54,12 +55,11 @@
 }
 ```
 
-环境变量覆盖（不改文件）：`CRAWLER_LLM_API_KEY`、`CRAWLER_LLM_BASE_URL`、`CRAWLER_LLM_MODEL`、`CRAWLER_ADMIN_TOKEN`、`CRAWLER_HOST`、`CRAWLER_PORT`。
+配置由 GUI 的「爬虫引擎 → 设置」写入，后端按文件修改时间热加载：改完 Key/模型/提示词不需要重启。
 
 - `llm.base_url` 支持任何 OpenAI 兼容服务；填 `https://xxx/v1` 即可，引擎自动拼 `/chat/completions`。
 - `agent.custom_prompt`：自定义提示词（≤4000 字），追加到「生成规则 / Agent 对话 / 自动修复」三套系统提示词的末尾；GUI「爬虫引擎 → 设置 → 自定义提示词」可直接编辑。
-- `engine.admin_token` 为空时只允许回环地址访问管理接口；设了令牌后所有管理接口要求 `X-Admin-Token` 或 `Authorization: Bearer <token>`。
-- 数据目录：`data/rules/*.json`、`data/accounts.json`、`data/sessions/*.json`。账号文件权限 0600。
+- 数据目录：`data/rules/*.json`、`data/accounts.json`、`data/sessions/*.json`、`data/search-log.json`、`data/browser-profile/`。账号文件权限 0600。
 
 ## 3. 规则结构
 
@@ -141,9 +141,9 @@ CSS 子集：标签、`*`、`#id`、`.class`、`[attr]` / `[attr=value]` / `^=` 
 
 `list_path` 支持点号与 `[*]`（如 `result[*].items`）；`path` 支持 `a.b.c`。
 
-### 3.4 脚本规则（Node）
+### 3.4 脚本规则（JS 沙箱）
 
-适合需要签名、加密参数、接口合并或页面由 JS 渲染的站点。脚本在 `vm` 沙箱中执行，注入 `fetch`、`URL`、`URLSearchParams`、`TextEncoder/TextDecoder`、`atob/btoa`、`setTimeout`、`console`。
+适合需要签名、加密参数、接口合并或页面由 JS 渲染的站点。脚本在内置 goja 沙箱中执行（不依赖 Node），注入 `fetch`、`URL`、`URLSearchParams`、`TextEncoder/TextDecoder`、`atob/btoa`、`setTimeout`、`console`。`runtime` 写 `"script"` 或 `"node"` 都可以（历史规则沿用了后者）。
 
 搜索脚本（`search.mode="script"`）：
 
@@ -152,7 +152,7 @@ CSS 子集：标签、`*`、`#id`、`.class`、`[attr]` / `[attr=value]` / `^=` 
   "mode": "script",
   "account_id": "",
   "script": {
-    "runtime": "node",
+    "runtime": "script",
     "timeout_sec": 20,
     "source": "const sign = 'x'; return {request: {url: 'https://example.com/api/search?q=' + encodeURIComponent(input.keyword) + '&sign=' + sign, headers: {'Referer': 'https://example.com/'}}};"
   }
@@ -170,7 +170,7 @@ CSS 子集：标签、`*`、`#id`、`.class`、`[attr]` / `[attr=value]` / `^=` 
 "parse": {
   "type": "script",
   "script": {
-    "runtime": "node",
+    "runtime": "script",
     "source": "return {items: [{title: input.keyword, url: input.url}]};"
   }
 }
@@ -196,7 +196,7 @@ CSS 子集：标签、`*`、`#id`、`.class`、`[attr]` / `[attr=value]` / `^=` 
       "skipFrom": ["bilibili", "mgtv"]
     },
     "script": {
-      "runtime": "node",
+      "runtime": "script",
       "timeout_sec": 30,
       "source": "const slug=...; return {url, format, title, headers, episodes, note}"
     }
@@ -274,7 +274,7 @@ Agent 也能自己决定何时显示窗口：遇到登录墙时它会调用 `bro
 }
 ~~~
 
-- 检测顺序：URL 片段 → HTTP 状态码 → 选择器 → 标题 → 关键词 → 可选脚本（`challenge.script`，Node）。
+- 检测顺序：URL 片段 → HTTP 状态码 → 选择器 → 标题 → 关键词 → 可选脚本（`challenge.script`，JS 沙箱）。
 - 4xx/5xx 响应也会先按验证页判断（`_fetch_or_challenge_page`），不会直接当成网络错误。
 - 命中后搜索返回 `code=challenge_required`，`details` 带 `challengeId`、`proxyUrl`、`pageUrl`、`note`，同时创建 30 分钟有效的验证会话。
 - 验证页通过同源反代提供：HTML 里的链接/表单/静态资源自动改写到 `/api/crawler/challenge/{id}/site/...`，注入的 shim 会接管 `fetch`/`XHR`/`window.open`；上游 `Set-Cookie` 收进会话，浏览器只拿到带会话前缀的代理 Cookie。
@@ -285,26 +285,9 @@ Agent 也能自己决定何时显示窗口：遇到登录墙时它会调用 `bro
 
 ## 4. 手动添加与导入导出
 
-### 4.1 命令行
+### 4.1 管理与导出
 
-```bash
-# 从文件或 stdin 添加（支持裸规则或 {"rule": {...}} 包装）
-python -m engine rules add --file rule.json
-cat rule.json | python -m engine rules add
-
-# 列出 / 查看 / 删除
-python -m engine rules list
-python -m engine rules get example
-python -m engine rules delete example
-
-# 一键导出（全部或指定 id，省略 -o 则打印到 stdout）
-python -m engine rules export -o rules-backup.json
-python -m engine rules export --id example --id other -o partial.json
-
-# 一键导入：merge 按 id 或 name+site 合并；replace 先清空
-python -m engine rules import rules-backup.json --mode merge --dry-run
-python -m engine rules import rules-backup.json --mode merge
-```
+引擎已并入后端，没有独立命令行；规则管理走 GUI 的「爬虫引擎 → 站点规则」，或直接调 HTTP 接口（见第 5 节）。桌面控制台导出的文件就是下面的规则包格式。
 
 ### 4.2 导出文件格式
 
@@ -322,16 +305,15 @@ python -m engine rules import rules-backup.json --mode merge
 
 ## 5. HTTP API
 
-默认 `http://127.0.0.1:3789`。管理接口需 `X-Admin-Token`（或 Bearer）；未配置令牌时仅回环地址可访问。
+路径前缀是网页服务的 `/api/crawler/*`（默认 `http://localhost:3333`）。管理接口要管理员登录态（`Authorization: Bearer`），桌面控制台用壳内令牌（`X-Desktop-Token`）代替。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/health` | 引擎状态 |
-| GET | `/api/crawler/status` | 同上 |
+| GET | `/api/crawler/status` | 引擎状态（规则数、是否配置 Key、浏览器状态） |
 | GET | `/api/crawler/sites?roomId=&role=` | 当前房间可见站点 |
 | GET | `/api/crawler/sites/{id}` | 单条规则（admin） |
 | POST | `/api/crawler/search` | `{site,keyword,roomId,role,limit}` |
-| POST | `/api/crawler/play/resolve` | 详情页 → 播放地址：`{url,roomId,role}`，返回 `{success,title,format,url,headers,episodes,source,note,qualities?}`（不带 admin 令牌，供后端/前端调用） |
+| POST | `/api/crawler/play/resolve` | 详情页 → 播放地址：`{url,roomId,role}`，返回 `{success,title,format,url,headers,episodes,source,note,qualities?}` |
 | GET | `/api/crawler/rules` | 规则列表（admin） |
 | POST | `/api/crawler/rules` | 手动新增/保存（admin） |
 | GET/PUT/DELETE | `/api/crawler/rules/{id}` | 查看/局部更新/删除（admin） |
@@ -365,48 +347,36 @@ python -m engine rules import rules-backup.json --mode merge
 | POST | `/api/crawler/challenge/{id}/verify` | 带会话 Cookie 重试搜索，成功返回结果 |
 | GET/ANY | `/api/crawler/challenge/{id}/site/...` | 验证页同源反代（页面/JS/CSS/图片，无需登录态） |
 
-示例：
+示例（桌面控制台用壳内令牌，网页端用登录后的 Bearer）：
 
 ```bash
-curl -s http://127.0.0.1:3789/health
+BASE=http://localhost:3333
+TOKEN='<管理员 accessToken 或壳内令牌>'
 
-curl -s -X POST http://127.0.0.1:3789/api/crawler/rules \
+curl -s "$BASE/api/crawler/status" -H "Authorization: Bearer $TOKEN"
+
+curl -s -X POST "$BASE/api/crawler/rules" \
   -H 'Content-Type: application/json' \
-  -H 'X-Admin-Token: <token>' \
+  -H "Authorization: Bearer $TOKEN" \
   --data @rule.json
 
-curl -s -X POST http://127.0.0.1:3789/api/crawler/rules/import \
+curl -s -X POST "$BASE/api/crawler/rules/import" \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
   --data '{"bundle": <bundle-json>, "mode": "merge", "dryRun": true}'
 ```
 
-## 6. MCP
+## 6. 工具集（MCP 暂未提供）
 
-MCP 用 stdio JSON-RPC，暴露的工具与 agent 相同（管理端额外有 `generate_rule`）：
+Go 版没有 MCP stdio 入口。同样的工具在引擎内部以注册表形式存在，Agent 对话与「生成规则」都通过它调用：
 
-- 抓取/检查：`fetch_page`、`inspect_html`
+- 抓取/检查：`fetch_page`、`inspect_html`、`inspect_challenge`、`detect_challenge_html`
 - 规则：`test_rule`、`save_rule`、`list_rules`、`get_rule`、`update_rule`、`delete_rule`、`generate_rule`
-- 搜索：`search_site`、`list_sites`
+- 播放：`test_play`
+- 搜索：`search_site`、`list_sites`、`search_logs`
 - 账号：`list_accounts`、`save_account`、`delete_account`、`bind_account`
-- 浏览器（仅管理端）：`browser_status`、`browser_open`、`browser_text`、`browser_html`、`browser_eval`、`browser_click`、`browser_cookies`、`browser_show`、`browser_hide`、`browser_save_login`（`browser_open_login` 为兼容旧名）
-
-客户端配置示例（Claude Desktop / 其它 MCP 客户端）：
-
-```json
-{
-  "mcpServers": {
-    "zviewer-crawler": {
-      "command": "python",
-      "args": ["-m", "engine.mcp_server", "--root", "crawler"],
-      "cwd": "."
-    }
-  }
-}
-```
-
-也可以走 CLI：`python -m engine --root crawler mcp`（在仓库根目录或分享包的 `runtime` 目录下执行；`crawler` 是引擎目录的相对路径）。
-
-> MCP 配置里的 `cwd` 用相对路径：源码包在仓库根目录执行，分享包在 `runtime` 目录执行；`--root crawler` 始终相对 `cwd`。
+- 浏览器：`browser_status`、`browser_open`、`browser_text`、`browser_html`、`browser_eval`、`browser_click`、`browser_cookies`
+- 会话：`task_complete`、`ask_user`、`rename_session`
 
 ## 7. Agent 对话
 
@@ -444,14 +414,14 @@ Agent 可以在任务开始时调用 `rename_session` 工具把当前会话改�
 ## 8. 测试
 
 ```bash
-cd crawler
-python -X utf8 -m unittest engine.tests.test_engine engine.tests.test_api engine.tests.test_submissions engine.tests.test_browser engine.tests.test_searchlog engine.tests.test_challenge engine.tests.test_challenge_proxy engine.tests.test_agent_run -v
+cd backend-go
+GOPROXY=https://goproxy.cn,direct go test ./internal/crawler/ ./internal/api/
 ```
 
-覆盖 DOM/选择器、HTML/JSON 搜索、账号 Cookie 注入、脚本搜索与解析、可见性、掩码、导出导入往返与 dry-run/replace、HTTP 管理令牌与配置掩码、成员提交与自动生成、浏览器 Cookie 过滤与登录态保存。
+覆盖 DOM/选择器、HTML/JSON/脚本搜索、播放解析（六路兜底 + 清晰度排序）、账号 Cookie 注入与掩码、验证会话与同源反代、CDP 浏览器嗅探、LLM 流式与工具调用、Agent 生成/修复/对话与 run 管理、导出导入往返与 dry-run/replace。
 
-## 9. 待接入
+## 9. 已知边界
 
-1. GUI「爬虫引擎」页已完成：状态/启动、成员提交、规则列表与 JSON 编辑、导入导出、agent 对话、站点登录。Wails 的 CSP 是 `connect-src 'none'`，统一走 Go controller 代理。
-2. backend-go：`/api/crawler/*` 代理、房间权限校验、接收成员提交、把结果转成一起看影片条目。
-3. 前端一起看：每个站点一个搜索按钮 + 「提交新站点」，解析结果仍由后端返回。
+1. **MCP stdio 入口未提供**：工具注册表已就绪，但还没有对外暴露 MCP 协议层。
+2. **成员提交站点已移除**：网页端只保留 agent 直接建规则；GUI 的提交页会显示为空。
+3. **可见登录窗口**依赖本机 Edge/Chrome；没有浏览器时只能在规则里写死 Cookie 或改用脚本规则。

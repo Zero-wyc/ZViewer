@@ -2,7 +2,10 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
+	"os"
+	"strings"
 
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/store"
@@ -140,4 +143,48 @@ func (a *Authenticator) assertActive(ctx context.Context, claims *Claims) error 
 func ClaimsFrom(ctx context.Context) *Claims {
 	claims, _ := ctx.Value(claimsKey{}).(*Claims)
 	return claims
+}
+
+// 桌面壳管理通道。
+//
+// GUI 启动台不是网页登录用户，没有 JWT；它需要调用爬虫引擎的管理接口
+// （规则、Agent 对话、配置、浏览器登录）。做法与 Node 版爬虫引擎的
+// admin_token 相同：壳在后端进程启动时注入一个每次随机生成的
+// ZVIEWER_DESKTOP_TOKEN，请求带 X-Desktop-Token 即可。
+//
+// 只对显式标注的接口生效（当前仅 /api/crawler/* 管理段），不改变其它路由的鉴权。
+const desktopTokenHeader = "X-Desktop-Token"
+
+// desktopClaims 是壳内请求的伪身份：等同 root，但没有 userId。
+func desktopClaims() *Claims {
+	return &Claims{
+		UserID:   0,
+		Role:     RoleRoot,
+		Username: "desktop",
+	}
+}
+
+// RequireDesktopOrAdmin 允许「桌面壳令牌」或管理员 JWT 访问。
+//
+// 令牌判定：ZVIEWER_DESKTOP_TOKEN 非空且请求头逐字相等（constant-time），
+// 并且进程确实由 GUI 托管（ZVIEWER_DESKTOP=1）。两者缺一不可，未托管部署
+// 即使猜到 header 名也不生效。
+func (a *Authenticator) RequireDesktopOrAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if token := desktopTokenFromEnv(); token != "" {
+			provided := strings.TrimSpace(r.Header.Get(desktopTokenHeader))
+			if provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(token)) == 1 {
+				next(w, r.WithContext(context.WithValue(r.Context(), claimsKey{}, desktopClaims())))
+				return
+			}
+		}
+		a.RequireAdmin(next)(w, r)
+	}
+}
+
+func desktopTokenFromEnv() string {
+	if os.Getenv("ZVIEWER_DESKTOP") != "1" {
+		return ""
+	}
+	return strings.TrimSpace(os.Getenv("ZVIEWER_DESKTOP_TOKEN"))
 }

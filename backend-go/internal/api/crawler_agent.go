@@ -24,7 +24,7 @@ import (
 
 // registerCrawlerAgentRoutes 挂载 agent 相关路由（admin only）。
 func (s *Server) registerCrawlerAgentRoutes(mux *http.ServeMux) {
-	admin := s.Auth.RequireAdmin
+	admin := s.Auth.RequireDesktopOrAdmin
 	mux.HandleFunc("POST /api/crawler/generate", admin(s.handleCrawlerGenerate))
 	mux.HandleFunc("POST /api/crawler/agent/runs", admin(s.handleCrawlerRunStart))
 	mux.HandleFunc("GET /api/crawler/agent/runs/{id}", admin(s.handleCrawlerRunGet))
