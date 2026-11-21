@@ -243,82 +243,82 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 	registry.Register(&Tool{
 		Name:        "fetch_page",
 		Description: "抓取一个网页并返回标题、正文摘要、表单和链接，用于寻找站点的搜索入口。",
-		Schema: schemaObject(map[string]any{
-			"url":       strProp("http(s) 页面地址"),
-			"max_chars": intProp("正文摘要最大字符数"),
+		Schema: SchemaObject(map[string]any{
+			"url":       StrProp("http(s) 页面地址"),
+			"max_chars": IntProp("正文摘要最大字符数"),
 		}, "url"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			chars := argInt(args, "max_chars", maxChars)
+			chars := ArgInt(args, "max_chars", maxChars)
 			if chars < 500 {
 				chars = 500
 			}
 			if chars > 20000 {
 				chars = 20000
 			}
-			return pageSummary(ctx, opts.Fetcher, argString(args, "url"), chars)
+			return pageSummary(ctx, opts.Fetcher, ArgString(args, "url"), chars)
 		},
 	})
 
 	registry.Register(&Tool{
 		Name:        "inspect_html",
 		Description: "在网页上执行 CSS 选择器，返回匹配数量与样本 HTML，用于验证规则选择器。",
-		Schema: schemaObject(map[string]any{
-			"url":      strProp(""),
-			"selector": strProp("CSS 选择器"),
-			"limit":    intProp(""),
+		Schema: SchemaObject(map[string]any{
+			"url":      StrProp(""),
+			"selector": StrProp("CSS 选择器"),
+			"limit":    IntProp(""),
 		}, "url", "selector"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			return inspectHTML(ctx, opts.Fetcher, argString(args, "url"), argString(args, "selector"), argInt(args, "limit", 5))
+			return inspectHTML(ctx, opts.Fetcher, ArgString(args, "url"), ArgString(args, "selector"), ArgInt(args, "limit", 5))
 		},
 	})
 
 	registry.Register(&Tool{
 		Name:        "inspect_challenge",
 		Description: "检查一个页面是否是人机验证/反爬挑战页，返回标题、命中关键词、可疑选择器和建议的 challenge 规则片段。",
-		Schema: schemaObject(map[string]any{
-			"url":     strProp("页面地址，可含 {keyword}"),
-			"keyword": strProp("可选，用来替换 URL 里的 {keyword}"),
+		Schema: SchemaObject(map[string]any{
+			"url":     StrProp("页面地址，可含 {keyword}"),
+			"keyword": StrProp("可选，用来替换 URL 里的 {keyword}"),
 		}, "url"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			return inspectChallenge(ctx, opts.Fetcher, argString(args, "url"), argString(args, "keyword"))
+			return inspectChallenge(ctx, opts.Fetcher, ArgString(args, "url"), ArgString(args, "keyword"))
 		},
 	})
 
 	registry.Register(&Tool{
 		Name:        "detect_challenge_html",
 		Description: "分析一段已经取到的 HTML（例如 browser_html 渲染结果），判断是否包含人机验证特征并给出 challenge 规则建议。",
-		Schema: schemaObject(map[string]any{
-			"html":   strProp(""),
-			"url":    strProp(""),
-			"status": intProp(""),
+		Schema: SchemaObject(map[string]any{
+			"html":   StrProp(""),
+			"url":    StrProp(""),
+			"status": IntProp(""),
 		}, "html"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			status := argInt(args, "status", 200)
+			status := ArgInt(args, "status", 200)
 			if status <= 0 {
 				status = 200
 			}
-			return GenericSignals(argString(args, "html"), argString(args, "url"), status), nil
+			return GenericSignals(ArgString(args, "html"), ArgString(args, "url"), status), nil
 		},
 	})
 
 	registry.Register(&Tool{
 		Name:        "test_rule",
 		Description: "不保存规则，直接用一条搜索关键词测试规则是否能抓到结果。",
-		Schema: schemaObject(map[string]any{
-			"rule":    objectProp("完整规则对象"),
-			"keyword": strProp("测试关键词"),
-			"limit":   intProp(""),
+		Schema: SchemaObject(map[string]any{
+			"rule":    ObjectProp("完整规则对象"),
+			"keyword": StrProp("测试关键词"),
+			"limit":   IntProp(""),
 		}, "rule"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 			rule, err := ruleArg(args, "rule")
 			if err != nil {
 				return nil, err
 			}
-			keyword := strings.TrimSpace(argString(args, "keyword"))
+			keyword := strings.TrimSpace(ArgString(args, "keyword"))
 			if keyword == "" {
 				keyword = "电影"
 			}
-			return opts.Search.TestRule(rule, keyword, argInt(args, "limit", 10)), nil
+			return opts.Search.TestRule(rule, keyword, ArgInt(args, "limit", 10)), nil
 		},
 	})
 
@@ -327,9 +327,9 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		Description: "不保存规则，用一个详情页地址试播：返回解析出的播放地址、格式、请求头和选集；" +
 			"站点有多档清晰度时还会返回 qualities 列表（播放器据此让用户切换清晰度）。传 rule 可测试尚未保存的 play 配置。" +
 			"规则绑定了账号（search.account_id 或 play.account_id）时会带上该账号 Cookie，可验证登录后才可用的线路。",
-		Schema: schemaObject(map[string]any{
-			"detail_url": strProp("站点详情页地址（搜索结果里的 url）"),
-			"rule":       objectProp("可选：带 play 段的规则对象，用来测试还没保存的配置"),
+		Schema: SchemaObject(map[string]any{
+			"detail_url": StrProp("站点详情页地址（搜索结果里的 url）"),
+			"rule":       ObjectProp("可选：带 play 段的规则对象，用来测试还没保存的配置"),
 		}, "detail_url"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 			if opts.Play == nil {
@@ -343,7 +343,7 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 				}
 				rule = parsed
 			}
-			result, err := opts.Play.Resolve(argString(args, "detail_url"), "", "root", rule)
+			result, err := opts.Play.Resolve(ArgString(args, "detail_url"), "", "root", rule)
 			if err != nil {
 				return ErrorMap(err), nil
 			}
@@ -354,8 +354,8 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 	registry.Register(&Tool{
 		Name:        "save_rule",
 		Description: "保存新规则或更新已有规则（带 id 即更新）。保存前会做格式校验。",
-		Schema: schemaObject(map[string]any{
-			"rule": objectProp("完整规则对象"),
+		Schema: SchemaObject(map[string]any{
+			"rule": ObjectProp("完整规则对象"),
 		}, "rule"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 			rule, err := ruleArg(args, "rule")
@@ -373,13 +373,13 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 	registry.Register(&Tool{
 		Name:        "list_rules",
 		Description: "列出已保存的站点规则；管理员可看到完整搜索与解析配置。",
-		Schema: schemaObject(map[string]any{
-			"room_id": strProp(""),
-			"role":    strProp("root 或 guest"),
+		Schema: SchemaObject(map[string]any{
+			"room_id": StrProp(""),
+			"role":    StrProp("root 或 guest"),
 		}),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			roomID := argString(args, "room_id")
-			role := argString(args, "role")
+			roomID := ArgString(args, "room_id")
+			role := ArgString(args, "role")
 			if role == "" {
 				role = "root"
 			}
@@ -397,11 +397,11 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 	registry.Register(&Tool{
 		Name:        "get_rule",
 		Description: "按 id 读取一条站点规则的完整配置。",
-		Schema: schemaObject(map[string]any{
-			"rule_id": strProp(""),
+		Schema: SchemaObject(map[string]any{
+			"rule_id": StrProp(""),
 		}, "rule_id"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			rule, err := opts.Store.Get(argString(args, "rule_id"))
+			rule, err := opts.Store.Get(ArgString(args, "rule_id"))
 			if err != nil {
 				return nil, err
 			}
@@ -412,16 +412,16 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 	registry.Register(&Tool{
 		Name:        "update_rule",
 		Description: "局部修改一条规则（patch 会与现有规则合并，search/parse 是浅合并）。",
-		Schema: schemaObject(map[string]any{
-			"rule_id": strProp(""),
-			"patch":   objectProp(""),
+		Schema: SchemaObject(map[string]any{
+			"rule_id": StrProp(""),
+			"patch":   ObjectProp(""),
 		}, "rule_id", "patch"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 			patch, err := rawObjectArg(args, "patch")
 			if err != nil {
 				return nil, err
 			}
-			rule, err := opts.Store.Update(argString(args, "rule_id"), patch)
+			rule, err := opts.Store.Update(ArgString(args, "rule_id"), patch)
 			if err != nil {
 				return nil, err
 			}
@@ -432,11 +432,11 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 	registry.Register(&Tool{
 		Name:        "delete_rule",
 		Description: "删除一条站点规则。",
-		Schema: schemaObject(map[string]any{
-			"rule_id": strProp(""),
+		Schema: SchemaObject(map[string]any{
+			"rule_id": StrProp(""),
 		}, "rule_id"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			ruleID := argString(args, "rule_id")
+			ruleID := ArgString(args, "rule_id")
 			deleted, err := opts.Store.Delete(ruleID)
 			if err != nil {
 				return nil, err
@@ -448,19 +448,19 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 	registry.Register(&Tool{
 		Name:        "search_site",
 		Description: "用已保存的站点规则执行一次搜索（调试用）。",
-		Schema: schemaObject(map[string]any{
-			"site":    strProp("规则 id、域名或 URL"),
-			"keyword": strProp(""),
-			"room_id": strProp(""),
-			"role":    strProp(""),
+		Schema: SchemaObject(map[string]any{
+			"site":    StrProp("规则 id、域名或 URL"),
+			"keyword": StrProp(""),
+			"room_id": StrProp(""),
+			"role":    StrProp(""),
 		}, "site", "keyword"),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			role := argString(args, "role")
+			role := ArgString(args, "role")
 			if role == "" {
 				role = "root"
 			}
-			result, err := opts.Search.Search(argString(args, "site"), argString(args, "keyword"),
-				argString(args, "room_id"), role, 0, nil, true)
+			result, err := opts.Search.Search(ArgString(args, "site"), ArgString(args, "keyword"),
+				ArgString(args, "room_id"), role, 0, nil, true)
 			if err != nil {
 				return ErrorMap(err), nil
 			}
@@ -474,18 +474,18 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 			Name: "search_logs",
 			Description: "读取最近的搜索日志（默认只看失败），用于诊断空结果、选择器漂移、验证码或登录墙；" +
 				"含请求 URL、状态码、响应摘要与错误文本。",
-			Schema: schemaObject(map[string]any{
-				"limit":         intProp("最多返回条数，默认 20"),
-				"site":          strProp("按规则 id / 域名 / 站点名过滤"),
-				"failures_only": boolProp("只看失败记录，默认 true"),
-				"source":        strProp("search、test 或 mcp"),
+			Schema: SchemaObject(map[string]any{
+				"limit":         IntProp("最多返回条数，默认 20"),
+				"site":          StrProp("按规则 id / 域名 / 站点名过滤"),
+				"failures_only": BoolProp("只看失败记录，默认 true"),
+				"source":        StrProp("search、test 或 mcp"),
 			}),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 				failuresOnly := true
 				if _, present := args["failures_only"]; present {
-					failuresOnly = argBool(args, "failures_only", true)
+					failuresOnly = ArgBool(args, "failures_only", true)
 				}
-				logs := log.List(argInt(args, "limit", 20), argString(args, "site"), failuresOnly, argString(args, "source"))
+				logs := log.List(ArgInt(args, "limit", 20), ArgString(args, "site"), failuresOnly, ArgString(args, "source"))
 				return map[string]any{"success": true, "logs": logs, "count": len(logs), "total": log.Count()}, nil
 			},
 		})
@@ -494,16 +494,16 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 	registry.Register(&Tool{
 		Name:        "list_sites",
 		Description: "列出当前房间/角色可用的站点（供前端一起看展示）。",
-		Schema: schemaObject(map[string]any{
-			"room_id": strProp(""),
-			"role":    strProp(""),
+		Schema: SchemaObject(map[string]any{
+			"room_id": StrProp(""),
+			"role":    StrProp(""),
 		}),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-			role := argString(args, "role")
+			role := ArgString(args, "role")
 			if role == "" {
 				role = "guest"
 			}
-			sites := opts.Search.ListSites(argString(args, "room_id"), role)
+			sites := opts.Search.ListSites(ArgString(args, "room_id"), role)
 			return map[string]any{"success": true, "sites": sites, "count": len(sites)}, nil
 		},
 	})
@@ -512,7 +512,7 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		registry.Register(&Tool{
 			Name:        "browser_status",
 			Description: "查看离屏浏览器状态（是否安装、是否运行、当前页面）。",
-			Schema:      schemaObject(nil),
+			Schema:      SchemaObject(nil),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 				return map[string]any{"success": true, "browser": browser.Status()}, nil
 			},
@@ -521,12 +521,12 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		registry.Register(&Tool{
 			Name:        "browser_open",
 			Description: "用离屏浏览器打开一个页面（会执行 JS，适合 SPA 或需要登录的站点），返回标题和正文片段。",
-			Schema: schemaObject(map[string]any{
-				"url":      strProp(""),
-				"wait_sec": numProp("额外等待秒数，最多 10"),
+			Schema: SchemaObject(map[string]any{
+				"url":      StrProp(""),
+				"wait_sec": NumProp("额外等待秒数，最多 10"),
 			}, "url"),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-				info, err := browser.OpenPage(ctx, argString(args, "url"), argFloat(args, "wait_sec", 0))
+				info, err := browser.OpenPage(ctx, ArgString(args, "url"), ArgFloat(args, "wait_sec", 0))
 				if err != nil {
 					return nil, err
 				}
@@ -537,12 +537,12 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		registry.Register(&Tool{
 			Name:        "browser_text",
 			Description: "读取离屏浏览器当前页面的正文文本，可用 CSS 选择器限定区域。",
-			Schema: schemaObject(map[string]any{
-				"selector":  strProp(""),
-				"max_chars": intProp(""),
+			Schema: SchemaObject(map[string]any{
+				"selector":  StrProp(""),
+				"max_chars": IntProp(""),
 			}),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-				text, pageURL, err := browser.PageText(ctx, argString(args, "selector"), argInt(args, "max_chars", 8000))
+				text, pageURL, err := browser.PageText(ctx, ArgString(args, "selector"), ArgInt(args, "max_chars", 8000))
 				if err != nil {
 					return nil, err
 				}
@@ -553,11 +553,11 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		registry.Register(&Tool{
 			Name:        "browser_html",
 			Description: "读取离屏浏览器当前页面的渲染后 HTML（用于查找动态生成的搜索表单/结果）。",
-			Schema: schemaObject(map[string]any{
-				"max_chars": intProp(""),
+			Schema: SchemaObject(map[string]any{
+				"max_chars": IntProp(""),
 			}),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-				htmlText, pageURL, err := browser.PageHTML(ctx, argInt(args, "max_chars", 60000))
+				htmlText, pageURL, err := browser.PageHTML(ctx, ArgInt(args, "max_chars", 60000))
 				if err != nil {
 					return nil, err
 				}
@@ -568,11 +568,11 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		registry.Register(&Tool{
 			Name:        "browser_eval",
 			Description: "在离屏浏览器页面里执行一段 JS 表达式并返回结果（可探测接口、读取 DOM、点击按钮）。",
-			Schema: schemaObject(map[string]any{
-				"script": strProp("JS 表达式，支持 await"),
+			Schema: SchemaObject(map[string]any{
+				"script": StrProp("JS 表达式，支持 await"),
 			}, "script"),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-				value, pageURL, err := browser.EvalValue(ctx, argString(args, "script"))
+				value, pageURL, err := browser.EvalValue(ctx, ArgString(args, "script"))
 				if err != nil {
 					return nil, err
 				}
@@ -583,11 +583,11 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		registry.Register(&Tool{
 			Name:        "browser_click",
 			Description: "点击离屏浏览器页面里的第一个匹配元素。",
-			Schema: schemaObject(map[string]any{
-				"selector": strProp(""),
+			Schema: SchemaObject(map[string]any{
+				"selector": StrProp(""),
 			}, "selector"),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-				result, err := browser.Click(ctx, argString(args, "selector"))
+				result, err := browser.Click(ctx, ArgString(args, "selector"))
 				if err != nil {
 					return nil, err
 				}
@@ -598,8 +598,8 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		registry.Register(&Tool{
 			Name:        "browser_cookies",
 			Description: "查看当前浏览器在某个域名下的 Cookie 名称与数量（不返回值，防止泄露）。",
-			Schema: schemaObject(map[string]any{
-				"site": strProp("域名，如 example.com"),
+			Schema: SchemaObject(map[string]any{
+				"site": StrProp("域名，如 example.com"),
 			}),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 				summary, err := browser.CookieSummary(ctx)
@@ -620,13 +620,13 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 		registry.Register(&Tool{
 			Name:        "generate_rule",
 			Description: "让大模型访问站点、自动生成搜索与解析规则；生成后会试搜并在成功时保存。",
-			Schema: schemaObject(map[string]any{
-				"url":     strProp("站点首页或搜索页 URL"),
-				"keyword": strProp("试搜关键词"),
-				"notes":   strProp("额外要求"),
+			Schema: SchemaObject(map[string]any{
+				"url":     StrProp("站点首页或搜索页 URL"),
+				"keyword": StrProp("试搜关键词"),
+				"notes":   StrProp("额外要求"),
 			}, "url"),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
-				return agent.Generate(ctx, argString(args, "url"), argString(args, "keyword"), argString(args, "notes"), "")
+				return agent.Generate(ctx, ArgString(args, "url"), ArgString(args, "keyword"), ArgString(args, "notes"), "")
 			},
 		})
 	}
@@ -799,7 +799,7 @@ func inspectChallenge(ctx context.Context, fetcher *Fetcher, target, keyword str
 
 // ---------------------------------------------------------------- 参数helper
 
-func schemaObject(properties map[string]any, required ...string) map[string]any {
+func SchemaObject(properties map[string]any, required ...string) map[string]any {
 	if properties == nil {
 		properties = map[string]any{}
 	}
@@ -810,7 +810,7 @@ func schemaObject(properties map[string]any, required ...string) map[string]any 
 	return schema
 }
 
-func strProp(description string) map[string]any {
+func StrProp(description string) map[string]any {
 	prop := map[string]any{"type": "string"}
 	if description != "" {
 		prop["description"] = description
@@ -818,7 +818,7 @@ func strProp(description string) map[string]any {
 	return prop
 }
 
-func intProp(description string) map[string]any {
+func IntProp(description string) map[string]any {
 	prop := map[string]any{"type": "integer"}
 	if description != "" {
 		prop["description"] = description
@@ -826,7 +826,7 @@ func intProp(description string) map[string]any {
 	return prop
 }
 
-func numProp(description string) map[string]any {
+func NumProp(description string) map[string]any {
 	prop := map[string]any{"type": "number"}
 	if description != "" {
 		prop["description"] = description
@@ -834,7 +834,7 @@ func numProp(description string) map[string]any {
 	return prop
 }
 
-func boolProp(description string) map[string]any {
+func BoolProp(description string) map[string]any {
 	prop := map[string]any{"type": "boolean"}
 	if description != "" {
 		prop["description"] = description
@@ -842,7 +842,7 @@ func boolProp(description string) map[string]any {
 	return prop
 }
 
-func objectProp(description string) map[string]any {
+func ObjectProp(description string) map[string]any {
 	prop := map[string]any{"type": "object"}
 	if description != "" {
 		prop["description"] = description
@@ -850,7 +850,7 @@ func objectProp(description string) map[string]any {
 	return prop
 }
 
-func argString(args map[string]any, key string) string {
+func ArgString(args map[string]any, key string) string {
 	value, ok := args[key]
 	if !ok || value == nil {
 		return ""
@@ -872,7 +872,7 @@ func argString(args map[string]any, key string) string {
 	}
 }
 
-func argInt(args map[string]any, key string, fallback int) int {
+func ArgInt(args map[string]any, key string, fallback int) int {
 	value, ok := args[key]
 	if !ok || value == nil {
 		return fallback
@@ -904,7 +904,7 @@ func argInt(args map[string]any, key string, fallback int) int {
 	return fallback
 }
 
-func argFloat(args map[string]any, key string, fallback float64) float64 {
+func ArgFloat(args map[string]any, key string, fallback float64) float64 {
 	value, ok := args[key]
 	if !ok || value == nil {
 		return fallback
@@ -922,7 +922,7 @@ func argFloat(args map[string]any, key string, fallback float64) float64 {
 	return fallback
 }
 
-func argBool(args map[string]any, key string, fallback bool) bool {
+func ArgBool(args map[string]any, key string, fallback bool) bool {
 	value, ok := args[key]
 	if !ok || value == nil {
 		return fallback

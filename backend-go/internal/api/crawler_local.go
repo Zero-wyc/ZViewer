@@ -11,6 +11,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -29,11 +30,25 @@ var (
 	crawlerBundle   *localCrawlerBundle
 )
 
-// localCrawlerBundle 把搜索与播放解析放在一起共享 store / fetcher / goja 运行时。
+// localCrawlerBundle 把搜索、播放解析与 LLM agent 放在一起，
+// 共享 store / fetcher / goja 运行时 / 离屏浏览器。
 type localCrawlerBundle struct {
+	root      string
+	store     *crawler.RuleStore
 	search    *crawler.SearchService
 	play      *crawler.PlayResolver
 	challenge *crawler.ChallengeStore
+	fetcher   *crawler.Fetcher
+	js        crawler.JSRunner
+	logStore  *crawler.SearchLogStore
+	browser   *crawler.Browser
+
+	// agent 按 config.json 的修改时间惰性构建：GUI 改完 Key/提示词
+	// 不需要重启后端，下一次请求自动用新配置。
+	agentMu   sync.Mutex
+	agent     *crawler.RuleAgent
+	agentRuns *crawler.AgentRunManager
+	agentMod  time.Time
 }
 
 // crawlerRoot 找爬虫根目录（其下有 data/rules）。
@@ -110,13 +125,24 @@ func localBundle() *localCrawlerBundle {
 	})
 	// 离屏浏览器：反爬/JS 渲染站点的最终兜底。二进制找不到时 Available() 为 false，
 	// PlayResolver 会自动跳过这一步。
-	play.SetBrowser(crawler.NewBrowser(crawler.BrowserOptions{
+	browser := crawler.NewBrowser(crawler.BrowserOptions{
 		ProfileDir: filepath.Join(root, "data", "browser-profile"),
 		Headless:   true,
-	}))
+	})
+	play.SetBrowser(browser)
 	challenges := crawler.NewChallengeStore(0, 0)
 	search.SetChallengeSessions(challenges)
-	crawlerBundle = &localCrawlerBundle{search: search, play: play, challenge: challenges}
+	crawlerBundle = &localCrawlerBundle{
+		root:      root,
+		store:     store,
+		search:    search,
+		play:      play,
+		challenge: challenges,
+		fetcher:   fetcher,
+		js:        js,
+		logStore:  logStore,
+		browser:   browser,
+	}
 	return crawlerBundle
 }
 
@@ -142,6 +168,63 @@ func localChallengeStore() *crawler.ChallengeStore {
 		return bundle.challenge
 	}
 	return nil
+}
+
+// localAgent 返回进程内的 LLM agent 与 run 管理器。
+//
+// config.json 比上次构建新（或还没构建过）就重建 agent——LLMClient 与
+// RuleAgent 都是无状态轻对象，重建成本可以忽略；run 管理器保留原对象，
+// 已在执行的对话不受影响。
+func (b *localCrawlerBundle) localAgent() (*crawler.RuleAgent, *crawler.AgentRunManager, error) {
+	b.agentMu.Lock()
+	defer b.agentMu.Unlock()
+	configPath := filepath.Join(b.root, "config.json")
+	mod := time.Time{}
+	if info, err := os.Stat(configPath); err == nil {
+		mod = info.ModTime()
+	}
+	if b.agent != nil && mod.Equal(b.agentMod) {
+		return b.agent, b.agentRuns, nil
+	}
+	config, err := crawler.LoadEngineConfig(b.root)
+	if err != nil {
+		return nil, nil, err
+	}
+	registry := crawler.BuildRegistry(crawler.ToolOptions{
+		Store:     b.store,
+		Search:    b.search,
+		Fetcher:   b.fetcher,
+		Play:      b.play,
+		SearchLog: b.logStore,
+		Browser:   b.browser,
+	})
+	agent, err := crawler.NewRuleAgent(
+		crawler.NewLLMClient(config.LLM), registry, b.store, b.search,
+		config.Agent, filepath.Join(b.root, "data"),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	// generate_rule 依赖 agent 本体，注册表先建、工具后补（与 Python 装配一致）。
+	registry.Register(&crawler.Tool{
+		Name:        "generate_rule",
+		Description: "让大模型访问站点、自动生成搜索与解析规则；生成后会试搜并在成功时保存。",
+		Schema: crawler.SchemaObject(map[string]any{
+			"url":     crawler.StrProp("站点首页或搜索页 URL"),
+			"keyword": crawler.StrProp("试搜关键词"),
+			"notes":   crawler.StrProp("额外要求"),
+		}, "url"),
+		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+			return agent.Generate(ctx, crawler.ArgString(args, "url"),
+				crawler.ArgString(args, "keyword"), crawler.ArgString(args, "notes"), "")
+		},
+	})
+	if b.agentRuns == nil {
+		b.agentRuns = crawler.NewAgentRunManager()
+	}
+	b.agent = agent
+	b.agentMod = mod
+	return agent, b.agentRuns, nil
 }
 
 // resetLocalCrawler 仅供测试：丢掉单例，下次调用重新探测目录。

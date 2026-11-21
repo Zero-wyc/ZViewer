@@ -59,13 +59,13 @@ func TestRegistryCallErrors(t *testing.T) {
 	called := false
 	registry.Register(&Tool{
 		Name: "echo", Description: "测试",
-		Schema: schemaObject(nil),
+		Schema: SchemaObject(nil),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 			called = true
-			if argString(args, "text") != "你好" {
-				t.Errorf("text = %q", argString(args, "text"))
+			if ArgString(args, "text") != "你好" {
+				t.Errorf("text = %q", ArgString(args, "text"))
 			}
-			return map[string]any{"success": true, "text": argString(args, "text")}, nil
+			return map[string]any{"success": true, "text": ArgString(args, "text")}, nil
 		},
 	})
 	result := registry.Call(nil, "missing", nil)
@@ -78,7 +78,7 @@ func TestRegistryCallErrors(t *testing.T) {
 	}
 	registry.Register(&Tool{
 		Name: "boom", Description: "测试",
-		Schema: schemaObject(nil),
+		Schema: SchemaObject(nil),
 		Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 			return nil, FetchError("超时", 408, "http://a.com", nil)
 		},

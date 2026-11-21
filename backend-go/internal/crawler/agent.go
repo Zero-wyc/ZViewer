@@ -131,7 +131,7 @@ var taskCompleteTool = controlTool(
 	"task_complete",
 	"当用户交办的任务已经全部完成时调用，summary 写要展示给用户的最终答复。任务没完成前不要调用；也不要用普通文字替代这个调用。",
 	map[string]any{
-		"summary": strProp("最终答复：完成了什么、规则 id/站点、验证结果或无法完成的原因。"),
+		"summary": StrProp("最终答复：完成了什么、规则 id/站点、验证结果或无法完成的原因。"),
 	},
 	"summary",
 )
@@ -140,7 +140,7 @@ var renameSessionTool = controlTool(
 	"rename_session",
 	"给当前会话重命名。开始处理任务后，用一句不超过 16 个中文字符的短语概括这次对话的主题。",
 	map[string]any{
-		"title": strProp("新的会话标题，最多 32 个字符，不要带引号。"),
+		"title": StrProp("新的会话标题，最多 32 个字符，不要带引号。"),
 	},
 	"title",
 )
@@ -149,7 +149,7 @@ var askUserTool = controlTool(
 	"ask_user",
 	"当任务无法继续、需要用户提供信息或做决定时调用：说明卡在哪里、需要用户做什么；有明确选项时用 options 给出 2~4 个。调用后本轮结束，等用户回复后再继续。",
 	map[string]any{
-		"question": strProp("给用户看的问题：说明卡在哪里、需要用户提供什么或决定什么。"),
+		"question": StrProp("给用户看的问题：说明卡在哪里、需要用户提供什么或决定什么。"),
 		"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "可选：2~4 个建议选项，方便用户直接选择。"},
 	},
 	"question",
@@ -246,6 +246,9 @@ func NewRuleAgent(llm *LLMClient, registry *ToolRegistry, store *RuleStore,
 
 // DefaultModel 当前 LLM 客户端配置的模型名。
 func (a *RuleAgent) DefaultModel() string { return strings.TrimSpace(a.llm.config.Model) }
+
+// HasTool 判断某个工具是否已注册（测试与诊断用）。
+func (a *RuleAgent) HasTool(name string) bool { return a.registry.Has(name) }
 
 func (a *RuleAgent) systemPrompt(base string) string {
 	custom := strings.TrimSpace(a.config.CustomPrompt)

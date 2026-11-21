@@ -43,6 +43,7 @@ func (s *Server) registerCrawlerRoutes(mux *http.ServeMux) {
 	// 人机验证页：iframe 无法携带 Authorization，所以按不可猜测的会话 ID 放行。
 	// 引擎只允许代访问该会话创建时的站点，Go 侧只做原样转发。
 	mux.HandleFunc("/api/crawler/challenge/", s.handleCrawlerChallengeProxy)
+	s.registerCrawlerAgentRoutes(mux)
 }
 
 // handleCrawlerChallengeProxy 原样转发验证页、静态资源、Cookie 与验证接口。
