@@ -37,7 +37,7 @@
   const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.info}</svg>`;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = selector => document.querySelector(selector);
-  const titles = { overview: '服务总览', connect: '连接方式', frp: 'FRP 穿透', cert: '证书与域名', cli: '高画质代理', mesh: 'EasyTier 虚拟组网', logs: '运行日志', settings: '应用设置' };
+  const titles = { overview: '服务总览', connect: '连接方式', frp: 'FRP 穿透', cert: '证书与域名', cli: '高画质代理', mesh: 'EasyTier 虚拟组网', crawler: '爬虫引擎', logs: '运行日志', settings: '应用设置' };
   let prefs = { closeToTray: true, remember: true };
   try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem('zviewer-ui-prefs') || '{}') }; } catch { /* Use safe defaults if storage is unavailable. */ }
   const state = {
@@ -47,6 +47,7 @@
     logLevel: 'all', logSource: 'all', logSearch: '', paused: false, cliDraft: null, cliEmbedUrl: '',
     meshDraft: null, meshSecretDraft: '', meshProbe: null,
     meshConfig: null, meshConfigDraft: null, meshConfigError: '', meshPreviewMode: 'form',
+    crawler: { info: null, loading: false, starting: false, error: '', tab: 'submissions', rules: [], ruleSource: '', sessions: [], sessionId: '', messages: [], submissions: [], autoGenerate: false, browser: null, loginBusy: false, chatBusy: false, autoTried: false },
     events: [], prefs, updateOpen: false, updateKey: ''
   };
   function clock() { return new Date().toLocaleTimeString('zh-CN', { hour12: false }); }
@@ -684,7 +685,7 @@
     pageView.hidden = state.page === 'cli'; cliView.hidden = state.page !== 'cli';
     $('#crumb').textContent = titles[state.page];
     document.querySelectorAll('[data-page]').forEach(a => { const active = a.dataset.page === state.page; a.classList.toggle('active', active); if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-    const markup = (state.live && state.views ? state.views : { overview, connect, frp, cert, cli, mesh, logs, settings })[state.page]();
+    const markup = (state.live && state.views ? state.views : { overview, connect, frp, cert, cli, mesh, crawler: crawlerPreview, logs, settings })[state.page]();
     // Both containers stay attached. Hiding the CLI view preserves its browsing context across navigation.
     if (frame && !state.cliEmbedUrl) frame.remove();
     else if (frame && frame.getAttribute('src') !== state.cliEmbedUrl) frame.setAttribute('src', state.cliEmbedUrl);
@@ -867,7 +868,10 @@
       navToggle.setAttribute('title', collapsed ? '展开导航' : '折叠导航');
     });
   }
-  window.ZViewerUI = { state, icon, esc, heading, button, notice, tutorial, render, navigate, toast, modal, preview: { overview, connect, frp, cert, cli, mesh, logs, settings, updateModal, syncUpdate }, refreshLogs, syncWorkspace };
+  function crawlerPreview() {
+    return heading('爬虫引擎', '用大模型生成站点规则，供一起看搜索影视。') + notice('爬虫引擎页只在桌面版中可用：需要本地 Python 服务与桌面桥接。', true);
+  }
+  window.ZViewerUI = { state, icon, esc, heading, button, notice, tutorial, render, navigate, toast, modal, preview: { overview, connect, frp, cert, cli, mesh, crawler: crawlerPreview, logs, settings, updateModal, syncUpdate }, refreshLogs, syncWorkspace };
   render();
   if (window.zviewerDesktop) {
     window.zviewerDesktop.info().then(info => {

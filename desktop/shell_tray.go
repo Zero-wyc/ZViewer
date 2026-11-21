@@ -27,6 +27,8 @@ const (
 	notificationMsg  = 0x00000001 // NIF_MESSAGE
 	notificationIcon = 0x00000002
 	notificationTip  = 0x00000004
+	notificationInfo = 0x00000010 // NIF_INFO
+	niifInfo         = 0x00000001
 	tpmReturnCmd     = 0x0100
 	tpmRightButton   = 0x0002
 	mfString         = 0x0000
@@ -232,6 +234,33 @@ func (t *trayIcon) tooltip() string {
 		status = "未启动"
 	}
 	return "ZViewer · " + status
+}
+
+// balloon 在托盘图标上弹一条系统通知（Win10/11 会进通知中心）。
+// 用 Shell_NotifyIcon 的 NIF_INFO，不依赖进程内 COM 或外部脚本。
+func (t *trayIcon) balloon(title, body string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.done || t.hwnd == 0 {
+		return
+	}
+	data := notifyIconData{
+		Wnd:              t.hwnd,
+		ID:               1,
+		Flags:            notificationInfo,
+		InfoFlags:        niifInfo,
+		TimeoutOrVersion: 10000,
+	}
+	data.Size = uint32(unsafe.Sizeof(data))
+	copyUTF16(data.InfoTitle[:], title)
+	copyUTF16(data.Info[:], body)
+	// NIM_MODIFY = 1
+	if result, _, _ := procShellNotifyIcon.Call(1, uintptr(unsafe.Pointer(&data))); result == 0 {
+		t.app.ctrl.Log("托盘通知发送失败", "tray", "WARN")
+	}
 }
 
 // refresh 在状态变化时更新提示文字。

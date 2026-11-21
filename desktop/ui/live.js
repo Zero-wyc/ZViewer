@@ -490,7 +490,7 @@
   function init(info) {
     if (initialized) return; initialized = true;
     state.live = true; state.info = info; state.native = true;
-    state.views = { overview, connect: ui.preview.connect, frp, cert, cli: ui.preview.cli, mesh: ui.preview.mesh, logs, settings }; state.frpConfigOverride = frpCode;
+    state.views = { overview, connect: ui.preview.connect, frp, cert, cli: ui.preview.cli, mesh: ui.preview.mesh, crawler: window.ZViewerCrawlerPage ? window.ZViewerCrawlerPage.page : ui.preview.crawler, logs, settings }; state.frpConfigOverride = frpCode;
     const buildLabel = $('.build-label');
     if (buildLabel) buildLabel.textContent = `WINDOWS DESKTOP · ${info.version}`;
     const status = $('.statusbar > span:last-child');

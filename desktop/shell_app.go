@@ -33,7 +33,10 @@ type App struct {
 	version  string
 	packaged bool
 
-	ctrl     *controller.Controller
+	ctrl *controller.Controller
+	// crawler 托管本机爬虫引擎（crawler/，Python）：GUI 不能直连 HTTP，
+	// 配置/规则/Agent 都经它转发，引擎进程也由它启停。
+	crawler  *crawlerBridge
 	quitting atomic.Bool
 	tray     *trayIcon
 }
@@ -66,6 +69,9 @@ func (a *App) bootstrap() error {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if a.crawler != nil {
+		a.crawler.ctx = ctx
+	}
 	a.tray = newTray(a)
 	go a.afterStartup()
 }
@@ -80,6 +86,22 @@ func (a *App) afterStartup() {
 	// 组网与主服务解耦：即使主服务没自动启动，配过自动入网的也会自己起来。
 	go a.ctrl.AutoStartMesh()
 	go a.checkUpdatesPeriodically()
+	// 爬虫引擎是网页端「全网搜片」的后端依赖：随控制台启动，房主不打开
+	// 爬虫页也能直接搜片。没有 Python / 没有 crawler 目录时静默跳过。
+	go func() {
+		if a.crawler == nil {
+			return
+		}
+		if available, reason := a.crawler.available(); !available {
+			a.ctrl.Log("爬虫引擎不可用："+reason, "crawler", "WARN")
+			return
+		}
+		if _, err := a.crawler.start(); err != nil {
+			a.ctrl.Log("爬虫引擎启动失败："+err.Error(), "crawler", "WARN")
+			return
+		}
+		go a.watchChallenges()
+	}()
 }
 
 // checkUpdatesPeriodically 启动后延迟检查一次，此后每 6 小时复检；只检查，不自动下载。
@@ -353,6 +375,28 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 		return true, nil
 	case "tunnel-refresh":
 		return a.ctrl.RefreshTunnel()
+	case "crawler-info":
+		return a.crawlerInfo()
+	case "crawler-start":
+		return a.crawler.start()
+	case "crawler-stop":
+		return a.crawler.stop()
+	case "crawler-api":
+		return a.crawlerAPI(payload)
+	case "crawler-rules":
+		return a.crawler.rules()
+	case "crawler-doc":
+		return a.crawler.docs()
+	case "crawler-config":
+		return a.crawler.llmConfig(), nil
+	case "crawler-config-save":
+		return a.crawler.saveLLM(payload)
+	case "crawler-export":
+		return a.crawler.exportRules()
+	case "crawler-import":
+		mode := payloadString(payload, "mode")
+		dryRun, _ := payload["dryRun"].(bool)
+		return a.crawler.importRules(mode, dryRun)
 	case "update-check":
 		return a.ctrl.CheckUpdate(true), nil
 	case "update-download":
@@ -612,6 +656,10 @@ func (a *App) quit() {
 		if err := a.ctrl.Shutdown(); err != nil {
 			a.ctrl.Log("停止受管服务失败："+err.Error(), "console", "ERROR")
 		}
+		// 爬虫引擎是独立子进程，必须在这里回收，否则退出后留下孤儿进程占端口。
+		if a.crawler != nil {
+			a.crawler.stopQuietly()
+		}
 		if a.tray != nil {
 			a.tray.remove()
 		}
@@ -628,6 +676,9 @@ func (a *App) beforeClose(context.Context) bool {
 }
 
 func (a *App) shutdown(context.Context) {
+	if a.crawler != nil {
+		a.crawler.stopQuietly()
+	}
 	if a.tray != nil {
 		a.tray.remove()
 	}
