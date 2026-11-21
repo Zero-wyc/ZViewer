@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Maximize2, Minimize2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/i18n'
+import { usePortalHost } from '@/lib/portal-host'
 
 /** 退出动画时长(与 Modal 一致,超时后卸载) */
 const OVERLAY_ANIMATION_DURATION = 220
@@ -36,6 +37,8 @@ export function FullscreenOverlay({
   const [webFullscreen, setWebFullscreen] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevOpenRef = useRef(open)
+  // 原生全屏时 body 级 portal 不可见，跟随 fullscreen 元素挂载
+  const portalHost = usePortalHost()
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -135,6 +138,6 @@ export function FullscreenOverlay({
         </div>
       </div>
     </div>,
-    document.body
+    portalHost ?? document.body
   )
 }

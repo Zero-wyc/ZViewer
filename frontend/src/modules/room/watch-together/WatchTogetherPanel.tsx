@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils'
 import {
   isIOSDevice,
   supportsContainerFullscreen,
-  getFullscreenElement,
+  isElementFullscreen,
   exitFullscreen,
   requestFullscreen,
 } from '@/lib/fullscreen-utils'
@@ -211,7 +211,9 @@ export function WatchTogetherPanel({
           // 对 .zart-stage 容器全屏，让控制栏/弹幕层等 UI 在全屏下可见可操作
           const stage = stageRef.current
           if (!stage) return
-          if (getFullscreenElement()) {
+          // 只有舞台自己在全屏时才退出：整页全屏（documentElement）下双击
+          // 应把播放器切进全屏，而不是退掉整页。
+          if (isElementFullscreen(stage)) {
             void exitFullscreen()
           } else {
             void requestFullscreen(stage).catch(() => {})

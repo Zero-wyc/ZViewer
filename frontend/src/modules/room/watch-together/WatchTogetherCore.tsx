@@ -58,6 +58,7 @@ import {
   isIOSDevice,
   supportsContainerFullscreen,
   getFullscreenElement,
+  isElementFullscreen,
   exitFullscreen,
   requestFullscreen,
   onFullscreenChange,
@@ -587,7 +588,10 @@ export function WatchTogetherCore({
     // backdrop-filter / will-change: transform 影响。
     const stage = stageRef.current
     if (!stage) return
-    if (getFullscreenElement()) {
+    // 只在自己（舞台）全屏时退出：若当前是整页全屏（音乐页那种
+    // documentElement 全屏）或别处全屏，按播放器全屏按钮应把播放器切进全屏，
+    // 而不是把别人退掉。
+    if (isElementFullscreen(stage)) {
       void exitFullscreen()
     } else {
       void requestFullscreen(stage).catch(() => {

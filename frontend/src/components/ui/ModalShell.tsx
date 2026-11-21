@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { usePortalHost } from '@/lib/portal-host'
 
 const ANIMATION_DURATION = 220
 
@@ -58,6 +59,9 @@ export function ModalShell({
   const [exiting, setExiting] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevOpenRef = useRef(open)
+  // 全屏时自动挂进 fullscreen 元素：body 级 portal 在原生全屏下不可见
+  // （观众申请、确认框、弹窗在播放器全屏时都得看得见）。
+  const autoHost = usePortalHost()
 
   // 入场/退场动画状态同步(受控 open → visible/exiting),与 ui/Modal 原实现一致;
   // React Compiler 严格规则对动画时序场景误报,参照 BilibiliDownloadModal 先例豁免。
@@ -168,6 +172,6 @@ export function ModalShell({
         {children}
       </div>
     </div>,
-    container ?? document.body
+    container ?? autoHost ?? document.body
   )
 }
