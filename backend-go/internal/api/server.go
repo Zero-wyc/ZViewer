@@ -219,6 +219,8 @@ func (s *Server) Handler() http.Handler {
 	// 前端产物版本探测：页面加载后比对入口脚本名，产物更新时提示刷新。
 	s.registerWebVersionRoutes(mux)
 	s.registerVoiceRoutes(mux)
+	// 爬虫引擎代理：网页端经此转发本机桌面引擎，无引擎时接口返回 503。
+	s.registerCrawlerRoutes(mux)
 	s.registerPiikShareRoutes(mux)
 	s.registerPiikVoiceRoutes(mux)
 	// 推流（OBS）：REST 下发配置，/live 反代到媒体服务（默认是进程内那个）。
