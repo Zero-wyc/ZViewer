@@ -1,5 +1,5 @@
 {
-  "total": 2873,
+  "total": 2880,
   "chunk": 120,
   "parts": [
     {
@@ -20,7 +20,7 @@
     {
       "id": "04-components",
       "bucket": "components",
-      "count": 2
+      "count": 9
     },
     {
       "id": "05-hooks",

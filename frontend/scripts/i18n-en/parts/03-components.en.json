@@ -1,5 +1,7 @@
 {
   "items": [
+    "Bitrate: {{bitrate}}",
+    "Stroke",
     "Default",
     "Directory is empty",
     "Embedded subtitle tracks",
@@ -18,6 +20,7 @@
     "Write a comment",
     "Choose an image file",
     "Cancel",
+    "Unpin",
     "In fullscreen, double-click {{label}} to toggle the right comment panel",
     "OK",
     "Hue",
@@ -34,6 +37,7 @@
     "Saved colors",
     "Hide advanced settings",
     "Enter text",
+    "Portrait",
     "Double-click to open comments",
     "Horizontal offset",
     "Horizontal position",
@@ -85,7 +89,7 @@
     "Corner radius",
     "GitCode project repository",
     "GitHub project repository",
-    "Open in a separate window (danmaku track / comments / live danmaku)",
+    "Open comments in a floating window",
     "No comments yet, be the first",
     "Increase color intensity (currently {{colorIntensity}}%)",
     "Account menu",
@@ -97,6 +101,7 @@
     "Live streams have no buffer",
     "Direct link",
     "One domain is all you need",
+    "Pin",
     "Retry",
     "Theme settings",
     "Main site CDN",
@@ -110,15 +115,10 @@
     "Custom backend address",
     "Custom source",
     "Custom theme",
+    "Auto-scroll",
+    "Auto-scroll to latest",
     "Auto-detect subtitles",
     "Move left {{value}}%",
-    "Bilibili",
-    "Bilibili CDN",
-    "CDN source",
-    "Hex color value",
-    "HTTP-FLV base address (leave blank to auto-detect)",
-    "https://.../sub.vtt or .srt/.ass",
-    "RTMP ingest port (leave blank to use the default 3334)",
-    "Video.js 10 (experimental)"
+    "Bilibili"
   ]
 }

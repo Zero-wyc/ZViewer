@@ -1,6 +1,5 @@
 {
   "items": [
-    "Stream URL copied (without the stream key)",
     "Stream status",
     "Exit picture-in-picture",
     "Network pull speed",
@@ -18,6 +17,7 @@
     "Approved to join room {{roomId}}",
     "Joined",
     "Joined the room",
+    "Switched to WebRTC sharing; OBS streaming has been disconnected",
     "Packets received / sent",
     "Stopped",
     "Mostly music, uses more bandwidth",

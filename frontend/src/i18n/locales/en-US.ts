@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2878 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2885 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -42,7 +42,7 @@ const enUS: Record<string, string> = {
   '最大值为 {{max}}': 'Maximum is {{max}}',
   '最小值为 {{min}}': 'Minimum is {{min}}',
 
-  // ===== components（242 条） =====
+  // ===== components（249 条） =====
   '· 强度 {{colorIntensity}}%': '· Intensity {{colorIntensity}}%',
   '(相对路径 /live)': '(relative path /live)',
   '），其余三项留空将自动跟随。请确保已在服务器上配置反向代理（Nginx / Caddy），将以下路径统一转发到后端服务：': '), leave the other three blank to follow automatically. Make sure your server has a reverse proxy (Nginx / Caddy) forwarding the paths below to the backend:',
@@ -55,6 +55,7 @@ const enUS: Record<string, string> = {
   '饱和度与明度': 'Saturation and lightness',
   '保存': 'Save',
   '背景模糊（一起看 / 投屏）': 'Background blur (watch together / screen share)',
+  '背景透明度': 'Background opacity',
   '本地上传': 'Upload from this device',
   '编码': 'Codec',
   '编码: {{codec}}': 'Codec: {{codec}}',
@@ -127,6 +128,7 @@ const enUS: Record<string, string> = {
   '管理页面': 'Admin',
   '管理员': 'Administrator',
   '黑遮罩': 'Black mask',
+  '横屏': 'Landscape',
   '后端地址已保存，即将刷新页面生效': 'Backend address saved, reloading the page to apply',
   '华为云': 'Huawei Cloud',
   '画笔': 'Brush',
@@ -181,6 +183,7 @@ const enUS: Record<string, string> = {
   '请输入评论内容': 'Write a comment',
   '请选择图片文件': 'Choose an image file',
   '取消': 'Cancel',
+  '取消置顶': 'Unpin',
   '全屏播放时双击 {{label}} 开/关右侧评论区': 'In fullscreen, double-click {{label}} to toggle the right comment panel',
   '确定': 'OK',
   '色相': 'Hue',
@@ -197,6 +200,7 @@ const enUS: Record<string, string> = {
   '收藏的颜色': 'Saved colors',
   '收起高级设置': 'Hide advanced settings',
   '输入文字': 'Enter text',
+  '竖屏': 'Portrait',
   '双击打开评论区': 'Double-click to open comments',
   '水平位移': 'Horizontal offset',
   '水平位置': 'Horizontal position',
@@ -248,7 +252,7 @@ const enUS: Record<string, string> = {
   '圆角': 'Corner radius',
   '在 GitCode 查看项目仓库': 'GitCode project repository',
   '在 GitHub 查看项目仓库': 'GitHub project repository',
-  '在独立窗口打开（弹幕轨道 / 评论区 / 实时弹幕）': 'Open in a separate window (danmaku track / comments / live danmaku)',
+  '在悬浮窗打开评论区': 'Open comments in a floating window',
   '暂无评论，快来第一条吧': 'No comments yet, be the first',
   '增强颜色强度（当前 {{colorIntensity}}%）': 'Increase color intensity (currently {{colorIntensity}}%)',
   '账户菜单': 'Account menu',
@@ -260,6 +264,7 @@ const enUS: Record<string, string> = {
   '直播流无缓冲': 'Live streams have no buffer',
   '直链': 'Direct link',
   '只需填写一个域名即可': 'One domain is all you need',
+  '置顶': 'Pin',
   '重试': 'Retry',
   '主题设置': 'Theme settings',
   '主站 CDN': 'Main site CDN',
@@ -273,6 +278,8 @@ const enUS: Record<string, string> = {
   '自定义后端地址': 'Custom backend address',
   '自定义源': 'Custom source',
   '自定义主题': 'Custom theme',
+  '自动滚动': 'Auto-scroll',
+  '自动滚动到最新': 'Auto-scroll to latest',
   '自动识别字幕': 'Auto-detect subtitles',
   '左移{{value}}%': 'Move left {{value}}%',
   'B 站': 'Bilibili',
@@ -2683,7 +2690,6 @@ const enUS: Record<string, string> = {
   '请输入房间号': 'Enter the room ID',
   '请输入房间密码': 'Enter the room password',
   '请输入要加入的房间号': 'Enter the room ID to join',
-  '请先在 OBS 中停止推流再切换到 WebRTC 共享': 'Stop the stream in OBS before switching to WebRTC sharing',
   '确认加入': 'Confirm join',
   '确认结束': 'Confirm ending',
   '人声为主，省带宽': 'Mostly speech, saves bandwidth',
@@ -2697,7 +2703,7 @@ const enUS: Record<string, string> = {
   '视频分辨率': 'Video resolution',
   '输入房间密码': 'Enter the room password',
   '刷新连接': 'Refresh the connection',
-  '提示：结束推流请在 OBS 中点击「停止推流」。切换回 WebRTC 共享前请先停止 OBS 推流。': 'Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing.',
+  '提示：结束推流请在 OBS 中点击「停止推流」；切换到其他共享方式会立即断开 OBS 推流。': 'Tip: stop streaming from OBS by clicking “Stop Streaming”. Switching to another sharing method disconnects OBS streaming immediately.',
   '推流地址已复制（不含流密钥）': 'Stream URL copied (without the stream key)',
   '推流状态': 'Stream status',
   '退出画中画': 'Exit picture-in-picture',
@@ -2716,6 +2722,7 @@ const enUS: Record<string, string> = {
   '已获准加入房间 {{roomId}}': 'Approved to join room {{roomId}}',
   '已加入': 'Joined',
   '已加入房间': 'Joined the room',
+  '已切换为 WebRTC 共享，OBS 推流已断开': 'Switched to WebRTC sharing; OBS streaming has been disconnected',
   '已收/已发数据包': 'Packets received / sent',
   '已停止': 'Stopped',
   '音乐为主，占用更高': 'Mostly music, uses more bandwidth',

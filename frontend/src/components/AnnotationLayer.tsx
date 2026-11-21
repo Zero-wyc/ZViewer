@@ -426,6 +426,7 @@ export const AnnotationLayer = forwardRef<
     >
       <canvas
         ref={canvasRef}
+        data-annotation-canvas=""
         className="absolute inset-0 touch-none"
         style={{ cursor, opacity: 0.95 }}
         onPointerDown={handlePointerDown}
@@ -473,8 +474,8 @@ interface AnnotationToolbarProps {
   onClear?: () => void
   canClear?: boolean
   /**
-   * 横屏矮窗（手机横屏 / 网页全屏横屏）：竖向面板会从底部往上顶到画面上沿，
-   * 在 360~450px 高的视口里只剩一条缝。命中时改成横排工具条，高度 ~40px。
+   * 横屏矮窗（手机横屏 / 网页全屏横屏）：竖向面板会从控制栏往上顶到画面上沿，
+   * 在 360~450px 高的视口里只剩一条缝。改成横排工具条，高度 ~40px。
    */
   compact?: boolean
 }
@@ -556,7 +557,7 @@ export function AnnotationToolbar({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white/80 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+    <div className="max-w-[min(90vw,20rem)] rounded-lg border border-slate-200 bg-white/80 p-3 dark:border-slate-700 dark:bg-slate-800/80">
       <Text className="mb-2 font-medium">{t('批注工具')}</Text>
       <Space wrap className="justify-start" size="sm">
         <Button

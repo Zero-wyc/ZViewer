@@ -12,6 +12,7 @@
     "Saturation and lightness",
     "Save",
     "Background blur (watch together / screen share)",
+    "Background opacity",
     "Upload from this device",
     "Codec",
     "Codec: {{codec}}",
@@ -84,6 +85,7 @@
     "Admin",
     "Administrator",
     "Black mask",
+    "Landscape",
     "Backend address saved, reloading the page to apply",
     "Huawei Cloud",
     "Brush",
@@ -117,8 +119,6 @@
     "Failed to browse directory",
     "Browser transcoding (playsvideo)",
     "Leave blank",
-    "Bitrate",
-    "Bitrate: {{bitrate}}",
-    "Stroke"
+    "Bitrate"
   ]
 }
