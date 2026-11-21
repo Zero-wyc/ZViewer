@@ -1,5 +1,5 @@
 {
-  "_comment": "复制为 config.json 后填写 llm.api_key（也可在 GUI「爬虫引擎 → 大模型」里配置）。config.json 不入库。",
+  "_comment": "复制为 config.json 后填写 llm.api_key（也可在 GUI「爬虫引擎 → 设置」里配置）。config.json 不入库。引擎已并入后端，无需配置端口/解释器。",
   "llm": {
     "base_url": "https://api.deepseek.com/v1",
     "api_key": "",
@@ -8,17 +8,6 @@
     "max_tokens": 2048,
     "timeout_sec": 90,
     "reasoning_effort": "medium"
-  },
-  "engine": {
-    "host": "127.0.0.1",
-    "port": 3789,
-    "admin_token": "",
-    "request_timeout_sec": 25,
-    "max_bytes": 3145728,
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "max_concurrent": 2,
-    "node_bin": "",
-    "script_timeout_sec": 20
   },
   "browser": {
     "enabled": true,
@@ -38,10 +27,6 @@
     "max_page_chars": 6000,
     "sample_keyword": "电影",
     "reasoning_effort": ""
-  },
-  "submissions": {
-    "auto_generate": false,
-    "reasoning_effort": "medium"
   },
   "repair": {
     "enabled": false,
