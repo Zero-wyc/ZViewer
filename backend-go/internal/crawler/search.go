@@ -191,8 +191,9 @@ func (s *SearchService) runScript(script Script, payload map[string]any, label s
 	if s.js == nil {
 		return nil, RuleError("引擎未配置 JS 运行时，无法执行脚本规则", nil)
 	}
-	if script.Runtime != "" && script.Runtime != "node" {
-		return nil, RuleError(label+" 脚本只支持 node 运行时", nil)
+	// Python 版写的是 "node"；内置 goja 用 "script" 标识，两者都接受（空=默认）。
+	if runtime := strings.TrimSpace(script.Runtime); runtime != "" && runtime != "node" && runtime != "script" {
+		return nil, RuleError(label+" 脚本不支持该运行时: "+runtime, nil)
 	}
 	outcome, err := s.js.Run(script.Source, payload, script.TimeoutSec)
 	if err != nil {

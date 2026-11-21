@@ -369,8 +369,8 @@ func (r *PlayResolver) runScript(script Script, payload map[string]any) (map[str
 	if r.js == nil {
 		return nil, RuleError("引擎未配置 JS 运行时，无法执行播放脚本", nil)
 	}
-	if script.Runtime != "" && script.Runtime != "node" {
-		return nil, RuleError("播放脚本只支持 node 运行时", nil)
+	if runtime := strings.TrimSpace(script.Runtime); runtime != "" && runtime != "node" && runtime != "script" {
+		return nil, RuleError("播放脚本不支持该运行时: "+runtime, nil)
 	}
 	outcome, err := r.js.Run(script.Source, payload, script.TimeoutSec)
 	if err != nil {

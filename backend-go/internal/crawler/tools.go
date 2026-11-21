@@ -224,6 +224,7 @@ type ToolOptions struct {
 	Fetcher      *Fetcher
 	Play         *PlayResolver
 	SearchLog    *SearchLogStore
+	Accounts     *AccountStore
 	Browser      *Browser
 	Agent        *RuleAgent
 	MaxPageChars int
@@ -507,6 +508,81 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 			return map[string]any{"success": true, "sites": sites, "count": len(sites)}, nil
 		},
 	})
+
+	if accounts := opts.Accounts; accounts != nil {
+		registry.Register(&Tool{
+			Name:        "list_accounts",
+			Description: "列出已保存的站点账号（密码/Cookie 已掩码），用于给规则绑定登录态。",
+			Schema:      SchemaObject(nil),
+			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				items := accounts.List(true)
+				return map[string]any{"success": true, "accounts": items, "count": len(items)}, nil
+			},
+		})
+
+		registry.Register(&Tool{
+			Name:        "save_account",
+			Description: "保存或更新一个站点账号（username/password/cookies/headers）。同名会覆盖。",
+			Schema: SchemaObject(map[string]any{
+				"account": ObjectProp("账号对象：id/name/site/username/password/cookies/headers/notes"),
+			}, "account"),
+			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				raw, ok := args["account"].(map[string]any)
+				if !ok {
+					return nil, RuleError("account 必须是对象", nil)
+				}
+				saved, err := accounts.Save(raw)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"success": true, "account": PublicAccountView(saved, true)}, nil
+			},
+		})
+
+		registry.Register(&Tool{
+			Name:        "delete_account",
+			Description: "删除一个站点账号。",
+			Schema: SchemaObject(map[string]any{
+				"account_id": StrProp(""),
+			}, "account_id"),
+			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				accountID := ArgString(args, "account_id")
+				deleted := accounts.Delete(accountID)
+				return map[string]any{"success": deleted, "accountId": accountID, "deleted": deleted}, nil
+			},
+		})
+
+		registry.Register(&Tool{
+			Name: "bind_account",
+			Description: "把账号绑定到一条站点规则（写入 rule.search.account_id；规则已有 play 段时同步写入 play.account_id）。" +
+				"绑定即表示用户同意引擎在该规则的搜索、播放解析与 test_play 中使用该账号 Cookie；未获用户同意不要调用。",
+			Schema: SchemaObject(map[string]any{
+				"rule_id":    StrProp(""),
+				"account_id": StrProp("传空字符串表示解绑"),
+			}, "rule_id", "account_id"),
+			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				ruleID := ArgString(args, "rule_id")
+				accountID := ArgString(args, "account_id")
+				current, err := opts.Store.Get(ruleID)
+				if err != nil {
+					return nil, err
+				}
+				patch := map[string]json.RawMessage{}
+				searchPatch, _ := json.Marshal(map[string]any{"account_id": accountID})
+				patch["search"] = searchPatch
+				// 已有 play 段时同步写入，播放解析 / test_play 也能带上登录态。
+				if current.Play != nil {
+					playPatch, _ := json.Marshal(map[string]any{"account_id": accountID})
+					patch["play"] = playPatch
+				}
+				rule, err := opts.Store.Update(ruleID, patch)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"success": true, "rule": PublicView(rule, true)}, nil
+			},
+		})
+	}
 
 	if browser != nil {
 		registry.Register(&Tool{

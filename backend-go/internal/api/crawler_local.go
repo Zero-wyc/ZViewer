@@ -42,6 +42,7 @@ type localCrawlerBundle struct {
 	js        crawler.JSRunner
 	logStore  *crawler.SearchLogStore
 	browser   *crawler.Browser
+	accounts  *crawler.AccountStore
 
 	// agent 按 config.json 的修改时间惰性构建：GUI 改完 Key/提示词
 	// 不需要重启后端，下一次请求自动用新配置。
@@ -112,16 +113,23 @@ func localBundle() *localCrawlerBundle {
 		filepath.Join(root, "data", "search-log.json"),
 		crawler.DefaultSearchLogLimit,
 	)
+	// 账号库：规则的 search.account_id / play.account_id 在这里解析成 Cookie。
+	accounts, err := crawler.NewAccountStore(filepath.Join(root, "data", "accounts.json"))
+	if err != nil {
+		accounts = nil
+	}
 	search := crawler.NewSearchService(crawler.SearchOptions{
-		Store:   store,
-		Fetcher: fetcher,
-		Log:     logStore,
+		Store:    store,
+		Fetcher:  fetcher,
+		Log:      logStore,
+		Accounts: accounts,
 	})
 	search.SetJSRuntime(js)
 	play := crawler.NewPlayResolver(crawler.PlayOptions{
-		Store:   store,
-		Fetcher: fetcher,
-		JS:      js,
+		Store:    store,
+		Fetcher:  fetcher,
+		JS:       js,
+		Accounts: accounts,
 	})
 	// 离屏浏览器：反爬/JS 渲染站点的最终兜底。二进制找不到时 Available() 为 false，
 	// PlayResolver 会自动跳过这一步。
@@ -142,6 +150,7 @@ func localBundle() *localCrawlerBundle {
 		js:        js,
 		logStore:  logStore,
 		browser:   browser,
+		accounts:  accounts,
 	}
 	return crawlerBundle
 }
@@ -196,6 +205,7 @@ func (b *localCrawlerBundle) localAgent() (*crawler.RuleAgent, *crawler.AgentRun
 		Fetcher:   b.fetcher,
 		Play:      b.play,
 		SearchLog: b.logStore,
+		Accounts:  b.accounts,
 		Browser:   b.browser,
 	})
 	agent, err := crawler.NewRuleAgent(

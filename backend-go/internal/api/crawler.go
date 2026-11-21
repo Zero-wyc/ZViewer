@@ -44,6 +44,7 @@ func (s *Server) registerCrawlerRoutes(mux *http.ServeMux) {
 	// 引擎只允许代访问该会话创建时的站点，Go 侧只做原样转发。
 	mux.HandleFunc("/api/crawler/challenge/", s.handleCrawlerChallengeProxy)
 	s.registerCrawlerAgentRoutes(mux)
+	s.registerCrawlerManageRoutes(mux)
 }
 
 // handleCrawlerChallengeProxy 原样转发验证页、静态资源、Cookie 与验证接口。

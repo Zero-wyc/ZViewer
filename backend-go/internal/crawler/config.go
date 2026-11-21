@@ -64,6 +64,29 @@ func (c *EngineConfig) Save(root string) error {
 	return os.WriteFile(filepath.Join(root, "config.json"), append(encoded, '\n'), 0o644)
 }
 
+// ApplyRaw 用一份完整配置重建结构体字段（PUT 合并后调用）。
+func (c *EngineConfig) ApplyRaw(decoded map[string]any) {
+	c.apply(decoded)
+}
+
+// DeepMerge 递归合并两个 JSON 对象（patch 覆盖 base；数组整体替换）。
+func DeepMerge(base, patch map[string]any) map[string]any {
+	merged := make(map[string]any, len(base)+len(patch))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range patch {
+		existing, existingIsMap := merged[key].(map[string]any)
+		incoming, incomingIsMap := value.(map[string]any)
+		if existingIsMap && incomingIsMap {
+			merged[key] = DeepMerge(existing, incoming)
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
+}
+
 func (c *EngineConfig) apply(decoded map[string]any) {
 	if llm, ok := decoded["llm"].(map[string]any); ok {
 		c.LLM.BaseURL = textOf(llm["base_url"], "https://api.deepseek.com/v1")
