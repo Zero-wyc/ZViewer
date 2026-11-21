@@ -42,9 +42,35 @@ export interface KazumiSourceMeta extends AniSubsSourceMeta {
   kind: 'kazumi'
 }
 
-/** 影片元数据联合类型（ani-subs / Kazumi / CMS 三类数据源） */
+/**
+ * 爬虫引擎搜索到的影片元数据。
+ *
+ * 播放地址由站点规则实时解析，通常带时效签名；播放时必须用 pageUrl
+ * 重新解析，不能依赖落库的直链（几分钟后就可能 402/失效）。
+ */
+export interface CrawlerSourceMeta {
+  kind: 'crawler'
+  /** 后端 sourceMeta 校验要求该字段存在，这里复用详情页地址 */
+  sourceId: string
+  /** 搜索结果里的详情页/播放页地址，用于重新解析 */
+  pageUrl: string
+  site?: string
+  ruleId?: string
+  title?: string
+  /** 解析时引擎返回的请求头（Referer/UA 等），重解析失败时兜底 */
+  headers?: Record<string, string>
+  /** 站点支持的清晰度档位名（规则返回 qualities 时才有；供播放器下拉选择） */
+  qualities?: string[]
+  /** 当前选中的清晰度档位名；缺省表示站点只有一档或未选择 */
+  quality?: string
+}
+
+/** 影片元数据联合类型（ani-subs / Kazumi / CMS / 爬虫引擎） */
 export type MovieSourceMeta =
-  AniSubsSourceMeta | KazumiSourceMeta | CmsSourceMeta
+  | AniSubsSourceMeta
+  | KazumiSourceMeta
+  | CmsSourceMeta
+  | CrawlerSourceMeta
 
 function jsonHeaders(): Record<string, string> {
   return { 'Content-Type': 'application/json' }

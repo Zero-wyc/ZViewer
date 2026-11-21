@@ -43,6 +43,7 @@ import {
 } from '@/modules/movie-source/resolveSource'
 import { useBilibiliQrLogin } from '@/modules/bilibili/useBilibiliQrLogin'
 import { BiliSearchModal } from './BiliSearchModal'
+import { CrawlerSearchModal } from './CrawlerSearchModal'
 import {
   resolveOpenList,
   fetchOpenListDirectUrl,
@@ -250,6 +251,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     logTag: 'MoviePushPanel',
   })
   const [biliSearchOpen, setBiliSearchOpen] = useState(false)
+  const [crawlerSearchOpen, setCrawlerSearchOpen] = useState(false)
 
   useEffect(() => {
     void fetchSettings()
@@ -1269,6 +1271,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             disabled={!isHost}
             onResolve={() => void handleResolve()}
             onOpenSearch={() => setBiliSearchOpen(true)}
+            onOpenCrawlerSearch={() => setCrawlerSearchOpen(true)}
           />
         )
       case 'mp4':
@@ -1826,6 +1829,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           }}
         />
       )}
+
+      <CrawlerSearchModal
+        open={crawlerSearchOpen}
+        onClose={() => setCrawlerSearchOpen(false)}
+      />
 
       {sourceType === 'bilibili' && resolvedMovie?.pages && (
         <Modal
