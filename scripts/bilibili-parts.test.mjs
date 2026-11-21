@@ -4,13 +4,28 @@ import { readFile } from 'node:fs/promises'
 import { stripTypeScriptTypes } from 'node:module'
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 
-async function load(root='../frontend/src/') {
- const context=createContext({Set,Number,Error})
- const source=await readFile(new URL(root+'modules/music/bilibiliPlaylist.ts',import.meta.url),'utf8')
- const module=new SourceTextModule(stripTypeScriptTypes(source),{context})
- await module.link(name=>{const values=name.includes('neteaseImage')?{portableMusicCoverUrl:value=>value}:{getBilibiliVideoView:async()=>{throw Error('No live request')}};
- return new SyntheticModule(Object.keys(values),function(){for(const [key,value]of Object.entries(values))this.setExport(key,value)},{context})})
- await module.evaluate();return module.namespace
+async function load() {
+  const context = createContext({ Set, Number, Error, URL })
+  async function sourceModule(url) {
+    const source = await readFile(url, 'utf8')
+    return new SourceTextModule(stripTypeScriptTypes(source), { context, identifier: url.href })
+  }
+
+  const module = await sourceModule(new URL('../frontend/src/modules/music/bilibiliPlaylist.ts', import.meta.url))
+  await module.link((name, parent) => {
+    if (name.startsWith('./')) return sourceModule(new URL(name + '.ts', parent.identifier))
+    if (name === '@/i18n') {
+      return new SyntheticModule(['t'], function () {
+        this.setExport('t', text => text)
+      }, { context })
+    }
+    assert.equal(name, '@/modules/bilibili/bilibiliApi', `Unexpected import: ${name}`)
+    return new SyntheticModule(['getBilibiliVideoView'], function () {
+      this.setExport('getBilibiliVideoView', async () => { throw Error('No live request') })
+    }, { context })
+  })
+  await module.evaluate()
+  return module.namespace
 }
 const item={bvid:'BV1BDk2YCEHF',title:'150 songs',duration:40057,pic:'https://fixture.invalid/cover.jpg'}
 const view={...item,cid:101,upName:'fixture',pages:[{page:2,cid:202,part:'第二首',duration:250},{page:1,cid:101,part:'第一首',duration:212}]}

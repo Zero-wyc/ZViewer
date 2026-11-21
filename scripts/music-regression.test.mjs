@@ -10,7 +10,11 @@ function load(file) {
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS },
   }).outputText;
-  new Function('exports', 'require', code)(exports, require);
+  function testRequire(name) {
+    if (name === '@/i18n') return { t: text => text };
+    return require(name);
+  }
+  new Function('exports', 'require', code)(exports, testRequire);
   return exports;
 }
 const { initialMusicVolume } = load('frontend/src/modules/music/utils/volume.ts');
