@@ -1,5 +1,9 @@
 {
   "items": [
+    "Verification complete; search results loaded",
+    "Verifying…",
+    "Clear all",
+    "Watch together",
     "Remove from room",
     "Failed to remove all movies",
     "Removed {{value}}'s moderator role",
@@ -65,6 +69,7 @@
     "Cannot play in remote sharing mode",
     "Cannot delete in remote sharing mode",
     "Allow",
+    "Allow this member to add movies",
     "Online ({{length}})",
     "Online viewers ({{length}})",
     "Online users",
@@ -114,11 +119,6 @@
     "The host controls the live quality",
     "Stream directly, no need to wait for caching",
     "Direct",
-    "Connects to the origin directly, using no server bandwidth",
-    "Direct link",
-    "Direct link (the browser reaches the mount server itself)",
-    "Only the host or a moderator can delete movies",
-    "Only the host or a moderator can remove movies",
-    "Only the host can play movies"
+    "Connects to the origin directly, using no server bandwidth"
   ]
 }

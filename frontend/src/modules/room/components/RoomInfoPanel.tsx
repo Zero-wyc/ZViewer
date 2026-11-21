@@ -37,7 +37,10 @@ import {
 } from '@/modules/room/lib/displayName'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
-import { updateMoviePermission } from '@/store/moviePermission'
+import {
+  memberCanRequestMovie,
+  updateMoviePermission,
+} from '@/store/moviePermission'
 import { useAuthStore } from '@/store/authStore'
 import {
   useSystemSettingsStore,
@@ -105,6 +108,10 @@ export function RoomInfoPanel({
   const moviePermission = useRoomStore((state) => state.moviePermission)
   const setMoviePermission = useRoomStore((state) => state.setMoviePermission)
   const [moviePermissionBusy, setMoviePermissionBusy] = useState(false)
+  // 逐人开关按 userId 记忙碌态，避免连点同一行
+  const [moviePermissionBusyId, setMoviePermissionBusyId] = useState<
+    number | null
+  >(null)
 
   const [showUsers, setShowUsers] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -452,6 +459,29 @@ export function RoomInfoPanel({
     }
   }
 
+  /**
+   * 逐人点片权限：白名单（总开关关闭时单独放开）/ 黑名单（总开关开启时单独禁止）。
+   *
+   * 只对登录用户有效——游客 userId 恒为 0，白/黑名单都无法定位到人，
+   * 只能受总开关控制（所以成员行的这个按钮对游客不显示）。
+   */
+  const handleToggleMemberMoviePermission = async (
+    userId: number,
+    allowed: boolean
+  ) => {
+    if (!roomId || moviePermissionBusyId !== null) return
+    setMoviePermissionBusyId(userId)
+    try {
+      const updated = await updateMoviePermission(roomId, { userId, allowed })
+      setMoviePermission(updated)
+    } catch (err) {
+      console.error('[RoomInfoPanel] 更新成员点片权限失败:', err)
+      message.error(err instanceof Error ? err.message : t('更新点片权限失败'))
+    } finally {
+      setMoviePermissionBusyId(null)
+    }
+  }
+
   const handleToggleRequireApproval = () => {
     if (!socket || !isHost) return
     const next = !roomSettings.requireApproval
@@ -583,6 +613,54 @@ export function RoomInfoPanel({
                 )}
               </button>
             )}
+            {/* 点片权限：房主按人放行/禁止（仅登录用户；游客只受总开关控制） */}
+            {isHost &&
+              viewer.userId != null &&
+              viewer.userId > 0 &&
+              !isSelf && (
+                <button
+                  onClick={() =>
+                    void handleToggleMemberMoviePermission(
+                      Number(viewer.userId),
+                      !memberCanRequestMovie(
+                        moviePermission,
+                        Number(viewer.userId)
+                      )
+                    )
+                  }
+                  disabled={moviePermissionBusyId !== null}
+                  className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
+                  style={{ color: 'var(--md-sys-color-primary)' }}
+                  title={
+                    memberCanRequestMovie(
+                      moviePermission,
+                      Number(viewer.userId)
+                    )
+                      ? t('禁止该成员添加影片')
+                      : t('允许该成员添加影片')
+                  }
+                  aria-label={
+                    memberCanRequestMovie(
+                      moviePermission,
+                      Number(viewer.userId)
+                    )
+                      ? t('禁止该成员添加影片')
+                      : t('允许该成员添加影片')
+                  }
+                >
+                  <Clapperboard
+                    className={cn(
+                      'h-3.5 w-3.5',
+                      memberCanRequestMovie(
+                        moviePermission,
+                        Number(viewer.userId)
+                      )
+                        ? 'opacity-100'
+                        : 'opacity-35'
+                    )}
+                  />
+                </button>
+              )}
             {/* 房管任命/撤销：仅房主可见（登录用户按 userId、游客按 socketId） */}
             {isHost && (
               <button
@@ -1034,6 +1112,13 @@ export function RoomInfoPanel({
         title={t('在线用户')}
       >
         <Space direction="vertical" className="w-full" size="sm">
+          {isHost && (
+            <Text type="secondary" className="text-[11px]">
+              {moviePermission.allowMembers
+                ? t('当前已允许成员添加影片，点灭图标可单独禁止某人')
+                : t('当前未允许成员添加影片，点亮图标可单独允许某人')}
+            </Text>
+          )}
           {viewers.length === 0 ? (
             <Paragraph type="secondary" className="text-sm">
               {t('暂无其他在线用户')}

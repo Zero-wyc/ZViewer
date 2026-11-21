@@ -2,6 +2,7 @@
   "items": [
     " and {{length}} other viewers",
     "), allow it?",
+    "[RoomInfoPanel] failed to update member movie permission:",
     "[RoomInfoPanel] failed to update add-movie permission:",
     "[useRoomFeatures] failed to load room feature flags:",
     "[useRoomFeatures] failed to update room feature flags:",
@@ -63,6 +64,8 @@
     "You are on a private address ({{hostname}}), so copied links only open on this machine or within the same network.",
     "Server-side traffic stats are unavailable on this platform",
     "Remote sharing is active, video playback is paused",
+    "Members cannot add movies. Light up the icon to allow a specific member.",
+    "Members can add movies. Dim the icon to block a specific member.",
     "Waiting to play",
     "Waiting for the host to play the video",
     "Waiting for the connection",
@@ -116,9 +119,6 @@
     "This episode is for premium members; you are watching a preview (about {{value}} minutes). Sign in with a premium account for the full episode.",
     "This movie can only be watched in CLI mode",
     "This movie uses “CLI only”: install and connect ZViewer CLI first",
-    "This user",
-    "The main feature on this site requires membership or cannot be played directly; open the original site to watch",
-    "That account is already in this room",
-    "More"
+    "This user"
   ]
 }

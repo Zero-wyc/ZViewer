@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2899 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2904 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2077,9 +2077,10 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（519 条） =====
+  // ===== modules/room（524 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
+  '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
   '[RoomInfoPanel] 更新添加影片权限失败:': '[RoomInfoPanel] failed to update add-movie permission:',
   '[useRoomFeatures] 获取房间功能开关失败:': '[useRoomFeatures] failed to load room feature flags:',
   '[useRoomFeatures] 修改房间功能开关失败:': '[useRoomFeatures] failed to update room feature flags:',
@@ -2141,6 +2142,8 @@ const enUS: Record<string, string> = {
   '当前访问地址为内网地址（{{hostname}} ），复制出的链接只有本机或同一内网的用户能打开，其他用户无法访问。': 'You are on a private address ({{hostname}}), so copied links only open on this machine or within the same network.',
   '当前平台不支持服务端流量统计': 'Server-side traffic stats are unavailable on this platform',
   '当前为远程共享模式，影片播放已暂停': 'Remote sharing is active, video playback is paused',
+  '当前未允许成员添加影片，点亮图标可单独允许某人': 'Members cannot add movies. Light up the icon to allow a specific member.',
+  '当前已允许成员添加影片，点灭图标可单独禁止某人': 'Members can add movies. Dim the icon to block a specific member.',
   '等待播放': 'Waiting to play',
   '等待房主播放影片': 'Waiting for the host to play the video',
   '等待连接': 'Waiting for the connection',
@@ -2248,6 +2251,7 @@ const enUS: Record<string, string> = {
   '进房自动开启语音': 'Auto-start voice on join',
   '进入房间先缓存完整视频到本地，避免 URL 过期与卡顿': 'Cache the full video locally when joining, avoiding expired URLs and stutter',
   '禁言': 'Mute',
+  '禁止该成员添加影片': 'Block this member from adding movies',
   '静音': 'Mute',
   '剧集定位参数无效': 'Invalid episode locator',
   '剧集定位参数无效，请重新搜索': 'Invalid episode locator, search again',
@@ -2503,6 +2507,7 @@ const enUS: Record<string, string> = {
   '远程共享模式下不可播放': 'Cannot play in remote sharing mode',
   '远程共享模式下不可删除': 'Cannot delete in remote sharing mode',
   '允许': 'Allow',
+  '允许该成员添加影片': 'Allow this member to add movies',
   '在线 ({{length}})': 'Online ({{length}})',
   '在线观众（{{length}}）': 'Online viewers ({{length}})',
   '在线用户': 'Online users',

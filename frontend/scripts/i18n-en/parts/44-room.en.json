@@ -1,5 +1,9 @@
 {
   "items": [
+    "Enter a video URL",
+    "Enter the server address and path",
+    "Enter the file path",
+    "Please enter the site address",
     "Pick an item with “Browse the {{label}} library”, or paste an itemId",
     "Select a server file",
     "Select a saved {{label}} mount",
@@ -115,10 +119,6 @@
     "Choose a sharing option and invite others",
     "Latency {{value}}",
     "Verification is not complete yet; please continue",
-    "Once verified, this site's search results refresh automatically",
-    "Verification complete; search results loaded",
-    "Verifying…",
-    "Clear all",
-    "Watch together"
+    "Once verified, this site's search results refresh automatically"
   ]
 }

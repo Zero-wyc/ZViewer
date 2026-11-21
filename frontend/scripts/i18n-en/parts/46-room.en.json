@@ -1,5 +1,10 @@
 {
   "items": [
+    "Direct link",
+    "Direct link (the browser reaches the mount server itself)",
+    "Only the host or a moderator can delete movies",
+    "Only the host or a moderator can remove movies",
+    "Only the host can play movies",
     "Only the host can add movies",
     "Relay",
     "Re-resolution failed",
