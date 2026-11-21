@@ -37,6 +37,20 @@ type Room struct {
 	ApprovedViewers string
 	Moderators      string
 	VoiceMuted      string
+	// ScreenE2EEEnabled 是房主的「屏幕共享端到端加密总开关」：默认开启；关闭后
+	// 屏幕共享不再协商 E2EE，兼容不支持 Encoded Transform 的浏览器。
+	ScreenE2EEEnabled bool
+	// VoiceEnabled 是房主的「语音总开关」：关闭后服务端拒绝新的语音加入。
+	VoiceEnabled bool
+	// VoiceAutoJoin 表示成员进入房间时是否自动加入语音（默认关闭）。
+	VoiceAutoJoin bool
+	// MusicEnabled 是房主的「一起听总开关」：关闭后所有 music:* 上行事件
+	// 一律拒绝，只保留房主重新开启的能力。
+	MusicEnabled bool
+	// MusicPermission 是一起听权限配置的原始 JSON（room 包负责解析/归一化）。
+	MusicPermission string
+	// MoviePermission 是点片权限配置的原始 JSON（room 包负责解析/归一化）。
+	MoviePermission string
 	OwnerUserID     *int64
 	LastAccessedAt  time.Time
 	CreatedAt       time.Time
@@ -54,7 +68,9 @@ func NewRooms(conn *sql.DB) *Rooms { return &Rooms{conn: conn} }
 const roomColumns = `"id", "roomId", "name", "status", "mode", "maxViewers",
 	"requireApproval", "password", "shareMethod", "streamKey",
 	"mutedViewers", "approvedViewers", "moderators", "voiceMuted",
-	"ownerUserId", "lastAccessedAt", "createdAt", "updatedAt"`
+	"screenE2EEEnabled", "voiceEnabled", "voiceAutoJoin", "musicEnabled",
+	"musicPermission", "moviePermission", "ownerUserId", "lastAccessedAt",
+	"createdAt", "updatedAt"`
 
 // FindByRoomID 读取房间。
 func (r *Rooms) FindByRoomID(ctx context.Context, roomID string) (*Room, error) {
@@ -414,6 +430,11 @@ type RoomSettingsPatch struct {
 	Password        *string
 	MaxViewers      *int64
 	RequireApproval *bool
+	// 以下 4 个是房间功能开关（room-features 事件持久化用）。
+	ScreenE2EEEnabled *bool
+	VoiceEnabled      *bool
+	VoiceAutoJoin     *bool
+	MusicEnabled      *bool
 }
 
 // PatchSettings 按列更新房间设置。
@@ -421,8 +442,8 @@ type RoomSettingsPatch struct {
 // 只写调用方显式给出的列：少写一列不会把别的列冲成 NULL，
 // 这是与 SetListColumns 一致的「别整行覆盖」纪律。
 func (r *Rooms) PatchSettings(ctx context.Context, roomID string, patch RoomSettingsPatch) error {
-	sets := make([]string, 0, 4)
-	args := make([]any, 0, 5)
+	sets := make([]string, 0, 8)
+	args := make([]any, 0, 9)
 	if patch.Password != nil {
 		sets = append(sets, `"password" = ?`)
 		if *patch.Password == "" {
@@ -441,6 +462,22 @@ func (r *Rooms) PatchSettings(ctx context.Context, roomID string, patch RoomSett
 	if patch.RequireApproval != nil {
 		sets = append(sets, `"requireApproval" = ?`)
 		args = append(args, *patch.RequireApproval)
+	}
+	if patch.ScreenE2EEEnabled != nil {
+		sets = append(sets, `"screenE2EEEnabled" = ?`)
+		args = append(args, *patch.ScreenE2EEEnabled)
+	}
+	if patch.VoiceEnabled != nil {
+		sets = append(sets, `"voiceEnabled" = ?`)
+		args = append(args, *patch.VoiceEnabled)
+	}
+	if patch.VoiceAutoJoin != nil {
+		sets = append(sets, `"voiceAutoJoin" = ?`)
+		args = append(args, *patch.VoiceAutoJoin)
+	}
+	if patch.MusicEnabled != nil {
+		sets = append(sets, `"musicEnabled" = ?`)
+		args = append(args, *patch.MusicEnabled)
 	}
 	if len(sets) == 0 {
 		return nil
@@ -492,6 +529,28 @@ func (r *Rooms) setIDList(ctx context.Context, roomID, column string, ids []int6
 	return nil
 }
 
+// SetMoviePermission 覆盖点片权限配置列（JSON 原文，由 room 包解析/归一化）。
+func (r *Rooms) SetMoviePermission(ctx context.Context, roomID, raw string) error {
+	_, err := r.conn.ExecContext(ctx,
+		`UPDATE "room" SET "moviePermission" = ?, "updatedAt" = ? WHERE "roomId" = ?`,
+		raw, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改点片权限失败: %w", err)
+	}
+	return nil
+}
+
+// SetMusicPermission 覆盖一起听权限配置列（JSON 原文，由 room 包解析/归一化）。
+func (r *Rooms) SetMusicPermission(ctx context.Context, roomID, raw string) error {
+	_, err := r.conn.ExecContext(ctx,
+		`UPDATE "room" SET "musicPermission" = ?, "updatedAt" = ? WHERE "roomId" = ?`,
+		raw, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改一起听权限失败: %w", err)
+	}
+	return nil
+}
+
 // SetListColumns 覆盖三个 JSON 数组列（mutedViewers / approvedViewers / moderators）。
 //
 // 三列常常要一起改（例如转交房主时同时动 owner 与 moderators），
@@ -524,6 +583,12 @@ func scanRoom(row rowScanner) (*Room, error) {
 		approved   sql.NullString
 		moderators sql.NullString
 		voiceMuted sql.NullString
+		screenE2EE sql.NullInt64
+		voiceOn    sql.NullInt64
+		voiceAuto  sql.NullInt64
+		musicOn    sql.NullInt64
+		musicPerm  sql.NullString
+		moviePerm  sql.NullString
 		owner      sql.NullInt64
 		lastAccess sql.NullString
 		createdAt  sql.NullString
@@ -533,6 +598,7 @@ func scanRoom(row rowScanner) (*Room, error) {
 		&room.ID, &room.RoomID, &name, &status, &mode, &maxViewers,
 		&approval, &password, &shareMeth, &streamKey,
 		&muted, &approved, &moderators, &voiceMuted,
+		&screenE2EE, &voiceOn, &voiceAuto, &musicOn, &musicPerm, &moviePerm,
 		&owner, &lastAccess, &createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -551,6 +617,14 @@ func scanRoom(row rowScanner) (*Room, error) {
 	room.ApprovedViewers = approved.String
 	room.Moderators = moderators.String
 	room.VoiceMuted = voiceMuted.String
+	// 缺列/空值按开启处理：老库补列前读到 NULL 时不能让功能悄悄消失；
+	// voiceAutoJoin 相反，缺列按关闭（默认不自动入语音）。
+	room.ScreenE2EEEnabled = !screenE2EE.Valid || screenE2EE.Int64 != 0
+	room.VoiceEnabled = !voiceOn.Valid || voiceOn.Int64 != 0
+	room.VoiceAutoJoin = voiceAuto.Valid && voiceAuto.Int64 != 0
+	room.MusicEnabled = !musicOn.Valid || musicOn.Int64 != 0
+	room.MusicPermission = musicPerm.String
+	room.MoviePermission = moviePerm.String
 	if owner.Valid {
 		v := owner.Int64
 		room.OwnerUserID = &v

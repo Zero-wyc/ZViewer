@@ -18,6 +18,7 @@
     "Light pink",
     "Green",
     "Guest",
+    "{{format}} containers are not supported yet (neither the browser nor the browser transcoding engine can parse them), convert to MP4 or MKV first",
     "Purple"
   ]
 }

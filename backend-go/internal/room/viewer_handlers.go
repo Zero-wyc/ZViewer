@@ -122,10 +122,7 @@ func (s *Service) handleApproveJoin(sc *sio.Socket, args []json.RawMessage, ack 
 	})
 
 	// 房管列表先于影片列表下发（权限 UI 初始化）。
-	s.Hub.EmitTo(payload.ViewerSocketID, "moderators-changed", map[string]any{
-		"roomId":     sharer.RoomID,
-		"moderators": s.Moderators(ctx, sharer.RoomID),
-	})
+	s.Hub.EmitTo(payload.ViewerSocketID, "moderators-changed", s.moderatorEvent(sharer.RoomID, s.Moderators(ctx, sharer.RoomID)))
 	s.Hub.EmitTo(payload.ViewerSocketID, "movie-list", map[string]any{"movies": s.Movies(sharer.RoomID)})
 	s.Hub.EmitTo(payload.ViewerSocketID, "current-movie", map[string]any{"movieId": s.CurrentMovieID(sharer.RoomID)})
 	if sub := s.Subtitle(sharer.RoomID); sub != nil {
@@ -421,11 +418,12 @@ func (s *Service) handleTransferHost(sc *sio.Socket, args []json.RawMessage, ack
 		s.Hub.EmitTo(sc.ID, "share-method-changed", map[string]any{"roomId": payload.RoomID, "shareMethod": room.ShareMethod, "streamKey": nil})
 	}
 
+	// 新房主原本可能是游客房管：转交后必须清掉，否则会多一个「房管」徽标。
+	s.removeGuestModerator(payload.RoomID, payload.ViewerSocketID)
 	if nextModerators != nil {
-		s.Hub.EmitRoom(payload.RoomID, "moderators-changed", map[string]any{
-			"roomId":     payload.RoomID,
-			"moderators": nextModerators,
-		})
+		s.Hub.EmitRoom(payload.RoomID, "moderators-changed", s.moderatorEvent(payload.RoomID, nextModerators))
+	} else {
+		s.broadcastModerators(ctx, payload.RoomID, s.Moderators(ctx, payload.RoomID))
 	}
 	ackOK(ack, nil)
 }
@@ -512,6 +510,8 @@ func (s *Service) transferHost(ctx context.Context, roomID, newSocketID, oldSock
 type moderatorPayload struct {
 	RoomID string `json:"roomId"`
 	UserID int64  `json:"userId"`
+	// SocketID 仅游客使用：游客 userId 恒为 0，只能按连接身份任命。
+	SocketID string `json:"socketId"`
 }
 
 // handleAppointModerator 任命房管：仅房主。
@@ -531,7 +531,7 @@ func (s *Service) handleAppointModerator(sc *sio.Socket, args []json.RawMessage,
 		return
 	}
 	if payload.UserID <= 0 {
-		ackFail(ack, "不能任命游客为房管")
+		s.appointGuestModerator(ctx, sc, payload, ack)
 		return
 	}
 
@@ -579,13 +579,66 @@ func (s *Service) handleAppointModerator(sc *sio.Socket, args []json.RawMessage,
 		return
 	}
 
-	if s.Hub != nil {
-		s.Hub.EmitRoom(payload.RoomID, "moderators-changed", map[string]any{
-			"roomId":     payload.RoomID,
-			"moderators": moderators,
-		})
+	s.broadcastModerators(ctx, payload.RoomID, moderators)
+	ackOK(ack, s.moderatorEvent(payload.RoomID, moderators))
+}
+
+// appointGuestModerator 任命游客房管：游客 userId 恒为 0，按连接身份记在内存里，
+// 游客离开房间 / 断线即失效（见 moderator_guest.go）。
+func (s *Service) appointGuestModerator(ctx context.Context, host *sio.Socket, payload moderatorPayload, ack func(...any)) {
+	if payload.SocketID == "" {
+		ackFail(ack, "不能任命游客为房管")
+		return
 	}
-	ackOK(ack, map[string]any{"moderators": moderators})
+	if payload.SocketID == host.ID {
+		ackFail(ack, "房主无需任命")
+		return
+	}
+	sess, err := s.Sessions.FindActiveByRoomSocket(ctx, payload.RoomID, payload.SocketID)
+	if err != nil {
+		s.Logger.Printf("[appoint-moderator] 查询目标会话失败: %v", err)
+		ackFail(ack, "任命房管失败")
+		return
+	}
+	if sess == nil {
+		ackFail(ack, "目标用户不在房间内")
+		return
+	}
+	if sess.Role != store.SessionRoleViewer {
+		ackFail(ack, "房主无需任命")
+		return
+	}
+	if s.isGuestModerator(payload.RoomID, payload.SocketID) {
+		ackOK(ack, nil)
+		return
+	}
+	total := len(s.guestModerators(payload.RoomID)) + len(s.Moderators(ctx, payload.RoomID))
+	if total >= maxModerators {
+		ackFail(ack, fmt.Sprintf("房管人数已达上限（%d）", maxModerators))
+		return
+	}
+	s.addGuestModerator(payload.RoomID, payload.SocketID)
+	s.broadcastModerators(ctx, payload.RoomID, s.Moderators(ctx, payload.RoomID))
+	ackOK(ack, s.moderatorEvent(payload.RoomID, s.Moderators(ctx, payload.RoomID)))
+}
+
+// dismissGuestModerator 撤销游客房管。
+func (s *Service) dismissGuestModerator(ctx context.Context, payload moderatorPayload, ack func(...any)) {
+	if payload.SocketID == "" || !s.isGuestModerator(payload.RoomID, payload.SocketID) {
+		ackOK(ack, nil)
+		return
+	}
+	s.removeGuestModerator(payload.RoomID, payload.SocketID)
+	s.broadcastModerators(ctx, payload.RoomID, s.Moderators(ctx, payload.RoomID))
+	ackOK(ack, s.moderatorEvent(payload.RoomID, s.Moderators(ctx, payload.RoomID)))
+}
+
+// broadcastModerators 广播房管名单（登录用户 + 游客房管）。
+func (s *Service) broadcastModerators(ctx context.Context, roomID string, moderators []int64) {
+	if s.Hub == nil {
+		return
+	}
+	s.Hub.EmitRoom(roomID, "moderators-changed", s.moderatorEvent(roomID, moderators))
 }
 
 // handleDismissModerator 撤销房管：仅房主。
@@ -602,6 +655,11 @@ func (s *Service) handleDismissModerator(sc *sio.Socket, args []json.RawMessage,
 	}
 	if !host {
 		ackFail(ack, "无权限：仅房主可撤销房管")
+		return
+	}
+
+	if payload.UserID <= 0 {
+		s.dismissGuestModerator(ctx, payload, ack)
 		return
 	}
 
@@ -622,13 +680,8 @@ func (s *Service) handleDismissModerator(sc *sio.Socket, args []json.RawMessage,
 		return
 	}
 
-	if s.Hub != nil {
-		s.Hub.EmitRoom(payload.RoomID, "moderators-changed", map[string]any{
-			"roomId":     payload.RoomID,
-			"moderators": next,
-		})
-	}
-	ackOK(ack, map[string]any{"moderators": next})
+	s.broadcastModerators(ctx, payload.RoomID, next)
+	ackOK(ack, s.moderatorEvent(payload.RoomID, next))
 }
 
 // ==================== 辅助 ====================

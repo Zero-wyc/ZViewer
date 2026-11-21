@@ -163,6 +163,8 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindDisconnect(sc)
 	s.bindRegisterHost(sc)
 	s.bindViewerJoin(sc)
+	// 房间内显示名（昵称）：成员可随时改名，广播 viewer-renamed。
+	s.bindDisplayName(sc)
 	s.bindViewerManagement(sc)
 	// 播放控制 / 影片列表 / 字幕轨道 / 跳转申请：顺序不影响行为
 	// （事件名两两不重叠），但保持与 Node 侧 register-handlers 相近的
@@ -531,6 +533,8 @@ func (s *Service) bindViewerJoin(sc *sio.Socket) {
 type requestJoinPayload struct {
 	RoomID   string `json:"roomId"`
 	Password string `json:"password"`
+	// Name 是成员在本房间内的显示名（昵称）。为空时沿用账号名/游客兜底。
+	Name string `json:"name"`
 }
 
 func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
@@ -538,6 +542,10 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 	defer cancel()
 
 	payload, _ := decodePayload[requestJoinPayload](args)
+	// 先把昵称挂到连接上，后面 viewer-joined 广播就能直接带上显示名。
+	if name, ok := normalizeDisplayName(payload.Name); ok {
+		sc.SetData(displayNameKey, name)
+	}
 	role := socketRole(sc)
 
 	room, err := s.Rooms.FindByRoomID(ctx, payload.RoomID)
@@ -714,7 +722,7 @@ func (s *Service) finishJoin(ctx context.Context, sc *sio.Socket, room *store.Ro
 	joined := map[string]any{
 		"viewerSocketId": sc.ID,
 		"userId":         anyOrNil(uid),
-		"username":       usernameOr(sc, "未知用户"),
+		"username":       displayNameOr(sc, "未知用户"),
 		"role":           "viewer",
 	}
 	if s.Hub != nil {
@@ -761,10 +769,7 @@ func (s *Service) sendExistingViewers(ctx context.Context, sc *sio.Socket, roomI
 }
 
 func (s *Service) sendModerators(ctx context.Context, sc *sio.Socket, roomID string) {
-	s.Hub.EmitTo(sc.ID, "moderators-changed", map[string]any{
-		"roomId":     roomID,
-		"moderators": s.Moderators(ctx, roomID),
-	})
+	s.Hub.EmitTo(sc.ID, "moderators-changed", s.moderatorEvent(roomID, s.Moderators(ctx, roomID)))
 }
 
 // Moderators 读取房间房管列表（解析失败按空列表，与 Node 的 try/catch 一致）。
@@ -799,11 +804,10 @@ func usernameOr(sc *sio.Socket, fallback string) string {
 	return fallback
 }
 
+// usernameFromData 从 Hub.SocketData 快照里取显示名（昵称优先）。
+// 名字保留，调用点（补发在线观众等）无需改动。
 func usernameFromData(data map[string]any) string {
-	if u, ok := data["username"].(string); ok && u != "" {
-		return u
-	}
-	return "未知用户"
+	return displayNameFromData(data)
 }
 
 func userIDFromData(data map[string]any) *int64 {
@@ -859,6 +863,8 @@ func (s *Service) handleDisconnect(socketID, reason string) {
 		s.Logger.Printf("[disconnect] 结束会话失败 %s: %v", socketID, err)
 		return
 	}
+	// 游客房管按连接身份记账：连接断开即失效。
+	s.clearGuestModerator(socketID)
 	if sess == nil {
 		// 没进过房间的连接（只连了一下就断）没有会话要收尾。
 		return

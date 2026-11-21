@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { Card } from '@/components/ui/Card'
 import { cn } from '@/lib/utils'
+import { useListenLyricsSlot } from '@/modules/music/hooks/useListenLyricsSlot'
 
 interface CinemaLayoutProps {
   children: ReactNode
@@ -33,6 +34,8 @@ export function CinemaLayout({
   chatPanel,
   webFullscreen = false,
 }: CinemaLayoutProps) {
+  // 一起听歌词插槽：非全屏时贴在播放器下方
+  const lyricsSlotRef = useListenLyricsSlot()
   // 底部卡片容器统一样式
   const cardContainerClass = 'glass-card rounded-2xl p-4'
 
@@ -98,6 +101,9 @@ export function CinemaLayout({
             >
               {children}
             </div>
+
+            {/* 一起听歌词：非全屏时贴在播放器下方 */}
+            {!webFullscreen && <div ref={lyricsSlotRef} className="w-full" />}
 
             {/* 底部信息/控制/添加区（或投屏状态面板）—— 网页全屏时隐藏 */}
             {!webFullscreen && bottomContent}

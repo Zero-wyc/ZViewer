@@ -18,12 +18,12 @@ export const MODE_LABELS: Record<RoomMode, string> = {
   'listen-together': '一起听',
 }
 
-/** 滑块选项顺序（一起看 → 投屏 → 一起听） */
-export const MODE_ORDER: RoomMode[] = [
-  'watch-together',
-  'screen-share',
-  'listen-together',
-]
+/**
+ * 滑块选项顺序（一起看 → 投屏）。
+ * 一起听已独立为悬浮面板，不再是房间模式；旧房间的 listen-together
+ * 记录仍会被读入 store，各页面按一起看路径兼容处理。
+ */
+export const MODE_ORDER: RoomMode[] = ['watch-together', 'screen-share']
 
 export function useRoomModeSwitch(
   socket: Socket | null,

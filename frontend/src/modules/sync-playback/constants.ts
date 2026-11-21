@@ -55,6 +55,8 @@ export const SOCKET_EVENT = {
   VIEWER_JOINED: 'viewer-joined',
   /** 观众离开房间通知（后端转发给房主） */
   VIEWER_LEFT: 'viewer-left',
+  /** 观众在房间内修改了昵称（后端广播给房间内所有人） */
+  VIEWER_RENAMED: 'viewer-renamed',
   /**
    * 轨道切换同步（合并事件）。
    * payload: { type: 'danmaku' | 'subtitle', value: string | number | null }

@@ -20,6 +20,7 @@ import {
   saveAuthTokens,
   buildAuthHeaders,
 } from './authTransport'
+import { getApiRoomContext } from './roomContext'
 export {
   isHttpsContext,
   getAccessToken,
@@ -311,10 +312,15 @@ export async function apiFetch(
       ? `${currentApiUrl}${input}`
       : input
 
+  // 房间上下文：后端据此把账号类请求（网易云 / B站）解析到房间共享账号。
+  // 调用方显式传的同名 header 优先（允许单次请求覆盖）。
+  const roomContextId = getApiRoomContext()
+
   const res = await fetch(url, {
     ...rest,
     credentials: 'include',
     headers: {
+      ...(roomContextId ? { 'X-Room-Id': roomContextId } : {}),
       ...(headers || {}),
       // 分离式鉴权：HTTPS 走 cookie（自动携带），HTTP 走 Bearer 头
       ...buildAuthHeaders(),

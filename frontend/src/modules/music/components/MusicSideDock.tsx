@@ -139,6 +139,7 @@ export function MusicSideDock({
                 socket={socket}
                 roomId={roomId}
                 username={username}
+                isHost={isHost}
                 canManageVoice={canManage}
               />
             </div>

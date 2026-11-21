@@ -118,6 +118,11 @@ const roomDDL = `CREATE TABLE "room" (
 	"approvedViewers" TEXT NOT NULL DEFAULT ('[]'),
 	"moderators" TEXT NOT NULL DEFAULT ('[]'),
 	"voiceMuted" TEXT NOT NULL DEFAULT ('[]'),
+	"screenE2EEEnabled" boolean NOT NULL DEFAULT (1),
+	"voiceEnabled" boolean NOT NULL DEFAULT (1),
+	"voiceAutoJoin" boolean NOT NULL DEFAULT (0),
+	"musicEnabled" boolean NOT NULL DEFAULT (1),
+	"moviePermission" TEXT NOT NULL DEFAULT ('{}'),
 	"createdAt" datetime NOT NULL DEFAULT (datetime('now')),
 	"updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
 	"lastAccessedAt" datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP)
@@ -147,6 +152,8 @@ CREATE TABLE "room_danmaku_meta" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NUL
 
 type testEnv struct {
 	handler http.Handler
+	// srv 是未包装的 Server（用例要直接摸凭证 / 缓存）。
+	srv     *api.Server
 	conn    *sql.DB
 	tokens  *auth.Manager
 	avatars string
@@ -241,6 +248,8 @@ func newTestEnvFull(t *testing.T, piik *piikbridge.Bridge, media *nms.Service) *
 		Kazumi:        kazumi.NewService(settings),
 		Danmaku:       danmaku.NewService(bilibili.NewService(conn)),
 		NCM:           ncm.NewService(conn),
+		// 房间共享账号的凭证解析要读 B站 凭证 / 用户缓存。
+		Bilibili: bilibili.NewService(conn),
 
 		// 字幕端点的 requireMovieReadAccess 要读 movie 行。
 		Movies: movies,
@@ -249,16 +258,19 @@ func newTestEnvFull(t *testing.T, piik *piikbridge.Bridge, media *nms.Service) *
 
 		// 管理端房间端点要读写 room / session；RoomSvc 保持 nil，
 		// 于是删除走 store 的级联（房间层的内存清理由 internal/room 的测试覆盖）。
-		Rooms:     rooms,
-		Sessions:  store.NewSessions(conn),
+		Rooms: rooms,
+		// 房间共享账号：/accounts 与凭证解析链都要用。
+		RoomAccounts: store.NewRoomAccounts(conn),
+		Sessions:     store.NewSessions(conn),
 		PiikShare: piik,
 		// 为 nil 时 api.New 按环境变量自建（默认内嵌但未 Start，等价于不可用）。
 		NMS: media,
 	})
 
 	return &testEnv{
-		handler:  srv.Handler(),
-		conn:     conn,
+		handler: srv.Handler(),
+		srv:     srv,
+		conn:    conn,
 		tokens:   tokens,
 		avatars:  cfg.AvatarsDir,
 		uploads:  cfg.UploadsDir,
