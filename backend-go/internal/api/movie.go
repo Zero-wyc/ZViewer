@@ -12,6 +12,8 @@ import (
 
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/httpx"
+	"zviewer/backend/internal/realtime"
+	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/store"
 )
 
@@ -28,6 +30,10 @@ func (s *Server) registerMovieRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/rooms/{roomId}/movies/{movieId}", s.Auth.Require(s.handleUpdateMovie))
 	mux.HandleFunc("DELETE /api/rooms/{roomId}/movies", s.Auth.Require(s.handleClearMovies))
 	mux.HandleFunc("DELETE /api/rooms/{roomId}/movies/{movieId}", s.Auth.Require(s.handleDeleteMovie))
+
+	// 房间级「允许成员点片」权限：GET 房间内可见，PUT 仅 root/房主。
+	mux.HandleFunc("GET /api/rooms/{roomId}/movie-permission", s.Auth.Require(s.handleGetMoviePermission))
+	mux.HandleFunc("PUT /api/rooms/{roomId}/movie-permission", s.Auth.Require(s.handleUpdateMoviePermission))
 }
 
 // ==================== DTO ====================
@@ -221,6 +227,93 @@ func (s *Server) requireRoomControl(w http.ResponseWriter, r *http.Request, room
 	return s.requireRoomControlMsg(w, r, roomID, scope, "无权限：仅 root 或房间创建者可操作影片")
 }
 
+// ==================== 点片权限 ====================
+
+// moviePermissionOf 解析房间列里的点片权限原始 JSON（语义由 room 包负责）。
+func moviePermissionOf(raw string) room.MoviePermission {
+	return room.ParseMoviePermission(raw)
+}
+
+// moviePermissionBody 是 PUT movie-permission 的入参。
+//
+// userId 与 allowed 必须成对出现：只给一半无法表达「加白还是加黑」。
+type moviePermissionBody struct {
+	AllowMembers *bool  `json:"allowMembers"`
+	UserID       *int64 `json:"userId"`
+	Allowed      *bool  `json:"allowed"`
+}
+
+// canRequestMovie 判定成员（非 root/房主）能否向房间点片。
+//
+// RoomSvc 未装配（最小装配/单测）时保守拒绝；此时 root/房主仍走原来的
+// canControlRoom 分支，不受影响。
+func (s *Server) canRequestMovie(ctx context.Context, claims *auth.Claims, roomID string) bool {
+	if s.RoomSvc == nil || claims == nil {
+		return false
+	}
+	var userID *int64
+	if claims.UserID > 0 {
+		id := claims.UserID
+		userID = &id
+	}
+	return s.RoomSvc.CanRequestMovie(ctx, userID, claims.Role, roomID)
+}
+
+// handleGetMoviePermission 返回房间当前的点片权限（房间内可读即可）。
+func (s *Server) handleGetMoviePermission(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("roomId")
+	if !s.requireRoomRead(w, r, roomID) {
+		return
+	}
+	rm, err := s.Rooms.FindByRoomID(r.Context(), roomID)
+	if err != nil {
+		if errors.Is(err, store.ErrRoomNotFound) {
+			httpx.NotFound(w, "房间不存在")
+			return
+		}
+		httpx.InternalError(w, "GET /rooms/:roomId/movie-permission", err)
+		return
+	}
+	httpx.OK(w, map[string]any{"success": true, "permission": moviePermissionOf(rm.MoviePermission)})
+}
+
+// handleUpdateMoviePermission 修改房间点片权限（仅 root/房主）。
+func (s *Server) handleUpdateMoviePermission(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("roomId")
+	rm, ok := s.requireRoomControlMsg(w, r, roomID, "PUT /rooms/:roomId/movie-permission", "无权限：仅 root 或房间创建者可修改点片权限")
+	if !ok {
+		return
+	}
+	var body moviePermissionBody
+	if err := httpx.DecodeJSON(r, &body); err != nil {
+		httpx.BadRequest(w, "请求体格式无效")
+		return
+	}
+	perm, ok := room.ApplyMoviePermissionUpdate(moviePermissionOf(rm.MoviePermission), room.MoviePermissionUpdate{
+		AllowMembers: body.AllowMembers,
+		UserID:       body.UserID,
+		Allowed:      body.Allowed,
+	})
+	if !ok {
+		httpx.BadRequest(w, "参数无效")
+		return
+	}
+	encoded, err := json.Marshal(perm)
+	if err != nil {
+		httpx.InternalError(w, "PUT /rooms/:roomId/movie-permission", err)
+		return
+	}
+	if err := s.Rooms.SetMoviePermission(r.Context(), roomID, string(encoded)); err != nil {
+		httpx.InternalError(w, "PUT /rooms/:roomId/movie-permission", err)
+		return
+	}
+	s.Bus.EmitRoom(roomID, realtime.EventMoviePermissionChanged, map[string]any{
+		"roomId":     roomID,
+		"permission": perm,
+	})
+	httpx.OK(w, map[string]any{"success": true, "permission": perm})
+}
+
 // ==================== 请求体 ====================
 
 // movieBody 是新增/更新影片的入参。
@@ -285,7 +378,19 @@ func (s *Server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateMovie(w http.ResponseWriter, r *http.Request) {
 	roomID := r.PathValue("roomId")
-	if _, ok := s.requireRoomControl(w, r, roomID, "POST /movies"); !ok {
+	rm, err := s.Rooms.FindByRoomID(r.Context(), roomID)
+	if err != nil {
+		if errors.Is(err, store.ErrRoomNotFound) {
+			httpx.NotFound(w, "房间不存在")
+			return
+		}
+		httpx.InternalError(w, "POST /movies", err)
+		return
+	}
+	claims := auth.ClaimsFrom(r.Context())
+	// root/房主恒允许（原有行为）；其余人要过房间级点片权限，默认关闭。
+	if !canControlRoom(claims, rm) && !s.canRequestMovie(r.Context(), claims, roomID) {
+		httpx.Forbidden(w, "无权限：房主未允许你点片")
 		return
 	}
 	var body movieBody
@@ -299,7 +404,6 @@ func (s *Server) handleCreateMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := auth.ClaimsFrom(r.Context())
 	var selectedMount *int64
 	if body.SourceMountID != nil && string(body.SourceMountID) != "null" {
 		id, ok := parseRawPositiveID(body.SourceMountID)

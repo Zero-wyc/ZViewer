@@ -405,10 +405,11 @@ func (s *Service) handleClearAnnotations(sc *sio.Socket, args []json.RawMessage,
 
 // resolveUsername 取发送者显示名。
 //
-// 优先用握手时 JWT 带下来的 username，缺失才查库并写回 socket.data
-// （Node 的 getUsername 同样会缓存），避免高频发言重复打 user 表。
+// 优先用房间内昵称（socketDisplayName：昵称 → 账号名 → 游客兜底），
+// 缺失才查库并写回 socket.data（Node 的 getUsername 同样会缓存），
+// 避免高频发言重复打 user 表。
 func (s *Service) resolveUsername(ctx context.Context, sc *sio.Socket) string {
-	if name := socketUsername(sc); name != nil {
+	if name := socketDisplayName(sc); name != nil {
 		return *name
 	}
 	const unknown = "未知用户"

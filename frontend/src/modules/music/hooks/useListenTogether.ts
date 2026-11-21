@@ -52,7 +52,9 @@ import type {
   MusicSyncState,
   PlayMode,
   NcmSong,
+  MusicPermission,
 } from '../types'
+import { normalizeMusicPermission } from '../utils/musicPermission'
 import {
   BILI_DEFAULT_QN,
   beginBiliResolve,
@@ -97,6 +99,8 @@ interface GetStateResponse {
   serverTs?: number
   /** 房主是否在线（缺省 = 旧后端，维持心跳超时判定；false 时直接进入自主控制） */
   hostOnline?: boolean
+  /** 点歌/队列管理权限（房主下发的房间配置） */
+  permission?: MusicPermission
 }
 
 /** 房主心跳广播间隔（毫秒）。心跳是服务器基线更新通道，观众不直接消费 */
@@ -445,6 +449,10 @@ export interface UseListenTogetherResult {
   volume: number
   /** 设置本地播放音量（0-1，持久化到 localStorage；0 视为静音） */
   setVolume: (volume: number) => void
+  /** 是否处于「聆听」静音态（只听不说：仅本地静音，不参与房间同步） */
+  listening: boolean
+  /** 设置聆听静音态（持久化到 localStorage） */
+  setListening: (listening: boolean) => void
   /** 启动 FM 会话；确认入队后播放，候选耗尽时自动补拉。 */
   playFmSong: (song: NcmSong) => Promise<boolean>
   /** 当前主音频元素（惰性创建；预载升格时会被替换，可视化消费方需感知） */
@@ -488,6 +496,8 @@ export function useListenTogether({
     syncNoticeKind,
     setSyncNotice,
     biliItem,
+    listening,
+    setListening,
   } = useMusicStore(
     useShallow((s) => ({
       queue: s.queue,
@@ -498,11 +508,18 @@ export function useListenTogether({
       syncNoticeKind: s.syncNoticeKind,
       setSyncNotice: s.setSyncNotice,
       biliItem: s.biliItem,
+      listening: s.listening,
+      setListening: s.setListening,
     }))
   )
 
   // 本地音量（仅本地生效；创建 audio 元素时应用，见 getAudio）
   const [volume, setVolumeState] = useState(loadPersistedVolume)
+  /**
+   * 一起听开关（听歌模式）：关闭时本地静音但不断开同步播放，
+   * 重新打开立即恢复声音。引擎创建元素与写音量时都会读它。
+   */
+  const listeningDisabledRef = useRef(!listening)
   const volumeAdjustedRef = useRef(false)
   const fmPlayRequestRef = useRef(0)
   /**
@@ -556,6 +573,7 @@ export function useListenTogether({
       endedHandlerRef,
       onErrorRef: audioErrorHandlerRef,
       onStreamErrorRef: audioStreamErrorRef,
+      mutedRef: listeningDisabledRef,
       peekNextSong,
       buildUrl,
       currentKey,
@@ -575,7 +593,7 @@ export function useListenTogether({
     volumeRef.current = effective
     const audio = audioRef.current
     if (!audio) return
-    audio.muted = userVolumeRef.current === 0
+    audio.muted = userVolumeRef.current === 0 || listeningDisabledRef.current
     audio.volume = effective
   }, [audioRef])
 
@@ -597,6 +615,11 @@ export function useListenTogether({
     userVolumeRef.current = volume
     applyOutputVolume()
   }, [volume, applyOutputVolume])
+
+  useEffect(() => {
+    listeningDisabledRef.current = !listening
+    applyOutputVolume()
+  }, [listening, applyOutputVolume])
 
   useEffect(() => {
     socketRef.current = socket
@@ -1391,9 +1414,43 @@ export function useListenTogether({
     []
   )
 
+  /** 观众：向房主申请控制（房主在线且自己无直接控制权时） */
+  const requestControl = useCallback(
+    (
+      action: MusicControlRequest['action'],
+      positionSec?: number,
+      item?: MusicControlRequest['item']
+    ) => {
+      const currentSocket = socketRef.current
+      const currentRoomId = roomIdRef.current
+      if (!currentSocket || !currentRoomId) return
+      // 房主或房主离线时拥有直接控制权，无需申请
+      if (hasControl()) return
+      currentSocket.emit(MUSIC_EVENT.CONTROL_REQUEST, {
+        roomId: currentRoomId,
+        action,
+        positionSec,
+        item,
+        from: currentSocket.id ?? '',
+        username: usernameRef.current,
+      })
+      // 观众端即时反馈（应答到达后会被同意/拒绝文案覆盖）
+      useMusicStore
+        .getState()
+        .setSyncNotice(
+          t('已向房主申请{{value}}', { value: t(CONTROL_ACTION_TEXT[action]) })
+        )
+    },
+    [hasControl]
+  )
+
   /** 播放/暂停切换（房主或房主离线时直接生效；房主额外广播） */
   const togglePlay = useCallback(() => {
-    if (!hasControl()) return
+    if (!hasControl()) {
+      // 无控制权：改为向房主申请（房主在线走审批，房主离线由后端直接放行）
+      requestControl(getAudio()?.paused ? 'play' : 'pause')
+      return
+    }
     if (useMusicStore.getState().currentKey == null) return
     if (fmAdvancingRef.current) usePersonalFmStore.getState().invalidate()
     // 用户手动播放/暂停：取消排队中的漫游续播重试（避免稍后自己跳下一首）
@@ -1426,14 +1483,24 @@ export function useListenTogether({
         positionSec: audio.currentTime,
       })
     }
-  }, [getAudio, broadcastSyncState, hasControl, cancelFmRetry, recoverPlayback])
+  }, [
+    getAudio,
+    broadcastSyncState,
+    hasControl,
+    cancelFmRetry,
+    recoverPlayback,
+    requestControl,
+  ])
 
   /**
    * 下一首（按播放模式计算目标）。按顺序播放已到末尾时不再回绕到列表
    * 开头，仅提示「队列中无下一首」（顺序循环/随机按各自规则继续）
    */
   const next = useCallback(() => {
-    if (!hasControl()) return
+    if (!hasControl()) {
+      requestControl('next')
+      return
+    }
     if (tryFmContinue()) return
     const state = useMusicStore.getState()
     // 单曲队列特例：computeTargetSong('next') 对唯一曲目返回自身重播
@@ -1465,13 +1532,22 @@ export function useListenTogether({
         }
       }
     }
-  }, [switchSong, hasControl, tryBiliContinueOnNext, tryFmContinue])
+  }, [
+    switchSong,
+    hasControl,
+    tryBiliContinueOnNext,
+    tryFmContinue,
+    requestControl,
+  ])
 
   /** 上一首（按播放模式计算目标） */
   const prev = useCallback(() => {
-    if (!hasControl()) return
+    if (!hasControl()) {
+      requestControl('prev')
+      return
+    }
     switchSong('prev')
-  }, [switchSong, hasControl])
+  }, [switchSong, hasControl, requestControl])
 
   /** 跳转到指定进度（秒） */
   const seek = useCallback(
@@ -1573,36 +1649,6 @@ export function useListenTogether({
       }
     },
     [loadAndPlaySong]
-  )
-
-  /** 观众：向房主申请控制（房主在线且自己无直接控制权时） */
-  const requestControl = useCallback(
-    (
-      action: MusicControlRequest['action'],
-      positionSec?: number,
-      item?: MusicControlRequest['item']
-    ) => {
-      const currentSocket = socketRef.current
-      const currentRoomId = roomIdRef.current
-      if (!currentSocket || !currentRoomId) return
-      // 房主或房主离线时拥有直接控制权，无需申请
-      if (hasControl()) return
-      currentSocket.emit(MUSIC_EVENT.CONTROL_REQUEST, {
-        roomId: currentRoomId,
-        action,
-        positionSec,
-        item,
-        from: currentSocket.id ?? '',
-        username: usernameRef.current,
-      })
-      // 观众端即时反馈（应答到达后会被同意/拒绝文案覆盖）
-      useMusicStore
-        .getState()
-        .setSyncNotice(
-          t('已向房主申请{{value}}', { value: t(CONTROL_ACTION_TEXT[action]) })
-        )
-    },
-    [hasControl]
   )
 
   /** 房主：执行审批通过的动作（房主是同步源，执行后广播使全房间对齐） */
@@ -2170,6 +2216,10 @@ export function useListenTogether({
           }
           clearRetry()
           retryDelay = 500
+          // 点歌/队列管理权限随状态一起下发（旧后端无此字段 → 归一化为默认值）
+          useMusicStore
+            .getState()
+            .setPermission(normalizeMusicPermission(res.permission))
           if (Array.isArray(res.queue)) {
             useMusicStore.getState().setQueue(res.queue)
             // 队列变化使洗牌序列失效：标记待重建
@@ -2369,6 +2419,17 @@ export function useListenTogether({
       }
       if (!payload.from) return
       if (action === 'seek' && payload.positionSec == null) return
+      // 房主已把队列管理权限授予该成员：控制请求免审批，直接执行并回执
+      if (payload.controlAllowed === true) {
+        executeHostAction(action, payload.positionSec)
+        socketRef.current?.emit(MUSIC_EVENT.CONTROL_RESPONSE, {
+          roomId: roomIdRef.current,
+          approved: true,
+          action,
+          from: payload.from,
+        })
+        return
+      }
       if (useRoomStore.getState().autoApproveRequests) {
         executeHostAction(action, payload.positionSec)
         socketRef.current?.emit(MUSIC_EVENT.CONTROL_RESPONSE, {
@@ -2480,6 +2541,19 @@ export function useListenTogether({
       useMusicStore.getState().pushSyncAck(payload.username || t('观众'))
     }
 
+    // 点歌权限变更（房主修改配置后实时推给房间内所有成员）
+    const handlePermissionChanged = (payload: {
+      roomId?: string
+      permission?: MusicPermission
+    }) => {
+      if (!payload?.permission) return
+      if (payload.roomId && payload.roomId !== roomIdRef.current) return
+      useMusicStore
+        .getState()
+        .setPermission(normalizeMusicPermission(payload.permission))
+    }
+
+    socket.on('music:permission-changed', handlePermissionChanged)
     socket.on(MUSIC_EVENT.SYNC_STATE, handleSyncState)
     socket.on(MUSIC_EVENT.HOST_HEARTBEAT, handleHostHeartbeat)
     socket.on(MUSIC_EVENT.QUEUE_CHANGED, handleQueueChanged)
@@ -2488,6 +2562,7 @@ export function useListenTogether({
     socket.on(MUSIC_EVENT.SYNC_ACK, handleSyncAck)
 
     return () => {
+      socket.off('music:permission-changed', handlePermissionChanged)
       socket.off(MUSIC_EVENT.SYNC_STATE, handleSyncState)
       socket.off(MUSIC_EVENT.HOST_HEARTBEAT, handleHostHeartbeat)
       socket.off(MUSIC_EVENT.QUEUE_CHANGED, handleQueueChanged)
@@ -2573,6 +2648,8 @@ export function useListenTogether({
     setSyncNotice,
     volume,
     setVolume,
+    listening,
+    setListening,
     getAudio,
   }
 }

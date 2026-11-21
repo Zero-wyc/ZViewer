@@ -13,7 +13,7 @@
  *   danmaku-tracks-updated / danmaku-meta-updated 增量同步(与 RoomPage 同款)
  * - 布局极简:仅标题行 + 面板本体,适配独立小窗
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Text } from '@/components/ui/Typography'
 import { LoadingLine } from '@/components/ui/LoadingLine'
@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/Button'
 import { CommentPanel } from '@/components/CommentPanel'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
+import { useRoomDisplayName } from './hooks/useRoomDisplayName'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { t } from '@/i18n'
 
@@ -30,6 +31,26 @@ type JoinState = 'connecting' | 'ready' | 'need-password' | 'closed' | 'error'
 export default function CommentsWindowPage() {
   const { roomId = '' } = useParams<{ roomId: string }>()
   const { socket } = useSocket()
+  // 本窗口是独立页面，必须自己把「房间内昵称」同步给服务端，
+  // 否则这里发出的评论会退化成账号名（评论名要显示房间内设置的名字）。
+  const { name: roomDisplayName } = useRoomDisplayName(roomId)
+  const pushedDisplayNameRef = useRef('')
+  useEffect(() => {
+    if (!socket || !roomId) return undefined
+    const push = (force = false) => {
+      if (!roomDisplayName) return
+      if (!force && pushedDisplayNameRef.current === roomDisplayName) return
+      pushedDisplayNameRef.current = roomDisplayName
+      socket.emit('set-display-name', { roomId, name: roomDisplayName })
+    }
+    push()
+    // 重连后 socket.data 已重置，需要重新同步
+    const onConnect = () => push(true)
+    socket.on('connect', onConnect)
+    return () => {
+      socket.off('connect', onConnect)
+    }
+  }, [socket, roomId, roomDisplayName])
   const [joinState, setJoinState] = useState<JoinState>('connecting')
   const [errorMsg, setErrorMsg] = useState('')
   const [password, setPassword] = useState('')

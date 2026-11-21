@@ -33,6 +33,14 @@ func (s *Server) registerMusicRoutes(mux *http.ServeMux) {
 	// <audio> 标签带不了 Authorization 头，token 从 query 读取（ExtractAccessToken 支持）
 	mux.HandleFunc("GET /api/music/stream", s.Auth.Optional(s.handleNcmStream))
 	mux.HandleFunc("GET /api/music/song-quality", s.Auth.Optional(s.handleNcmSongQuality))
+
+	// 点歌「用户」页：搜索用户、当前账号关注/粉丝、用户歌单、歌单歌曲。
+	// 解析全部在后端完成，前端只拿归一化后的 JSON 渲染。
+	mux.HandleFunc("GET /api/music/users/search", s.Auth.Optional(s.handleMusicUserSearch))
+	mux.HandleFunc("GET /api/music/users/follows", s.Auth.Optional(s.handleMusicUserFollows))
+	mux.HandleFunc("GET /api/music/users/followers", s.Auth.Optional(s.handleMusicUserFollowers))
+	mux.HandleFunc("GET /api/music/users/playlists", s.Auth.Optional(s.handleMusicUserPlaylists))
+	mux.HandleFunc("GET /api/music/users/playlist/songs", s.Auth.Optional(s.handleMusicPlaylistSongs))
 }
 
 // musicUserID 取当前用户 id（游客/未登录为 0）。
@@ -55,7 +63,24 @@ func (s *Server) handleNcmForward(w http.ResponseWriter, r *http.Request) {
 	if r.URL.RawQuery != "" {
 		rest += "?" + r.URL.RawQuery
 	}
-	s.NCM.Forward(w, r, rest, musicUserID(r.Context()))
+	ctx := r.Context()
+	userID := musicUserID(ctx)
+	var onLogin func(context.Context)
+	if roomID, claims, ok := s.roomMemberContext(ctx, r); ok {
+		// 扫码登录必须用请求者自己的身份落库（不能顶替房间共享账号的登录态），
+		// 其余转发一律走「房间绑定 → 房主 → 请求者」链路：成员侧的歌单、搜索、
+		// 收藏都靠这里复用当前生效的账号，否则只有绑定者自己能用。
+		if !ncm.IsQRLoginPath(rest) {
+			userID = s.effectiveRoomAccountUserIDIn(ctx, roomID, claims, roomAccountProviderNCM)
+		}
+		if claims.UserID > 0 {
+			boundUID := claims.UserID
+			onLogin = func(c context.Context) {
+				s.bindRoomAccount(c, roomID, roomAccountProviderNCM, boundUID)
+			}
+		}
+	}
+	s.NCM.ForwardWithLogin(w, r, rest, userID, onLogin)
 }
 
 // handleNcmCookie 返回当前用户持久化的网易云 Cookie（迁移/备份用）。
@@ -159,6 +184,10 @@ func (s *Server) handleNcmCookieLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// 带房间上下文时把「谁登录的」绑定为房间共享账号，全房复用。
+	if roomID, claims, ok := s.roomMemberContext(r.Context(), r); ok && claims.UserID > 0 {
+		s.bindRoomAccount(r.Context(), roomID, roomAccountProviderNCM, claims.UserID)
+	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"profile": map[string]any{
@@ -182,7 +211,9 @@ func (s *Server) handleNcmAlbumFull(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	credential, err := s.NCM.LoadCredential(r.Context(), musicUserID(r.Context()))
+	// 房间内与「我的歌单」同源：走房间绑定 → 房主 → 请求者的凭证链。
+	albumUserID := s.effectiveRoomAccountUserID(r.Context(), r, roomAccountProviderNCM)
+	credential, err := s.NCM.LoadCredential(r.Context(), albumUserID)
 	if err != nil {
 		log.Printf("[music] 读取凭证失败: %v", err)
 	}
@@ -205,7 +236,13 @@ func (s *Server) handleNcmAlbumFull(w http.ResponseWriter, r *http.Request) {
 
 // handleNcmLoginStatus 查询当前用户的网易云登录状态。
 func (s *Server) handleNcmLoginStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := s.NCM.GetLoginStatus(r.Context(), musicUserID(r.Context()))
+	ctx := r.Context()
+	userID := musicUserID(ctx)
+	// 房间内展示的是「当前生效的共享账号」（成员绑定 → 房主 → 自己）。
+	if roomID, claims, ok := s.roomMemberContext(ctx, r); ok {
+		userID = s.effectiveRoomAccountUserIDIn(ctx, roomID, claims, roomAccountProviderNCM)
+	}
+	status, err := s.NCM.GetLoginStatus(ctx, userID)
 	if err != nil {
 		log.Printf("[music] login/status error: %v", err)
 		httpx.JSON(w, http.StatusInternalServerError, map[string]any{

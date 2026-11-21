@@ -33,6 +33,7 @@ import {
 import type { ResolvedSource } from '@/modules/bilibili/types'
 import { BilibiliParseSettings } from './BilibiliParseSettings'
 import { BilibiliLiveSettings } from './BilibiliLiveSettings'
+import { MoviePermissionSection } from './MoviePermissionSection'
 import { MovieRuntimeSettings } from './MovieRuntimeSettings'
 import {
   getEffectivePreferMp4,
@@ -994,6 +995,8 @@ export function MovieListPanel({
 
       {/* 卡片内容 — 外层 px-0.5(2px) + 内层 pl-2.5(10px)/scrollbar-gutter(10px) = 12px 左右剩余 */}
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-0.5 py-3">
+        {/* 房主：允许成员点片的房间级开关 + 逐人白/黑名单 */}
+        {isHost && <MoviePermissionSection />}
         {renderMovieList(false)}
       </div>
 

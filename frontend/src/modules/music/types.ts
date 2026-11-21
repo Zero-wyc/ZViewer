@@ -150,6 +150,11 @@ export interface MusicControlRequest {
   }
   /** addQueue 申请是否插入当前播放下一首（默认尾部） */
   afterCurrent?: boolean
+  /**
+   * 服务端广播该申请时附带的权限判定：申请者拥有队列管理权限
+   * （musicQueue）时为 true，房主端据此免审批直接执行。
+   */
+  controlAllowed?: boolean
   /** 申请者 socketId（房主应答时定向回传） */
   from: string
   /** 申请者用户名（房主端提示文案用） */
@@ -164,6 +169,37 @@ export interface MusicControlResponse {
   action: MusicControlRequest['action']
   /** 申请者 socketId（回传用于定向应答） */
   from: string
+}
+
+/**
+ * 房间点歌权限（music:get-state ack 的 permission 字段 /
+ * music:permission-changed 广播）。
+ *
+ * - allowMembers：房主是否允许房间成员点歌（默认 true，兼容旧后端缺省）
+ * - allowedUserIds / deniedUserIds：按用户 ID 的单点白名单/黑名单
+ *   （点歌权限设置只维护这两份名单；游客无 user id，仅受 allowMembers 控制）
+ */
+export interface MusicPermission {
+  allowMembers: boolean
+  allowedUserIds: number[]
+  deniedUserIds: number[]
+}
+
+/** 房主修改点歌权限的上行载荷（socket 事件 music:update-permission） */
+export interface MusicPermissionUpdate {
+  roomId: string
+  /** 总开关：允许房间成员点歌 */
+  allowMembers?: boolean
+  /** 单用户授权目标（userId + allowed 成对出现） */
+  userId?: number
+  /** true = 允许该用户点歌，false = 禁止 */
+  allowed?: boolean
+}
+
+/** 点歌权限变更广播（socket 事件 music:permission-changed） */
+export interface MusicPermissionChangedPayload {
+  roomId: string
+  permission: MusicPermission
 }
 
 /** 网易云登录状态（本地镜像，由 useNcmLogin 维护） */

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"zviewer/backend/internal/httpx"
@@ -25,11 +26,81 @@ var qrLoginPaths = map[string]struct{}{
 	"/login/qr/check":  {},
 }
 
+// IsQRLoginPath 判断 rest 是否为扫码登录三接口之一。
+//
+// rest 允许带 query，也允许不带前导 "/"（与 Forward 的入参形状一致）。
+func IsQRLoginPath(rest string) bool {
+	path := rest
+	if index := strings.IndexByte(path, '?'); index >= 0 {
+		path = path[:index]
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	_, ok := qrLoginPaths[path]
+	return ok
+}
+
+// qrCheckBodyCookies 从扫码 check 响应体里提取 cookie（Set-Cookie 缺失时的兜底）。
+func qrCheckBodyCookies(body any) []string {
+	object, ok := body.(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := object["cookie"].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ";")
+	cookies := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			cookies = append(cookies, trimmed)
+		}
+	}
+	return cookies
+}
+
+// qrLoginSucceeded 判断扫码 check 响应体是否表示登录成功（code 803）。
+func qrLoginSucceeded(body any) bool {
+	object, ok := body.(map[string]any)
+	if !ok {
+		return false
+	}
+	switch value := object["code"].(type) {
+	case float64:
+		return value == 803
+	case json.Number:
+		number, err := value.Int64()
+		return err == nil && number == 803
+	case int64:
+		return value == 803
+	case int:
+		return value == 803
+	case string:
+		number, err := strconv.Atoi(strings.TrimSpace(value))
+		return err == nil && number == 803
+	}
+	return false
+}
+
 // Forward 是 `/api/music/ncm/*` 的通用入口。
 //
 // rest 是去掉 `/api/music/ncm` 前缀后的剩余路径（含 query，以 "/" 开头）。
 // userID 是可选鉴权解出的当前用户（游客为 0）。
 func (s *Service) Forward(w http.ResponseWriter, r *http.Request, rest string, userID int64) {
+	s.forward(w, r, rest, userID, nil)
+}
+
+// ForwardWithLogin 与 Forward 相同，额外在扫码登录成功（check 返回 803）时回调 onLogin。
+//
+// 房间共享账号绑定就挂在这个回调上：登录态 cookie 已落库到 userID 之后，
+// 调用方（api 层）负责把「谁登录的」写进 room_account 并广播。
+func (s *Service) ForwardWithLogin(w http.ResponseWriter, r *http.Request, rest string, userID int64, onLogin func(context.Context)) {
+	s.forward(w, r, rest, userID, onLogin)
+}
+
+func (s *Service) forward(w http.ResponseWriter, r *http.Request, rest string, userID int64, onLogin func(context.Context)) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		httpx.JSON(w, http.StatusMethodNotAllowed, map[string]any{
 			"code": "METHOD_NOT_ALLOWED", "message": "仅支持 GET/POST 转发",
@@ -58,9 +129,10 @@ func (s *Service) Forward(w http.ResponseWriter, r *http.Request, rest string, u
 		p.mergeBody(body)
 	}
 
+	isQRLogin := IsQRLoginPath(ncmPath)
 	cookieHeader := ""
 	var credential *store.NcmCredential
-	if _, isQRLogin := qrLoginPaths[ncmPath]; !isQRLogin {
+	if !isQRLogin {
 		cred, loadErr := s.LoadCredential(r.Context(), userID)
 		if loadErr != nil {
 			log.Printf("[ncm] 读取凭证失败: %v", loadErr)
@@ -73,6 +145,12 @@ func (s *Service) Forward(w http.ResponseWriter, r *http.Request, rest string, u
 	if err != nil {
 		writeInvokeError(w, ncmPath, err)
 		return
+	}
+
+	// 扫码登录成功时，上游可能只把登录态 cookie 放在响应体里（Set-Cookie 为空）。
+	// 不兜底的话登录态无法落库，房间共享账号也就无从绑定。
+	if ncmPath == "/login/qr/check" && len(result.Cookies) == 0 {
+		result.Cookies = qrCheckBodyCookies(result.Body)
 	}
 
 	// 登录态 cookie 变化时持久化（仅正式用户；游客 userId=0 不落库）
@@ -88,6 +166,11 @@ func (s *Service) Forward(w http.ResponseWriter, r *http.Request, rest string, u
 			})
 			return
 		}
+	}
+
+	// 登录成功后回调（房间共享账号绑定）：必须在凭证落库之后触发。
+	if onLogin != nil && ncmPath == "/login/qr/check" && qrLoginSucceeded(result.Body) {
+		onLogin(r.Context())
 	}
 
 	httpx.JSON(w, http.StatusOK, result.Body)
