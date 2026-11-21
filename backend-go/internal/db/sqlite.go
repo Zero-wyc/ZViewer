@@ -5,12 +5,16 @@
 //
 // 启动路径（Open）只做四件事：连通性检查、核对表齐、补历史上唯一的自动列迁移
 // （playback_states.metadata）、按 schema.sql 逐列校验，最后由调用方补索引。
-// 缺表与缺列都直接拒绝启动，绝不静默补结构——4.x 正是靠 TypeORM synchronize
-// 自动改表，才让「表齐但缺列」的老库在 5.x 上读出字符串垃圾值。
+// Open 自身缺表与缺列一律拒绝启动，不做任何静默补结构——它必须能当「结构是否
+// 符合当前版本」的判定器用。*自动*补结构发生在它之前：启动路径先调 AutoMigrate
+// （见 automigrate.go：算差异 → 备份 → 事务内 DDL → 自检），补完再由 Open 严格
+// 校验一遍。这样「改表」永远是有备份、可回滚、可一键关闭（`DB_AUTO_MIGRATE=0`）
+// 的独立一步，而不是埋在连接里的副作用。
 //
-// 两个显式入口：
+// 三个入口：
 //   - `--init-db`（InitSchema）只用于空库；
-//   - `--upgrade-db`（UpgradeSchema）把 4.x 的老结构补到当前版本，先备份再改。
+//   - `--upgrade-db`（UpgradeSchema）手动把老结构补到当前版本，先备份再改；
+//   - 启动期 AutoMigrate：版本升级后结构有变化就自动做同一件事。
 package db
 
 import (

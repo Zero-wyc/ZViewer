@@ -185,11 +185,18 @@ func main() {
 		return
 	}
 
+	// 版本更新后库的结构可能变了：这里先把结构补到当前版本（备份 + 事务内改表），
+	// 否则下面的 db.Open 会因为缺表缺列直接拒绝启动。`DB_AUTO_MIGRATE=0` 可以关掉，
+	// 退回「报错并提示手动跑 --upgrade-db」。
+	if err := autoMigrateDatabase(cfg); err != nil {
+		log.Fatalf("[db] 自动升级数据库结构失败: %v", err)
+	}
+
 	conn, err := db.Open(cfg.DatabasePath, cfg.SQLiteWAL)
 	if err != nil {
 		// 首次启动（库文件不存在）自动初始化：分发版解压即用，不需要用户
-		// 先敲一条命令。**只在库不存在时**这么做——库存在但结构不符仍然直接
-		// 报错退出，绝不自动补表改列。
+		// 先敲一条命令。**只在库不存在时**这么做——库存在但结构不符说明自动
+		// 升级没做成（被关掉或失败了），不能悄悄建一套空表盖过去。
 		if !errors.Is(err, db.ErrNotExist) {
 			log.Fatalf("[db] %v", err)
 		}
@@ -565,6 +572,46 @@ func journalLabel(wal bool) string {
 		return "WAL（默认）"
 	}
 	return "delete（SQLITE_WAL=0 显式关闭）"
+}
+
+// autoMigrateDatabase 是启动路径的结构自愈：版本更新后 schema.sql 多了表或列，
+// 旧库在这里被自动补齐，用户不必先敲 `npm run db:upgrade`。
+//
+// 安全顺序与 `--upgrade-db` 完全一致（都走 db.AutoMigrate）：算差异 → 校验补列
+// 可行 → VACUUM INTO 备份 → 事务内 DDL → VerifySchema 自检。三种情况直接放过：
+//   - `DB_AUTO_MIGRATE=0`：人工接管，退回「拒绝启动 + 提示命令」；
+//   - 库文件不存在：交给下面的首次启动初始化；
+//   - 结构已是最新：什么都不做，也不产生备份。
+func autoMigrateDatabase(cfg *config.Config) error {
+	if !cfg.AutoMigrate {
+		log.Printf("[db] DB_AUTO_MIGRATE=0：跳过启动期结构检查；结构不符时请手动执行 npm run db:upgrade")
+		return nil
+	}
+	result, err := db.AutoMigrate(context.Background(), cfg.DatabasePath, cfg.SQLiteWAL)
+	if err != nil {
+		if errors.Is(err, db.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	// 库文件在但一张表都没有：可能是被外部工具创建的空文件，按首次启动处理
+	// （空库除了建表还要建初始管理员，那属于 bootstrap 的职责）。
+	if result.EmptyDatabase {
+		log.Printf("[db] %s 里没有任何表，按首次启动初始化", cfg.DatabasePath)
+		return bootstrapFreshDatabase(cfg)
+	}
+	if !result.Migrated() {
+		return nil
+	}
+	log.Printf("[db] 检测到结构更新（版本升级）：已自动补建 %d 张表、%d 个列",
+		len(result.Plan.MissingTables), result.Plan.ColumnCount())
+	for _, line := range result.Plan.Describe() {
+		log.Printf("[db]   %s", line)
+	}
+	if result.BackupPath != "" {
+		log.Printf("[db]   改动前备份: %s", result.BackupPath)
+	}
+	return nil
 }
 
 // bootstrapFreshDatabase 初始化一个全新的库：建表、补索引、创建初始管理员。

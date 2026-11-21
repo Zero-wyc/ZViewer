@@ -133,10 +133,12 @@ func VerifySchema(conn *sql.DB) error {
 		b.WriteString("\n")
 	}
 	if missingCols > 0 {
-		b.WriteString("这通常是从 4.x 直接升到 5.x 造成的：4.x 每次启动自动改表，5.x 不会。\n")
+		b.WriteString("这通常是跨版本升级（新版本给表加了列）造成的。\n")
 	}
-	b.WriteString("空库请执行一次 `zviewer-server --init-db`；\n" +
-		"已有数据的库请执行 `zviewer-server --upgrade-db`：先做一致性备份，再补上缺失的表和列")
+	b.WriteString("启动路径默认会自动补齐（见 db.AutoMigrate，DB_AUTO_MIGRATE=0 可关）；" +
+		"看到本条说明自动升级被关掉或没成功，可手动执行 `zviewer-server --upgrade-db`：" +
+		"先做一致性备份，再补上缺失的表和列。\n" +
+		"空库请执行一次 `zviewer-server --init-db`")
 	return errors.New(b.String())
 }
 
