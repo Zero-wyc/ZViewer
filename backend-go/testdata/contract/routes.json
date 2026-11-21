@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。2026-11-01 语音改自建 SFU，删除 /api/voice/token、/mute、/kick（能力改由 voice 事件承担）。2026-11-06 追加管理端房管三条（186 条历史 + 3 条 Go 侧新增 = 189），登记进清单是为了让这三条也进入回归探测。2026-11-14 追加房间 Live2D 模型库三条（上传/列表/删除，房主专属写权限），契约 192 条。2026-11-15 Live2D 模型库从「房间私有」改为「服务端公共」：三条端点由 /api/rooms/:roomId/live2d/models 移到 /api/live2d/models（模型不再随房间删除，契约仍 192 条）。",
+  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。2026-11-01 语音改自建 SFU，删除 /api/voice/token、/mute、/kick（能力改由 voice 事件承担）。2026-11-06 追加管理端房管三条（186 条历史 + 3 条 Go 侧新增 = 189），登记进清单是为了让这三条也进入回归探测。2026-11-14 追加房间 Live2D 模型库三条（上传/列表/删除，房主专属写权限），契约 192 条。2026-11-15 Live2D 模型库从「房间私有」改为「服务端公共」：三条端点由 /api/rooms/:roomId/live2d/models 移到 /api/live2d/models（模型不再随房间删除，契约仍 192 条）。 2026-11-22 手动补齐 Node 退场后 Go 侧新增的 48 条端点（全网搜片 /api/crawler/* 公开段与管理段、/api/desktop/* 桌面能力、/api/rooms/:roomId/movie-permission 点片权限、/api/stream-push/watch/:roomId 推流票据、/api/stream/resolve-bilibili-live、/api/voice/status、/api/live2d/models/import、/api/share/piik/session、/api/voice/piik/session），契约 241 条。这些端点都由 Auth.Require / RequireDesktopOrAdmin 先行拦截，行为探测只拿到 401/403，不会触发真实副作用。注：HEAD /api/server-files/proxy 由 ServeMux 的 \"GET\" 模式自动覆盖（Go 1.22 语义），不单列。",
   "generatedAt": "2026-10-25T05:47:58.398Z",
-  "total": 192,
+  "total": 241,
   "routes": [
     {
       "method": "GET",
@@ -11,10 +11,6 @@
     {
       "method": "DELETE",
       "path": "/api/admin/rooms/:roomId"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/rooms/:roomId/reopen"
     },
     {
       "method": "GET",
@@ -27,6 +23,10 @@
     {
       "method": "DELETE",
       "path": "/api/admin/rooms/:roomId/moderators/:userId"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rooms/:roomId/reopen"
     },
     {
       "method": "POST",
@@ -119,6 +119,162 @@
     {
       "method": "POST",
       "path": "/api/client-logs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/accounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/accounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/crawler/accounts/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/accounts/:id"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/agent/chat"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/agent/runs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/agent/runs/:id"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/agent/runs/:id/cancel"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/agent/sessions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/agent/sessions"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/crawler/agent/sessions/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/agent/sessions/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/crawler/agent/sessions/:id"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/browser/clear-profile"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/browser/close"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/browser/open-login"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/browser/save-login"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/browser/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/challenges"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/challenges/clear"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/config"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/crawler/config"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/generate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/models"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/models"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/play/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/rules"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/rules"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/crawler/rules/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/rules/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/crawler/rules/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/rules/export"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/rules/import"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/search"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/sites"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/crawler/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/desktop/capabilities"
+    },
+    {
+      "method": "POST",
+      "path": "/api/desktop/comments-window"
     },
     {
       "method": "GET",
@@ -258,6 +414,22 @@
     },
     {
       "method": "GET",
+      "path": "/api/live2d/models"
+    },
+    {
+      "method": "POST",
+      "path": "/api/live2d/models"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/live2d/models/:modelId"
+    },
+    {
+      "method": "POST",
+      "path": "/api/live2d/models/import"
+    },
+    {
+      "method": "GET",
       "path": "/api/music/album/full"
     },
     {
@@ -369,6 +541,14 @@
       "path": "/api/rooms/:roomId/danmaku-tracks/bulk"
     },
     {
+      "method": "GET",
+      "path": "/api/rooms/:roomId/movie-permission"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/rooms/:roomId/movie-permission"
+    },
+    {
       "method": "DELETE",
       "path": "/api/rooms/:roomId/movies"
     },
@@ -449,12 +629,24 @@
       "path": "/api/server-files/upload"
     },
     {
+      "method": "DELETE",
+      "path": "/api/share/piik/session"
+    },
+    {
+      "method": "POST",
+      "path": "/api/share/piik/session"
+    },
+    {
       "method": "GET",
       "path": "/api/stats/traffic"
     },
     {
       "method": "GET",
       "path": "/api/stream-push/obs-config/:roomId"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream-push/watch/:roomId"
     },
     {
       "method": "GET",
@@ -678,6 +870,10 @@
     },
     {
       "method": "GET",
+      "path": "/api/stream/resolve-bilibili-live"
+    },
+    {
+      "method": "GET",
       "path": "/api/stream/resolve-ftp"
     },
     {
@@ -719,6 +915,14 @@
     {
       "method": "POST",
       "path": "/api/system/update/upload-stream"
+    },
+    {
+      "method": "POST",
+      "path": "/api/voice/piik/session"
+    },
+    {
+      "method": "GET",
+      "path": "/api/voice/status"
     },
     {
       "method": "GET",
@@ -763,18 +967,6 @@
     {
       "method": "GET",
       "path": "/health"
-    },
-    {
-      "method": "GET",
-      "path": "/api/live2d/models"
-    },
-    {
-      "method": "POST",
-      "path": "/api/live2d/models"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/live2d/models/:modelId"
     }
   ]
 }

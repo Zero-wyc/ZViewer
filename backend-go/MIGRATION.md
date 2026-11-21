@@ -2011,8 +2011,8 @@ soak 34s
 
 | 快照 | 内容 | 生成方式 |
 |---|---|---|
-| `backend-go/testdata/contract/routes.json` | **189** 条 `/api/*` + `/health`（含方法） | `node backend-go/scripts/route-audit.js --snapshot backend-go/testdata/contract/routes.json` |
-| `backend-go/testdata/contract/events.json` | **65** 个上行 Socket 业务事件 + `lifecycle:[disconnect]` + 19 个 handler 名单 | `node backend-go/scripts/event-audit.js --snapshot backend-go/testdata/contract/events.json` |
+| `backend-go/testdata/contract/routes.json` | **241** 条 `/api/*` + `/health`（含方法）= 193 条 Node 冻结 + 48 条 Go 侧后补（见下「2026-11-22 手动补齐」） | `node backend-go/scripts/route-audit.js --snapshot ...`（仅 Node 还在时可用，之后手改并同步本节） |
+| `backend-go/testdata/contract/events.json` | **69** 个上行 Socket 业务事件 + `lifecycle:[disconnect]` + 19 个 handler 名单 = 60 条 Node 冻结 + 9 条后补 | `node backend-go/scripts/event-audit.js --snapshot ...`（同上） |
 
 两个脚本都支持 `--fixture`：**只读快照、不 require ts-node、不碰 `backend/`**。
 
@@ -2032,6 +2032,45 @@ soak 34s
    会把它们误判成「缺失」。但本包里 `[]string{...}` 也用来装角色名
    （`isInRoom`/`isRoomHost`/`isRoomModerator`），所以只有在字面量后 4 行内出现 `.On(`
    时才当作事件列表。修好后 **Node 65 / Go 65 精确相等，零多余零缺失**。
+
+#### 2026-11-22 手动补齐（Node 退场后快照就没人维护了）
+
+`--snapshot` 依赖 `backend/` 里的 `createSocketRegistry()` / Express 实例，Node 删掉之后
+快照只能手改。结果是从 11 月初到 11 月 22 日新加的东西**一条都没进清单**，而
+`route-parity.sh --fixture` 只检查「清单里的端点在 Go 里存不存在」，多出来的 Go 端点不会报错
+——覆盖度是静默缩水的。
+
+补进来的 48 条端点（全部 `Auth.Require` / `RequireDesktopOrAdmin` 先行拦截，探测只会拿到
+401/403，不会触发真实副作用）：
+
+| 来源 | 端点 |
+|---|---|
+| 全网搜片 | `/api/crawler/sites`、`/search`、`/play/resolve`（公开段） |
+| 爬虫管理 | `/api/crawler/{status,rules,rules/:id,rules/export,rules/import,browser/*,submissions,accounts,accounts/:id,challenges,challenges/clear,config,models}` |
+| 爬虫 Agent | `/api/crawler/{generate,agent/chat,agent/runs,agent/runs/:id,agent/runs/:id/cancel,agent/sessions,agent/sessions/:id}` |
+| 桌面能力 | `/api/desktop/capabilities`、`/api/desktop/comments-window` |
+| 房间 | `/api/rooms/:roomId/movie-permission`（GET/PUT，点片权限） |
+| 推流/直播 | `/api/stream-push/watch/:roomId`、`/api/stream/resolve-bilibili-live` |
+| 其他 | `/api/voice/status`、`/api/voice/piik/session`、`/api/share/piik/session`（POST/DELETE）、`/api/live2d/models/import` |
+
+补进来的 9 个事件：`live2d-action`/`-config`/`-drag`/`-poke`/`-policy-set`/`-request`/`-state`
+（Live2D 房间悬浮角色）、`set-display-name`（房间内昵称）、`get-room-members`（成员列表）。
+
+两个必须注意的点：
+
+1. **比对前要归一化参数写法**。快照用 Express 的 `:roomId`，Go 用 `{roomId}`，直接按字符串比
+   会把 44 条已存在的端点当成新增，快照里就会出现两套写法（我第一遍就这么错了，总数 285）。
+   归一化口径就是 `route-audit.js#normalizePath`；写回时统一转成 `:param`。
+2. **`HEAD /api/server-files/proxy` 保持单列不要删**。Go 只注册了 `"GET /api/server-files/proxy"`，
+   但 ServeMux（Go 1.22 起）的 `GET` 模式自动接受 HEAD，探测确实通过；静态扫描会把它报成
+   「fixture 有但 Go 没有」，这属于已知误报，别为了让静态扫描闭嘴去改快照。
+
+复核口径（两条都必须绿）：
+
+```
+bash backend-go/scripts/events-parity.sh      # 69 / 69 精确相等
+bash backend-go/scripts/route-parity.sh --fixture   # 241 条全部命中，探测期间无 panic
+```
 
 ### 删除 `backend/` 的影响面（删之前必须处理的引用点）
 
@@ -2131,7 +2170,7 @@ Go 第三次启动的 before 快照又必须等于 Node 的 after。任何一侧
 
 ### 10.2 留下的东西（不是漏删）
 
-- **契约快照** `backend-go/testdata/contract/{routes,events}.json`（189 端点 / 65 事件）：
+- **契约快照** `backend-go/testdata/contract/{routes,events}.json`（241 端点 / 69 事件）：
   `route-parity.sh --fixture` 与 `events-parity.sh` 在 `backend/` 不存在时**自动退回快照模式**，
   「端点/事件全覆盖」这条验收在 Node 退场后仍然可跑，不依赖 ts-node。
 - **`regression-sweep.sh` 收敛到 13 个纯 Go 脚本**：所有 Node 参照脚本已从清单里摘掉，
