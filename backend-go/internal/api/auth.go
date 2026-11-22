@@ -211,21 +211,28 @@ type refreshRequest struct {
 
 // handleRefresh 续签 access token（refresh 不轮换）。
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	refreshToken := auth.ExtractRefreshToken(r)
-	if refreshToken == "" {
-		var req refreshRequest
-		// body 解析失败不算错误：老客户端可能压根没带 body
-		if err := httpx.DecodeJSON(r, &req); err == nil {
-			refreshToken = req.RefreshToken
-		}
+	// cookie 优先，但**不能只看 cookie**：HTTP 场景后端从不写 cookie，
+	// 浏览器里残留的 refresh_token cookie 往往是上一次 HTTPS 会话的失效值；
+	// 若因为「cookie 存在」就忽略 body 里的新令牌，客户端会一直拿到 403。
+	candidates := auth.RefreshTokenCandidates(r)
+	var req refreshRequest
+	// body 解析失败不算错误：老客户端可能压根没带 body
+	if err := httpx.DecodeJSON(r, &req); err == nil && req.RefreshToken != "" {
+		candidates = append(candidates, req.RefreshToken)
 	}
-	if refreshToken == "" {
+	if len(candidates) == 0 {
 		httpx.Unauthorized(w, "未提供刷新令牌")
 		return
 	}
 
-	claims, err := s.Tokens.VerifyRefresh(refreshToken)
-	if err != nil {
+	var claims *auth.Claims
+	for _, candidate := range candidates {
+		if verified, err := s.Tokens.VerifyRefresh(candidate); err == nil {
+			claims = verified
+			break
+		}
+	}
+	if claims == nil {
 		httpx.Forbidden(w, "刷新令牌无效或已过期")
 		return
 	}

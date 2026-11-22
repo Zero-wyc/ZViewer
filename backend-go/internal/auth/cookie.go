@@ -172,30 +172,71 @@ func clearCookie(w http.ResponseWriter, r *http.Request, name string, sameSite h
 	})
 }
 
-// ExtractAccessToken 依次从 query、cookie、Authorization 头取 token。
+// AccessTokenCandidates 按优先级返回请求里所有可用的访问令牌（已去重）。
+//
+// 为什么是列表而不是单个值：鉴权通道按 scheme 分离——HTTP 只认 Bearer、且后端
+// 在非 HTTPS 请求上根本不写 cookie。但浏览器可能仍带着上一次 HTTPS 会话
+// （反代 / 隧道 / 旧版本无条件写 cookie）留下的 httpOnly `access_token`。
+// 只取「第一个」时，一个早已失效的 cookie 会永久压过客户端手里刚签发的
+// 有效 Bearer：`/api/auth/guest` 每次 200，其余请求与 socket 握手却一直 401，
+// 前端于是无限重试，一分钟能刷出上千次游客登录。
+//
+// 调用方必须逐个校验，用第一个通过验证的令牌（见 middleware#authenticate）。
 //
 // query 优先是为了兼容 hls.js 这类无法自定义请求头的播放器。
-func ExtractAccessToken(r *http.Request) string {
-	if v := r.URL.Query().Get("token"); v != "" {
-		return v
+func AccessTokenCandidates(r *http.Request) []string {
+	candidates := make([]string, 0, 3)
+	seen := make(map[string]struct{}, 3)
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		candidates = append(candidates, value)
 	}
-	if c, err := r.Cookie(AccessCookieName); err == nil && c.Value != "" {
-		return c.Value
+
+	add(r.URL.Query().Get("token"))
+	if c, err := r.Cookie(AccessCookieName); err == nil {
+		add(c.Value)
 	}
 	if header := r.Header.Get("Authorization"); header != "" {
 		if parts := strings.SplitN(header, " ", 2); len(parts) == 2 && parts[0] == "Bearer" {
-			if v := strings.TrimSpace(parts[1]); v != "" {
-				return v
-			}
+			add(parts[1])
 		}
 	}
-	return ""
+	return candidates
+}
+
+// ExtractAccessToken 返回优先级最高的令牌，仅供只做「解析/记录」的调用方使用
+// （如客户端日志归属）。需要真正鉴权时必须用 AccessTokenCandidates 逐个校验。
+func ExtractAccessToken(r *http.Request) string {
+	candidates := AccessTokenCandidates(r)
+	if len(candidates) == 0 {
+		return ""
+	}
+	return candidates[0]
+}
+
+// RefreshTokenCandidates 返回可用的刷新令牌（cookie 优先）。
+//
+// 与访问令牌同理：`refresh_token` cookie 失效时不能直接拒绝，
+// 客户端 body 里往往还带着刚拿到的那一个。
+func RefreshTokenCandidates(r *http.Request) []string {
+	if c, err := r.Cookie(RefreshCookieName); err == nil && c.Value != "" {
+		return []string{c.Value}
+	}
+	return nil
 }
 
 // ExtractRefreshToken 优先读 cookie，兼容旧客户端的 body 字段（由调用方兜底）。
 func ExtractRefreshToken(r *http.Request) string {
-	if c, err := r.Cookie(RefreshCookieName); err == nil {
-		return c.Value
+	candidates := RefreshTokenCandidates(r)
+	if len(candidates) == 0 {
+		return ""
 	}
-	return ""
+	return candidates[0]
 }

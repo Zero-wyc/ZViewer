@@ -50,17 +50,19 @@ func (s *Server) handleClientLogs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// userIDFromCookie 从 access_token 解析当前用户 ID（失败返回空串）。
+// userIDFromCookie 解析当前请求的访问令牌并返回用户 ID（失败返回空串）。
+//
+// 逐个候选校验：失效的 access_token cookie 不该让日志归属凭空丢掉
+// （HTTP 场景客户端带的是 Bearer，cookie 只是历史残留）。
 func (s *Server) userIDFromCookie(r *http.Request) string {
-	token := auth.ExtractAccessToken(r)
-	if token == "" {
-		return ""
+	for _, token := range auth.AccessTokenCandidates(r) {
+		claims, err := s.Auth.Manager.VerifyAccess(token)
+		if err != nil {
+			continue
+		}
+		return itoa64(claims.UserID)
 	}
-	claims, err := s.Auth.Manager.VerifyAccess(token)
-	if err != nil {
-		return ""
-	}
-	return itoa64(claims.UserID)
+	return ""
 }
 
 // userIDStringOf 把上报里的 userId 归一成字符串（数字不能写成 3.0）。

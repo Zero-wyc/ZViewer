@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -58,18 +57,29 @@ func (s *Server) socketAuth(h *sio.Handshake) error {
 		}
 	}
 
-	token := accessTokenFromHandshake(h)
-	if token == "" {
+	candidates := accessTokenCandidatesFromHandshake(h)
+	if len(candidates) == 0 {
 		return errors.New("未提供认证令牌")
 	}
-	claims, err := s.Tokens.VerifyAccess(token)
-	if err != nil {
-		return errors.New("认证令牌无效或已过期")
-	}
-	if s.Auth != nil {
-		if err := s.Auth.AssertActive(context.Background(), claims); err != nil {
-			return errors.New("认证令牌无效或已过期")
+	// 逐个校验：失效的 access_token cookie 不能挡住客户端刚拿到的 auth.token，
+	// 否则「拿到游客令牌 → 握手仍 401 → 再拿令牌」会变成一个死循环。
+	var claims *auth.Claims
+	token := ""
+	for _, candidate := range candidates {
+		verified, err := s.Tokens.VerifyAccess(candidate)
+		if err != nil {
+			continue
 		}
+		if s.Auth != nil {
+			if err := s.Auth.AssertActive(context.Background(), verified); err != nil {
+				continue
+			}
+		}
+		claims, token = verified, candidate
+		break
+	}
+	if claims == nil {
+		return errors.New("认证令牌无效或已过期")
 	}
 
 	// 与 Object.assign(socket.data, payload) 等价：后续所有 handler 都从
@@ -89,7 +99,7 @@ func (s *Server) socketAuth(h *sio.Handshake) error {
 	// 原始令牌留在连接上供逐包复核（Node 也是闭包里捕获 token）。
 	h.Data["__token"] = token
 	h.Data["__authSession"] = &socketAuthSession{
-		refreshToken: refreshTokenFromHandshake(h),
+		refreshToken: s.pickRefreshToken(h),
 		principal:    claims,
 	}
 	return nil
@@ -240,39 +250,75 @@ func (s *Server) armTokenExpiry(sc *sio.Socket) {
 	session.mu.Unlock()
 }
 
-func refreshTokenFromHandshake(h *sio.Handshake) string {
-	for _, cookie := range (&http.Request{Header: h.Headers}).Cookies() {
-		if cookie.Name == auth.RefreshCookieName {
-			return cookie.Value
-		}
+// refreshTokenCandidatesFromHandshake 按 cookie → auth 载荷 的顺序收集刷新令牌。
+func refreshTokenCandidatesFromHandshake(h *sio.Handshake) []string {
+	candidates := make([]string, 0, 2)
+	if cookie, err := (&http.Request{Header: h.Headers}).Cookie(auth.RefreshCookieName); err == nil && cookie.Value != "" {
+		candidates = append(candidates, cookie.Value)
 	}
 	var token string
-	_ = json.Unmarshal(h.Auth["refreshToken"], &token)
-	return token
+	if json.Unmarshal(h.Auth["refreshToken"], &token) == nil && token != "" {
+		duplicated := false
+		for _, candidate := range candidates {
+			if candidate == token {
+				duplicated = true
+				break
+			}
+		}
+		if !duplicated {
+			candidates = append(candidates, token)
+		}
+	}
+	return candidates
 }
 
-// accessTokenFromHandshake 按 Node 的优先级取访问令牌。
-func accessTokenFromHandshake(h *sio.Handshake) string {
-	if raw := h.Headers.Get("Cookie"); raw != "" {
-		for _, part := range strings.Split(raw, ";") {
-			part = strings.TrimSpace(part)
-			if !strings.HasPrefix(part, "access_token=") {
-				continue
-			}
-			value := part[len("access_token="):]
-			if decoded, err := url.QueryUnescape(value); err == nil {
-				return decoded
-			}
-			return value
+// pickRefreshToken 返回第一个能通过验签的刷新令牌。
+//
+// 失效的 cookie 不能挡住客户端刚拿到的那一个（HTTP 场景后端不写 cookie，
+// 残留值多半来自上一次 HTTPS 会话）。
+func (s *Server) pickRefreshToken(h *sio.Handshake) string {
+	candidates := refreshTokenCandidatesFromHandshake(h)
+	for _, candidate := range candidates {
+		if _, err := s.Tokens.VerifyRefresh(candidate); err == nil {
+			return candidate
 		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
+// accessTokenCandidatesFromHandshake 按 Node 的优先级收集访问令牌。
+//
+// 返回列表而不是单个值的原因与 auth.AccessTokenCandidates 相同：
+// 失效的 access_token cookie 不能压过刚签发的 auth.token。
+func accessTokenCandidatesFromHandshake(h *sio.Handshake) []string {
+	candidates := make([]string, 0, 3)
+	seen := make(map[string]struct{}, 3)
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		candidates = append(candidates, value)
+	}
+
+	if cookie, err := (&http.Request{Header: h.Headers}).Cookie(auth.AccessCookieName); err == nil {
+		add(cookie.Value)
 	}
 	if raw, ok := h.Auth["token"]; ok {
 		var token string
-		if json.Unmarshal(raw, &token) == nil && token != "" {
-			return token
+		if json.Unmarshal(raw, &token) == nil {
+			add(token)
 		}
 	}
-	return h.Query.Get("token")
+	add(h.Query.Get("token"))
+	return candidates
 }
 
 // movieList 是注入给房间层的影片列表读取器。

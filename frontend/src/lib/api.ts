@@ -293,11 +293,96 @@ export async function refreshAccessToken(): Promise<boolean> {
   return inflightRefresh
 }
 
+/** 游客身份信息（与后端 /api/auth/guest 的 user 字段一致） */
+export interface GuestIdentity {
+  id: string
+  username: string
+  role: string
+  status?: 'active' | 'pending'
+  avatar?: string | null
+}
+
+export interface GuestSession {
+  accessToken?: string
+  refreshToken?: string
+  user: GuestIdentity
+}
+
+/**
+ * 申请游客身份失败后的冷却时间。
+ *
+ * 这不是「防抖」而是「防风暴」：`useSocket` 的 connect_error 每个连接实例都会
+ * 触发一次降级，多个 socket（主连接 + 语音连接）叠加时，一次握手失败就能在
+ * 几百毫秒内打出十几次 /api/auth/guest。真出问题时（后端不可达 / 令牌始终被拒）
+ * 这个循环会一直持续，既刷日志也白白签发成千上万个游客账号。
+ *
+ * 冷却期内直接返回 null，由调用方的退避（socket.io 自身的重连间隔）接管。
+ */
+const GUEST_RETRY_COOLDOWN_MS = 10_000
+
+let inflightGuestSession: Promise<GuestSession | null> | null = null
+let guestCooldownUntil = 0
+
+/**
+ * 申请游客身份（并发安全 + 失败冷却）。
+ *
+ * 1. 并发去重：同一时刻只发一次请求，其余调用复用同一个 Promise。
+ * 2. 成功时**同时保存 refresh token**——只存 access token 会让游客 1 小时后
+ *    无法续签（/api/auth/refresh 必然 403），只能再申请一个新游客。
+ * 3. 失败后冷却 `GUEST_RETRY_COOLDOWN_MS`，force=true 可跳过冷却（首屏引导用）。
+ */
+export async function ensureGuestSession(
+  force = false
+): Promise<GuestSession | null> {
+  if (inflightGuestSession) return inflightGuestSession
+  if (!force && Date.now() < guestCooldownUntil) return null
+
+  inflightGuestSession = (async () => {
+    try {
+      const res = await apiFetch('/api/auth/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (!res.ok) {
+        guestCooldownUntil = Date.now() + GUEST_RETRY_COOLDOWN_MS
+        return null
+      }
+      const data = (await res.json()) as {
+        success?: boolean
+        user?: GuestIdentity
+        accessToken?: string
+        refreshToken?: string
+      }
+      if (!data.success || !data.user) {
+        guestCooldownUntil = Date.now() + GUEST_RETRY_COOLDOWN_MS
+        return null
+      }
+      if (data.accessToken) {
+        saveAuthTokens(data.accessToken, data.refreshToken)
+      }
+      // 新凭据到手 → 允许下次 401 再走一遍 refresh
+      resetSessionExpired()
+      guestCooldownUntil = 0
+      return {
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        user: data.user,
+      }
+    } catch {
+      guestCooldownUntil = Date.now() + GUEST_RETRY_COOLDOWN_MS
+      return null
+    } finally {
+      inflightGuestSession = null
+    }
+  })()
+
+  return inflightGuestSession
+}
+
 /**
  * 统一 API fetch。返回值与原生 fetch 一致（Response）。
  * 业务调用方仍需自行 res.json() / res.ok 判断，但无需关心 token 与 refresh。
- */
-export async function apiFetch(
+ */ export async function apiFetch(
   input: string | URL,
   options: RequestOptions = {}
 ): Promise<Response> {

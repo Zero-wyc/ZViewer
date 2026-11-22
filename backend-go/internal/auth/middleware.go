@@ -24,20 +24,35 @@ func NewAuthenticator(manager *Manager, users *store.Users) *Authenticator {
 	return &Authenticator{Manager: manager, Users: users}
 }
 
+// authenticate 逐个候选令牌校验，返回第一个通过的身份。
+//
+// 不能只校验「优先级最高的那个」：HTTP 请求上可能同时存在一个失效的
+// access_token cookie（历史 HTTPS 会话残留）和一个刚签发的有效 Bearer，
+// 只认前者会让客户端永远 401（详见 AccessTokenCandidates 的注释）。
+func (a *Authenticator) authenticate(r *http.Request) *Claims {
+	for _, token := range AccessTokenCandidates(r) {
+		claims, err := a.Manager.VerifyAccess(token)
+		if err != nil {
+			continue
+		}
+		if err := a.assertActive(r.Context(), claims); err != nil {
+			continue
+		}
+		return claims
+	}
+	return nil
+}
+
 // Require 强制鉴权：失败直接返回 401，文案与 Node 版逐字一致。
 func (a *Authenticator) Require(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := ExtractAccessToken(r)
-		if token == "" {
+		candidates := AccessTokenCandidates(r)
+		if len(candidates) == 0 {
 			httpx.Unauthorized(w, "未提供认证令牌")
 			return
 		}
-		claims, err := a.Manager.VerifyAccess(token)
-		if err != nil {
-			httpx.Unauthorized(w, "认证令牌无效、已撤销或已过期")
-			return
-		}
-		if err := a.assertActive(r.Context(), claims); err != nil {
+		claims := a.authenticate(r)
+		if claims == nil {
 			httpx.Unauthorized(w, "认证令牌无效、已撤销或已过期")
 			return
 		}
@@ -45,24 +60,13 @@ func (a *Authenticator) Require(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// Optional 可选鉴权：无 token 或 token 失效都按匿名放行。
+// Optional 可选鉴权：无 token 或 token 全部失效都按匿名放行。
 func (a *Authenticator) Optional(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := ExtractAccessToken(r)
-		if token == "" {
-			next(w, r)
-			return
+		if claims := a.authenticate(r); claims != nil {
+			r = r.WithContext(context.WithValue(r.Context(), claimsKey{}, claims))
 		}
-		claims, err := a.Manager.VerifyAccess(token)
-		if err != nil {
-			next(w, r)
-			return
-		}
-		if err := a.assertActive(r.Context(), claims); err != nil {
-			next(w, r)
-			return
-		}
-		next(w, r.WithContext(context.WithValue(r.Context(), claimsKey{}, claims)))
+		next(w, r)
 	}
 }
 

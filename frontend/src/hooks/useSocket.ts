@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { useAuthStore, type User } from '@/store/authStore'
-import {
-  apiFetch,
-  getSocketUrl,
-  refreshAccessToken,
-  saveAuthTokens,
-  resetSessionExpired,
-} from '@/lib/api'
+import { ensureGuestSession, getSocketUrl, refreshAccessToken } from '@/lib/api'
 import { buildSocketAuth } from '@/lib/authTransport'
 
 let globalSocket: Socket | null = null
@@ -186,8 +180,6 @@ export function resetSocket(): void {
 }
 
 export function useSocket() {
-  const logout = useAuthStore((s) => s.logout)
-
   // 防止 connect_error 触发多次并发 refresh
   const isRefreshingRef = useRef(false)
 
@@ -249,40 +241,28 @@ export function useSocket() {
           return
         }
 
-        // Step 2: refresh 失败 → 获取 guest token 作为降级身份
-        const guestRes = await apiFetch('/api/auth/guest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        })
-        if (guestRes.ok) {
-          const guestData = (await guestRes.json()) as {
-            success?: boolean
-            user?: {
-              id: string
-              username: string
-              role: string
-              status?: 'active' | 'pending'
-              avatar?: string | null
-            }
-            accessToken?: string
-          }
-          if (guestData.success && guestData.user) {
-            if (guestData.accessToken) saveAuthTokens(guestData.accessToken)
-            resetSessionExpired()
-            useAuthStore.getState().setUser({
-              id: guestData.user.id,
-              username: guestData.user.username,
-              role: guestData.user.role as User['role'],
-              status: guestData.user.status,
-              avatar: guestData.user.avatar,
-            })
-            reconnectSocket()
-            return
-          }
+        // Step 2: refresh 失败 → 获取 guest token 作为降级身份。
+        // ensureGuestSession 自带并发去重与失败冷却：connect_error 在多个连接
+        // 实例上会同时触发，直接打 /api/auth/guest 会变成每秒几十次的风暴。
+        const guest = await ensureGuestSession()
+        if (guest) {
+          useAuthStore.getState().setUser({
+            id: guest.user.id,
+            username: guest.user.username,
+            role: guest.user.role as User['role'],
+            status: guest.user.status,
+            avatar: guest.user.avatar,
+          })
+          // 不主动 disconnect/connect：socket.io 正在按自己的退避间隔重连，
+          // 每次重连都会重新调用 auth 回调取最新 token（见 socket.js#onopen）。
+          // 强行立刻重连只会把退避打穿，正是之前那个死循环的放大器。
+          return
         }
 
-        // Step 3: guest token 也失败 → 登出作为最后手段
-        logout()
+        // Step 3: 拿不到游客身份（冷却中 / 后端拒绝）→ 保持断开，
+        // 由 socket.io 的重连退避继续尝试，不做登出（登出会清掉可用凭据）
+        setConnected(false)
+        return
       } catch {
         // 网络错误 → 不登出，等待 socket.io 自动重试
       } finally {
@@ -310,7 +290,7 @@ export function useSocket() {
         }, 100)
       }
     }
-  }, [socket, logout])
+  }, [socket])
 
   // socket 不存在时强制返回未连接，避免在 effect 中同步 setState
   return { socket, connected: socket ? connected : false }
