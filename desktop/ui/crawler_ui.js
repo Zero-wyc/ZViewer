@@ -159,17 +159,17 @@
     const config = info.config || {};
     const running = Boolean(info.running);
     const facts = [
-      fact('引擎状态', running ? '随服务运行' : '未运行'),
+      fact('引擎状态', running ? '正常' : '未运行'),
       fact('站点规则', String((info.ruleCount == null ? c.rules.length : info.ruleCount)) + ' 条'),
       fact('运行环境', '内置引擎（Go）'),
       fact('工作目录', info.root || ''),
-      fact('API Key', config.apiKeyConfigured ? ('已配置 ' + (config.apiKeyMasked || '')) : '尚未配置'),
+      fact('API Key', config.apiKeyConfigured ? ('已配置 ' + (config.apiKeyMasked || '')) : '未配置'),
       fact('最后错误', info.lastError || c.error || '')
     ].join('');
     const controls = running
       ? button('停止引擎', 'crawler-stop', 'stop') + button('刷新', 'crawler-refresh', 'refresh')
       : button('启动引擎', 'crawler-start', 'play', 'primary') + button('刷新', 'crawler-refresh', 'refresh');
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎随后端进程一起运行，没有独立进程需要启动；日志见左侧「运行日志」。</p></section>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎随后端运行。日志见左侧「运行日志」。</p></section>';
   }
   function tabs(c) {
     const pendingChallenges = (c.challenges || []).filter(function (item) { return !item.completed; }).length;
@@ -202,13 +202,13 @@
     return '<div class="crawler-rule"><div class="crawler-rule-main"><div class="crawler-rule-title"><strong>' + esc(item.name || item.site || id) + '</strong>' + tag('待人工验证') + (item.cookies ? tag('已收 Cookie ' + item.cookies) : '') + '</div><div class="crawler-rule-meta"><span>' + esc(item.site || '') + '</span><span>搜索词 ' + esc(item.keyword || '') + '</span><span>HTTP ' + esc(String(item.status || '')) + '</span><span>' + esc(item.roomId ? ('房间 ' + item.roomId) : '控制台验证') + '</span><span>' + (left ? ('约 ' + left + ' 分钟后过期') : '已过期') + '</span></div><p class="field-note">' + esc(item.note || item.reason || '网站要求完成人机验证') + '</p><p class="field-note">验证页：' + esc(item.pageUrl || '') + '</p></div><div class="crawler-rule-actions"><button class="text-button" data-crawler-challenge="' + esc(id) + '" data-crawler-do="open">打开验证页</button><button class="text-button" data-crawler-challenge="' + esc(id) + '" data-crawler-do="verify">我已完成</button><button class="text-button danger" data-crawler-challenge="' + esc(id) + '" data-crawler-do="delete">删除</button></div></div>';
   }
   function challengesPanel(c) {
-    const rows = (c.challenges || []).length ? c.challenges.map(challengeRow).join('') : '<div class="empty">没有待处理的人机验证。搜索遇到验证码、滑块或登录墙时会出现在这里，并弹 Windows 通知。</div>';
-    const verify = '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('shield') + '</span><h2>人机验证</h2></div><small>' + (c.challenges || []).length + ' 条</small></div><div class="live-toolbar">' + button('刷新', 'crawler-challenges-refresh', 'refresh') + '</div><p class="field-note">点「打开验证页」会在系统浏览器打开经过反代的验证页（不暴露站点登录态）；完成后回到这里点「我已完成」，引擎会用同一会话 Cookie 重新抓取并返回结果。</p><div class="crawler-rules">' + rows + '</div></section>';
+    const rows = (c.challenges || []).length ? c.challenges.map(challengeRow).join('') : '<div class="empty">无待处理验证。搜索遇到验证码、滑块或登录墙时在这里处理。</div>';
+    const verify = '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('shield') + '</span><h2>人机验证</h2></div><small>' + (c.challenges || []).length + ' 条</small></div><div class="live-toolbar">' + button('刷新', 'crawler-challenges-refresh', 'refresh') + '</div><p class="field-note">「打开验证页」在系统浏览器打开代理页面；完成后点「我已完成」，引擎用同一会话重新抓取。</p><div class="crawler-rules">' + rows + '</div></section>';
     return verify + browserPanel(c);
   }
   function rulesPanel(c) {
-    const rows = c.rules.length ? c.rules.map(ruleRow).join('') : '<div class="empty">还没有站点规则。可以用 Agent 生成，也可以手动新建或导入。</div>';
-    const local = c.ruleSource === 'local' ? '<p class="field-note">引擎未运行，当前直接读取规则文件；启动引擎后才能测试与保存。</p>' : '';
+    const rows = c.rules.length ? c.rules.map(ruleRow).join('') : '<div class="empty">暂无规则。可在 Agent 对话生成，也可手动新建或导入。</div>';
+    const local = c.ruleSource === 'local' ? '<p class="field-note">引擎未运行，当前显示本地规则文件；启动后可测试和保存。</p>' : '';
     return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('server') + '</span><h2>站点规则</h2></div><small>' + c.rules.length + ' 条</small></div><div class="live-toolbar">' + button('新建规则', 'crawler-rule-new', 'check') + button('规则文档', 'crawler-doc', 'book') + button('导入', 'crawler-import', 'download') + button('导出全部', 'crawler-export-all', 'folder') + (selectedCount(c) ? button('导出选中 (' + selectedCount(c) + ')', 'crawler-export-selected', 'check') : '') + '</div>' + local + '<div class="crawler-rules">' + rows + '</div></section>';
   }
   const TOOL_LABELS = {
@@ -291,8 +291,8 @@
     steps.forEach(function (step) {
       if (step.type === 'tool') step.calls.forEach(function (call) { if (call.status === 'running') running = call; });
     });
-    if (running) return '正在处理第 ' + (running.step || 1) + ' 步 · ' + toolLabel(running.name);
-    if (pending) return '正在分析…';
+    if (running) return '第 ' + (running.step || 1) + ' 步 · ' + toolLabel(running.name);
+    if (pending) return '分析中…';
     const counts = workCounts(steps);
     const parts = [];
     if (counts.thinking) parts.push('思考 ' + counts.thinking + ' 次');
@@ -396,7 +396,7 @@
     if (!c.mentionOpen) { slot.hidden = true; slot.innerHTML = ''; return; }
     const items = mentionCandidates(c, c.mentionQuery);
     if (!items.length) {
-      slot.innerHTML = '<div class="crawler-mention-empty">没有匹配的站点规则</div>';
+      slot.innerHTML = '<div class="crawler-mention-empty">无匹配规则</div>';
     } else {
       if (c.mentionIndex >= items.length) c.mentionIndex = items.length - 1;
       if (c.mentionIndex < 0) c.mentionIndex = 0;
@@ -497,7 +497,7 @@
               ctx2.drawImage(canvas, 0, 0, smaller.width, smaller.height);
               data = imageEncode(smaller, 0.75);
             }
-            if (data.length > 2950000) { reject(new Error('图片太大，请换一张小一点的')); return; }
+            if (data.length > 2950000) { reject(new Error('图片过大')); return; }
             resolve({ id: 'img' + Date.now() + Math.random().toString(36).slice(2, 7), name: file.name || '图片', data: data });
           } catch (error) { reject(error); }
         };
@@ -532,7 +532,7 @@
     let html = '<div class="crawler-msg agent">';
     if (events.length || item.pending) html += renderWorkProcess(item, index, c);
     if (item.content) html += '<div class="crawler-msg-body crawler-md">' + renderMarkdown(item.content) + '</div>';
-    if (item.pending && !item.content && !events.length) html += '<div class="crawler-pending-hint">正在准备回答…</div>';
+    if (item.pending && !item.content && !events.length) html += '<div class="crawler-pending-hint">准备中…</div>';
     if (item.content) html += '<div class="crawler-msg-actions"><button class="crawler-icon-btn" data-crawler-copy="' + index + '" title="复制">' + icon('copy') + '</button></div>';
     html += '</div>';
     return html;
@@ -540,11 +540,11 @@
   function messagesHtml(c) {
     if (!c.messages.length) {
       const suggestions = [
-        '帮我给一个影视站点生成电影搜索规则',
-        '检查一下当前规则为什么抓不到结果',
-        '给这个站点配置人机验证并绑定登录态'
+        '给这个站点生成电影搜索规则',
+        '检查规则为什么抓不到结果',
+        '配置人机验证并绑定登录态'
       ];
-      return '<div class="crawler-chat-empty"><div class="crawler-chat-empty-icon">' + icon('chat') + '</div><strong>让 Agent 帮你生成站点规则</strong><p>描述站点、搜索词或要修的规则。它会自己抓页面、试规则、保存，不需要逐步确认。</p><div class="crawler-suggestions">' + suggestions.map(function (text) { return '<button class="crawler-suggest" data-crawler-suggest="' + esc(text) + '">' + esc(text) + '</button>'; }).join('') + '</div></div>';
+      return '<div class="crawler-chat-empty"><div class="crawler-chat-empty-icon">' + icon('chat') + '</div><strong>生成站点规则</strong><p>输入站点地址或要修的规则，完成抓取、试跑和保存。</p><div class="crawler-suggestions">' + suggestions.map(function (text) { return '<button class="crawler-suggest" data-crawler-suggest="' + esc(text) + '">' + esc(text) + '</button>'; }).join('') + '</div></div>';
     }
     return c.messages.map(function (item, index) { return chatMessage(item, index, c); }).join('');
   }
@@ -588,13 +588,13 @@
     renderQueue(c);
     renderAttachments();
     const status = $('#crawler-chat-status');
-    if (status) status.textContent = c.chatSending ? '正在连接…' : c.runBusy ? (c.runStatus === 'cancelling' ? '正在停止…' : '正在执行…') : (c.generatingSession ? '规则生成中…' : '可多轮');
+    if (status) status.textContent = c.chatSending ? '连接中…' : c.runBusy ? (c.runStatus === 'cancelling' ? '停止中…' : '执行中…') : (c.generatingSession ? '生成中…' : '就绪');
     const stop = $('#crawler-chat-stop');
     if (stop) stop.hidden = !c.runBusy;
     const send = $('#crawler-chat-send');
     if (send) {
       send.disabled = Boolean(c.chatSending);
-      send.title = c.runBusy ? '加入队列，当前任务结束后自动发送' : '发送';
+      send.title = c.runBusy ? '加入队列，执行完毕后发送' : '发送';
     }
   }
   function modelOptions(c) {
@@ -607,7 +607,7 @@
   }
 
   function helpPanel() {
-    return '<section class="panel crawler-help-panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('info') + '</span><h2>能做什么</h2></div></div><div class="crawler-help-grid"><div class="check-item">' + icon('globe') + '<div><strong>生成规则</strong><br>给一个站点地址和搜索词，Agent 会分析页面结构并试跑。</div></div><div class="check-item">' + icon('settings') + '<div><strong>微调脚本</strong><br>直接说哪里抓不到、要换选择器或改接口，它会读规则再改。</div></div><div class="check-item">' + icon('lock') + '<div><strong>登录站点</strong><br>遇到登录墙时 Agent 会自己弹出浏览器窗口，你登录后它保存登录态并绑定账号。</div></div></div><p class="field-note">开放 MCP 后，外部 Agent 也能通过工具增删改规则。</p></section>';
+    return '<section class="panel crawler-help-panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('info') + '</span><h2>功能</h2></div></div><div class="crawler-help-grid"><div class="check-item">' + icon('globe') + '<div><strong>生成规则</strong><br>输入站点地址与搜索词，分析页面并试跑规则。</div></div><div class="check-item">' + icon('settings') + '<div><strong>修改规则</strong><br>说明抓取问题，读取现有规则后修改。</div></div><div class="check-item">' + icon('lock') + '<div><strong>登录站点</strong><br>打开浏览器窗口登录，保存登录态并绑定账号。</div></div></div><p class="field-note">MCP 客户端可通过工具增删改规则。</p></section>';
   }
 
   function agentPanel(c) {
@@ -619,8 +619,8 @@
     }).join('');
     // 只保留会话切换和新建/删除；模型与思考强度移入输入框下方，按 DSH composer 布局。
     const sessions = '<div class="crawler-session-bar"><select id="crawler-session" aria-label="对话会话"><option value="">新对话</option>' + options + '</select>' + button('新会话', 'crawler-session-new', 'chat') + (c.sessionId ? button('重命名', 'crawler-session-rename', 'edit') : '') + (c.sessionId ? button('删除会话', 'crawler-session-delete', 'trash') : '') + '</div>';
-    const compose = '<div class="crawler-compose-wrap"><div class="crawler-queue-slot" id="crawler-queue">' + queueHtml(c) + '</div><div class="crawler-compose"><div class="crawler-mentions" id="crawler-mentions" hidden></div>' + attachmentsHtml(c) + '<textarea id="crawler-chat-input" placeholder="告诉 Agent 要做什么，例如：给一个影视站生成电影搜索规则… 输入 @ 可引用规则" rows="2" autocomplete="off">' + esc(c.chatDraft || '') + '</textarea><div class="crawler-compose-row"><div class="crawler-compose-tools"><button type="button" class="crawler-attach" data-action="crawler-image-pick" title="添加图片" aria-label="添加图片">' + icon('image') + '</button><input type="file" id="crawler-image-input" accept="image/*" multiple hidden><select id="crawler-session-model" class="crawler-compose-select" aria-label="本会话模型" title="只影响当前会话，切换后从下一条消息生效">' + modelOptions(c) + '</select><select id="crawler-session-reasoning" class="crawler-compose-select" aria-label="本会话思考强度" title="只影响当前会话">' + effortOptions + '</select></div><div class="crawler-compose-actions"><button type="button" class="crawler-stop-btn" id="crawler-chat-stop" data-action="crawler-chat-stop" title="停止生成" aria-label="停止生成" hidden>' + icon('stop') + '</button><button type="button" class="crawler-send-btn" id="crawler-chat-send" data-action="crawler-chat-send" title="发送" aria-label="发送">' + icon('arrow') + '</button></div></div></div></div>';
-    return '<div class="crawler-agent"><section class="panel crawler-chat-panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('chat') + '</span><h2>Agent 对话</h2></div><small id="crawler-chat-status">' + (c.chatSending ? '正在连接…' : c.runBusy ? '正在执行…' : '可多轮') + '</small></div>' + sessions + '<div class="crawler-chat" id="crawler-chat">' + messagesHtml(c) + '</div>' + compose + '</section>' + '</div>';
+    const compose = '<div class="crawler-compose-wrap"><div class="crawler-queue-slot" id="crawler-queue">' + queueHtml(c) + '</div><div class="crawler-compose"><div class="crawler-mentions" id="crawler-mentions" hidden></div>' + attachmentsHtml(c) + '<textarea id="crawler-chat-input" placeholder="描述要做什么，例如：给某影视站生成搜索规则。@ 引用规则" rows="2" autocomplete="off">' + esc(c.chatDraft || '') + '</textarea><div class="crawler-compose-row"><div class="crawler-compose-tools"><button type="button" class="crawler-attach" data-action="crawler-image-pick" title="添加图片" aria-label="添加图片">' + icon('image') + '</button><input type="file" id="crawler-image-input" accept="image/*" multiple hidden><select id="crawler-session-model" class="crawler-compose-select" aria-label="本会话模型" title="仅当前会话，下一条消息生效">' + modelOptions(c) + '</select><select id="crawler-session-reasoning" class="crawler-compose-select" aria-label="本会话思考强度" title="只影响当前会话">' + effortOptions + '</select></div><div class="crawler-compose-actions"><button type="button" class="crawler-stop-btn" id="crawler-chat-stop" data-action="crawler-chat-stop" title="停止生成" aria-label="停止生成" hidden>' + icon('stop') + '</button><button type="button" class="crawler-send-btn" id="crawler-chat-send" data-action="crawler-chat-send" title="发送" aria-label="发送">' + icon('arrow') + '</button></div></div></div></div>';
+    return '<div class="crawler-agent"><section class="panel crawler-chat-panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('chat') + '</span><h2>Agent 对话</h2></div><small id="crawler-chat-status">' + (c.chatSending ? '连接中…' : c.runBusy ? '执行中…' : '就绪') + '</small></div>' + sessions + '<div class="crawler-chat" id="crawler-chat">' + messagesHtml(c) + '</div>' + compose + '</section>' + '</div>';
   }
   function aboutPanel(c) {
     return '<div class="crawler-about">' + statusCard(c) + helpPanel() + '</div>';
@@ -650,15 +650,15 @@
   }
   function submissionsPanel(c) {
     const pending = c.submissions.filter(function (item) { return item.status === 'pending' || item.status === 'failed'; }).length;
-    const rows = c.submissions.length ? c.submissions.map(submissionRow).join('') : '<div class="empty">还没有成员提交。成员在一起看页面提交新站点后会显示在这里。</div>';
-    const toggle = '<label class="check-item crawler-toggle"><input type="checkbox" id="crawler-auto-generate"' + (c.autoGenerate ? ' checked' : '') + '><div><strong>自动添加</strong><br>打开后，成员提交站点即自动唤醒大模型生成搜索规则。</div></label>';
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>成员提交</h2></div><small>' + c.submissions.length + ' 条 · ' + pending + ' 条待处理</small></div><div class="live-toolbar">' + button('手动提交站点', 'crawler-submission-new', 'plus', 'primary') + button('刷新', 'crawler-submissions-refresh', 'refresh') + '</div>' + toggle + '<p class="field-note">成员提交的站点保存在引擎 data/submissions.json；生成规则后可到「站点规则」里微调，或在 Agent 对话里继续调整。</p><div class="crawler-rules">' + rows + '</div></section>';
+    const rows = c.submissions.length ? c.submissions.map(submissionRow).join('') : '<div class="empty">暂无成员提交。提交记录显示在这里。</div>';
+    const toggle = '<label class="check-item crawler-toggle"><input type="checkbox" id="crawler-auto-generate"' + (c.autoGenerate ? ' checked' : '') + '><div><strong>自动添加</strong><br>成员提交后自动生成搜索规则。</div></label>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>成员提交</h2></div><small>' + c.submissions.length + ' 条 · ' + pending + ' 条待处理</small></div><div class="live-toolbar">' + button('手动提交站点', 'crawler-submission-new', 'plus', 'primary') + button('刷新', 'crawler-submissions-refresh', 'refresh') + '</div>' + toggle + '<p class="field-note">提交记录保存在 data/submissions.json。生成后可在「站点规则」调整。</p><div class="crawler-rules">' + rows + '</div></section>';
   }
   function browserPanel(c) {
     const b = c.browser || {};
     const stateText = b.running ? (b.mode === 'visible' ? '登录窗口已打开' : '无头运行中') : (b.available ? '未运行' : '未找到 Edge/Chrome');
     const pillTone = b.running ? 'pill green' : (b.available ? 'pill' : 'pill red');
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>站点登录</h2></div><span class="' + pillTone + '"><i></i>' + esc(stateText) + '</span></div><p class="field-note">需要登录才能搜索的站点，Agent 遇到登录墙时会自己把浏览器窗口显示出来（也可以在这里手动打开）；你在窗口里登录后点「保存登录态」，Cookie 会存成本地账号（不会显示给大模型），再让 Agent 把规则绑定到该账号。</p><div class="form-row"><label class="field"><span>站点地址</span><input id="crawler-login-url" value="' + esc(c.loginUrl || '') + '" placeholder="https://example.com" autocomplete="off"></label><label class="field"><span>域名（可选）</span><input id="crawler-login-site" value="' + esc(c.loginSite || '') + '" placeholder="example.com" autocomplete="off"></label></div><label class="field"><span>账号名称（可选）</span><input id="crawler-login-name" value="' + esc(c.loginName || '') + '" placeholder="例如 站长账号" autocomplete="off"></label><div class="form-actions">' + button('显示登录窗口', 'crawler-login-open', 'globe', 'primary') + button('保存登录态', 'crawler-login-save', 'check') + button('关闭浏览器', 'crawler-login-close', 'stop') + '</div><p class="field-note">要让引擎带上登录态，请用「显示登录窗口」在受控浏览器里登录，再点「保存登录态」；系统浏览器的登录不会同步给引擎。</p><p class="field-note">浏览器：' + esc(b.bin || '自动检测 Edge/Chrome') + ' · 调试端口 ' + esc(String(b.debugPort || '—')) + '。登录态保存在 data/accounts.json（权限 600）。</p></section>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>站点登录</h2></div><span class="' + pillTone + '"><i></i>' + esc(stateText) + '</span></div><p class="field-note">需要登录的站点，在浏览器窗口登录后点「保存登录态」。Cookie 存为本地账号，可在规则中绑定。</p><div class="form-row"><label class="field"><span>站点地址</span><input id="crawler-login-url" value="' + esc(c.loginUrl || '') + '" placeholder="https://example.com" autocomplete="off"></label><label class="field"><span>域名（可选）</span><input id="crawler-login-site" value="' + esc(c.loginSite || '') + '" placeholder="example.com" autocomplete="off"></label></div><label class="field"><span>账号名称（可选）</span><input id="crawler-login-name" value="' + esc(c.loginName || '') + '" placeholder="例如 站长账号" autocomplete="off"></label><div class="form-actions">' + button('显示登录窗口', 'crawler-login-open', 'globe', 'primary') + button('保存登录态', 'crawler-login-save', 'check') + button('关闭浏览器', 'crawler-login-close', 'stop') + '</div><p class="field-note">在受控浏览器登录后点「保存登录态」。</p><p class="field-note">浏览器：' + esc(b.bin || '自动检测 Edge/Chrome') + ' · 调试端口 ' + esc(String(b.debugPort || '—')) + '。登录态保存在 data/accounts.json。</p></section>';
   }
   const EFFORT_LEVELS = [['', '默认（不指定）'], ['minimal', '极低'], ['low', '低'], ['medium', '中'], ['high', '高']];
   function effortSelect(id, current, note) {
@@ -675,8 +675,8 @@
   }
   function settingsPanel(c) {
     const config = (c.info && c.info.config) || {};
-    const modelNote = c.modelsLoading ? '正在获取模型列表…' : (c.modelError ? ('获取失败：' + c.modelError) : (c.models.length ? ('可用 ' + c.models.length + ' 个模型，可直接输入或从列表选择') : '填入 API Key 后点「获取模型」，也可以直接填模型名'));
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('settings') + '</span><h2>大模型设置</h2></div><small>OpenAI 兼容接口</small></div><div class="form-row"><label class="field"><span>服务地址</span><input id="crawler-base-url" value="' + esc(config.baseUrl || '') + '" placeholder="https://api.deepseek.com/v1" autocomplete="off"></label><label class="field"><span>模型</span><input id="crawler-model" value="' + esc(config.model || '') + '" list="crawler-model-options" placeholder="deepseek-chat" autocomplete="off"></label></div>' + modelDatalist(c) + '<label class="field"><span>API Key <small>' + (config.apiKeyConfigured ? '已保存，留空沿用' : '必填') + '</small></span><input id="crawler-api-key" type="password" placeholder="' + (config.apiKeyConfigured ? '已配置 ' + esc(config.apiKeyMasked || '') : 'sk-…') + '" autocomplete="off"></label><div class="form-actions">' + button('获取模型', 'crawler-models-load', 'refresh') + button('保存设置', 'crawler-config-save', 'check', 'primary') + '</div><p class="field-note" id="crawler-model-note">' + esc(modelNote) + '</p><div class="form-row">' + effortSelect('crawler-reasoning-effort', c.settingsEffort, 'Agent 对话新建会话时默认使用这个强度') + effortSelect('crawler-submission-reasoning-effort', c.submissionEffort, '成员提交站点后自动生成规则的强度') + '</div>' + '<label class="field"><span>自定义提示词 <small>追加到 Agent 系统提示词末尾，留空则不追加</small></span><textarea id="crawler-custom-prompt" rows="4" maxlength="4000" placeholder="例如：优先使用 hls 线路；只有 test_play 通过才保存规则；站点名用网页标题…">' + esc(config.customPrompt || '') + '</textarea><span class="field-note">对 Agent 对话、生成规则、自动修复都会生效，保存在 crawler/config.json。</span></label><label class="check-item crawler-toggle"><input type="checkbox" id="crawler-repair-enabled"' + (c.repairEnabled ? ' checked' : '') + '><div><strong>规则自动修复</strong><br>搜索解析失败时自动让大模型修复规则并重试一次；同一规则 10 分钟内最多修一次。</div></label><p class="field-note">Key 保存在 crawler/config.json，仅本机可见；Agent 与规则生成都使用这里的配置。思考强度留「默认」时不会向接口发送该字段。</p></section>';
+    const modelNote = c.modelsLoading ? '获取模型列表…' : (c.modelError ? ('获取失败：' + c.modelError) : (c.models.length ? ('可用 ' + c.models.length + ' 个模型') : '填入 Key 后可拉取模型列表，也可直接填写模型名'));
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('settings') + '</span><h2>大模型设置</h2></div><small>OpenAI 兼容接口</small></div><div class="form-row"><label class="field"><span>服务地址</span><input id="crawler-base-url" value="' + esc(config.baseUrl || '') + '" placeholder="https://api.deepseek.com/v1" autocomplete="off"></label><label class="field"><span>模型</span><input id="crawler-model" value="' + esc(config.model || '') + '" list="crawler-model-options" placeholder="deepseek-chat" autocomplete="off"></label></div>' + modelDatalist(c) + '<label class="field"><span>API Key <small>' + (config.apiKeyConfigured ? '已保存' : '必填') + '</small></span><input id="crawler-api-key" type="password" placeholder="' + (config.apiKeyConfigured ? '已配置 ' + esc(config.apiKeyMasked || '') : 'sk-…') + '" autocomplete="off"></label><div class="form-actions">' + button('获取模型', 'crawler-models-load', 'refresh') + button('保存设置', 'crawler-config-save', 'check', 'primary') + '</div><p class="field-note" id="crawler-model-note">' + esc(modelNote) + '</p><div class="form-row">' + effortSelect('crawler-reasoning-effort', c.settingsEffort, '新会话默认强度') + effortSelect('crawler-submission-reasoning-effort', c.submissionEffort, '自动生成规则时的强度') + '</div>' + '<label class="field"><span>自定义提示词 <small>追加到系统提示词末尾</small></span><textarea id="crawler-custom-prompt" rows="4" maxlength="4000" placeholder="例如：优先使用 hls 线路；站点名取网页标题">' + esc(config.customPrompt || '') + '</textarea><span class="field-note">对生成、修复和对话生效。</span></label><label class="check-item crawler-toggle"><input type="checkbox" id="crawler-repair-enabled"' + (c.repairEnabled ? ' checked' : '') + '><div><strong>规则自动修复</strong><br>搜索失败时自动修复规则并重试，同一规则 10 分钟内最多一次。</div></label><p class="field-note">配置保存在 crawler/config.json。</p></section>';
   }
   // ---------------------------------------------------------------- markdown
   function mdInline(text) {
@@ -802,12 +802,12 @@
   }
 
   function mcpClientsHtml(clients) {
-    if (!clients || !clients.length) return '<div class="empty">读取不到客户端配置路径。</div>';
+    if (!clients || !clients.length) return '<div class="empty">无客户端配置路径。</div>';
     return clients.map(function (client) {
       return '<div class="mcp-client">' +
         '<div class="mcp-client-main"><strong>' + esc(client.name || '') + '</strong><code>' + esc(client.path || '—') + '</code></div>' +
         mcpStatus(client) +
-        '<button class="btn" data-mcp-install="' + esc(client.id || '') + '">' + icon('check') + (client.installed ? '重写' : '写入') + '</button>' +
+        '<button class="btn" data-mcp-install="' + esc(client.id || '') + '">' + icon('check') + (client.installed ? '覆盖' : '写入') + '</button>' +
         '</div>';
     }).join('');
   }
@@ -834,7 +834,7 @@
     if (hint) {
       hint.textContent = client
         ? ('配置文件：' + (client.path || '—') + '　' + (client.hint || ''))
-        : '把下面的片段粘进客户端的 MCP 配置里。';
+        : '粘进客户端的 MCP 配置文件。';
     }
     document.querySelectorAll('[data-mcp-client]').forEach(function (tab) {
       tab.classList.toggle('active', tab.dataset.mcpClient === mcpClient);
@@ -858,7 +858,7 @@
     const parts = [];
     if (done.length) parts.push('已写入 ' + done.map(function (item) { return item.name; }).join('、') + '，重启对应客户端后生效');
     if (failed.length) parts.push(failed.length + ' 个失败：' + failed[0].name + '（' + (failed[0].message || '未知原因') + '）');
-    if (!parts.length) parts.push('没检测到已安装的客户端，可以「写入」单个或复制提示词让 AI 自己装');
+    if (!parts.length) parts.push('未检测到客户端');
     ui.toast(parts.join('；'));
   }
 
@@ -888,22 +888,22 @@
       ? '<ul class="mcp-tools">' + tools.map(function (tool) {
           return '<li><code>' + esc(tool.name || '') + '</code><span>' + esc(tool.description || '') + '</span></li>';
         }).join('') + '</ul>'
-      : '<p class="field-note">' + esc(info.toolsError || '启动服务后即可读取工具清单。') + '</p>';
+      : '<p class="field-note">' + esc(info.toolsError || '工具清单暂不可用。') + '</p>';
     const source = info.toolsSource === 'stdio'
-      ? '清单由 MCP 服务直连读出（后端接口没响应，不影响客户端使用）。'
+      ? '清单由 MCP 服务直连读出。'
       : '';
     ui.modal(
       '<h2>MCP 工具</h2>' +
-      '<p class="field-note">ZViewer 自带一个 MCP 服务（stdio），接进任意 AI 客户端后，那个 AI 就能直接生成、测试、管理站点规则。工具走本机后端，桌面端没在运行也能用。</p>' +
+      '<p class="field-note">通过 stdio 接入 MCP 客户端，调用爬虫工具：抓取页面、生成与测试规则、管理站点规则。</p>' +
       '<div class="crawler-facts">' +
         '<div class="crawler-fact wide"><span>命令</span><code>' + esc(info.command || '') + '</code></div>' +
         fact('参数', (info.args || []).join(' ')) +
         fact('工具', toolCount) +
         '<div class="crawler-fact wide"><span>数据目录</span><code>' + esc(info.root || '') + '</code></div>' +
       '</div>' +
-      (info.commandExists ? '' : notice('运行包里没有找到 zviewer-backend.exe，请先构建或重新安装。', true)) +
+      (info.commandExists ? '' : notice('未找到 zviewer-backend.exe，请构建或重装。', true)) +
       '<h3 class="mcp-tools-title">一键写入客户端</h3>' +
-      '<p class="field-note">检测到的客户端会直接写进它们的用户级配置文件，写前备份成 <code>.zviewer-bak</code>，已有的其它服务不动。' + esc(source) + '</p>' +
+      '<p class="field-note">写入用户级配置文件。原文件备份为 <code>.zviewer-bak</code>，其它服务保留。' + esc(source) + '</p>' +
       '<div class="mcp-clients" id="crawler-mcp-clients">' + mcpClientsHtml(mcpView.clients) + '</div>' +
       '<div class="mcp-actions"><button class="btn" data-mcp-install-all="1">' + icon('check') + '写入所有已检测客户端</button></div>' +
       '<h3 class="mcp-tools-title">手动配置</h3>' +
@@ -913,8 +913,8 @@
       '<p class="field-note" id="crawler-mcp-path"></p>' +
       '<textarea class="codebox config-editor crawler-json" id="crawler-mcp-text" readonly spellcheck="false"></textarea>' +
       '<div class="mcp-actions"><button class="btn" data-crawler-mcp-copy="1">' + icon('copy') + '复制配置</button></div>' +
-      '<h3 class="mcp-tools-title">交给别的 AI 自动部署</h3>' +
-      '<p class="field-note">把这段提示词发给任何能读写文件的 AI Agent（Cline、Trae、Cherry Studio、Codex…），它会自己判断客户端、自己找配置文件、自己写入并校验，不需要你手填 JSON。</p>' +
+      '<h3 class="mcp-tools-title">部署提示词</h3>' +
+      '<p class="field-note">发给可读写文件的 Agent，由它查找客户端配置、写入并校验。</p>' +
       '<textarea class="codebox config-editor crawler-json mcp-prompt" id="crawler-mcp-prompt" readonly spellcheck="false"></textarea>' +
       '<div class="mcp-actions"><button class="btn primary" data-crawler-mcp-prompt="1">' + icon('copy') + '复制部署提示词</button></div>' +
       '<h3 class="mcp-tools-title">工具清单' + (tools.length ? '（' + tools.length + '）' : '') + '</h3>' + list +
@@ -926,7 +926,7 @@
 
   // ----------------------------------------------------------- manual submission
   function submissionModal() {
-    ui.modal('<h2>手动提交站点</h2><p class="field-note">提交后可以立即让大模型在真实会话里生成规则；生成过程可在「Agent 对话」里查看和继续调整。</p><label class="field"><span>站点地址</span><input id="crawler-new-url" placeholder="https://example.com" autocomplete="off"></label><div class="form-row"><label class="field"><span>站点名称（可选）</span><input id="crawler-new-name" placeholder="例如 示例影视" autocomplete="off"></label><label class="field"><span>想看的影片（可选）</span><input id="crawler-new-keyword" placeholder="测试关键词，默认 电影" autocomplete="off"></label></div><label class="field"><span>备注（可选）</span><input id="crawler-new-note" placeholder="例如 只能搜电影、需要登录" autocomplete="off"></label><div class="modal-actions">' + button('取消', 'close-modal') + button('提交', 'crawler-submission-save', 'check', 'primary') + '</div>');
+    ui.modal('<h2>手动提交站点</h2><p class="field-note">提交后可在 Agent 对话生成规则，过程可查看和继续调整。</p><label class="field"><span>站点地址</span><input id="crawler-new-url" placeholder="https://example.com" autocomplete="off"></label><div class="form-row"><label class="field"><span>站点名称（可选）</span><input id="crawler-new-name" placeholder="例如 示例影视" autocomplete="off"></label><label class="field"><span>想看的影片（可选）</span><input id="crawler-new-keyword" placeholder="测试关键词，默认 电影" autocomplete="off"></label></div><label class="field"><span>备注（可选）</span><input id="crawler-new-note" placeholder="例如 只能搜电影、需要登录" autocomplete="off"></label><div class="modal-actions">' + button('取消', 'close-modal') + button('提交', 'crawler-submission-save', 'check', 'primary') + '</div>');
   }
   async function saveSubmission() {
     const c = cs();
@@ -945,13 +945,13 @@
       if (result.autoQueued) {
         const sub = result.submission || {};
         ui.toast(sub.status === 'queued'
-          ? '已提交并加入生成队列' + (sub.queuePosition ? '（第 ' + sub.queuePosition + ' 位）' : '') + '，上一个任务结束后自动开始'
-          : '已提交，正在用大模型生成规则；可在提交记录里查看会话');
+          ? '已提交，队列第 ' + (sub.queuePosition || 1) + ' 位'
+          : '已提交，正在生成规则');
         schedulePoll();
       } else if (result.duplicate) {
-        ui.toast('这个站点已经提交过');
+        ui.toast('站点已提交');
       } else {
-        ui.toast(result.llmConfigured ? '已提交，可点「生成规则」开始' : '已提交；配置 API Key 后可自动生成规则');
+        ui.toast(result.llmConfigured ? '已提交，可生成规则' : '已提交；配置 Key 后自动生成');
       }
     } catch (error) { ui.toast(message(error)); }
   }
@@ -1017,14 +1017,14 @@
         // 排队中的任务轮到它时会带上 runId，这时把事件流接到会话上实时显示。
         if (item.status === 'processing' && item.runId) {
           stopSessionWatch();
-          if (await attachSubmissionRun(item)) { ui.toast('已开始生成规则，正在实时显示过程'); }
+          if (await attachSubmissionRun(item)) { ui.toast('已开始生成规则'); }
           return;
         }
         if (item.status === 'queued' || item.status === 'processing') return;
         stopSessionWatch();
         c.generatingSession = '';
         await loadSession(sessionId);
-        ui.toast(item.status === 'done' ? '规则已生成，会话已刷新' : '生成结束，会话已刷新');
+        ui.toast(item.status === 'done' ? '规则已生成' : '生成结束');
       } catch (error) { /* 轮询失败就等下一轮 */ }
     }, 2500);
   }
@@ -1042,10 +1042,10 @@
   }
 
   function bodyFor(c) {
-    if (c.starting) return '<section class="panel"><div class="empty">正在启动爬虫引擎…</div></section>';
-    if (c.loading && !c.info) return '<section class="panel"><div class="empty">正在读取爬虫引擎状态…</div></section>';
+    if (c.starting) return '<section class="panel"><div class="empty">启动引擎…</div></section>';
+    if (c.loading && !c.info) return '<section class="panel"><div class="empty">读取引擎状态…</div></section>';
     if (c.info && c.info.available === false) {
-      return notice('爬虫引擎暂不可用：' + esc(c.info.reason || '未知原因') + '。引擎随后端启动，先点左上角「启动」；仍失败请查看运行日志。', true);
+      return notice('爬虫引擎不可用：' + esc(c.info.reason || '未知原因') + '。启动引擎后重试。', true);
     }
     if (!c.info && c.error) return notice(esc(c.error), true);
     const content = c.tab === 'agent' ? agentPanel(c) : c.tab === 'about' ? aboutPanel(c) : c.tab === 'settings' ? settingsPanel(c) : c.tab === 'rules' ? rulesPanel(c) : c.tab === 'challenges' ? challengesPanel(c) : submissionsPanel(c);
@@ -1054,21 +1054,21 @@
   function page() {
     const c = cs();
     if (!c.info && !c.loading) ensure(false);
-    return heading('爬虫引擎', '用大模型生成站点规则，供一起看搜索影视。',
+    return heading('爬虫引擎', '生成影视站点搜索规则，供全网搜片使用。',
       enginePill(c) + button('刷新', 'crawler-refresh', 'refresh') + mcpButton()) + bodyFor(c);
   }
 
   function ruleModal(rule) {
     const initial = rule || { name: '', site: '', description: '', enabled: true, visibility: 'public', allowed_rooms: [], search: { mode: 'http', request: { url: 'https://example.com/search?q={keyword}', method: 'GET', headers: {} }, account_id: '' }, parse: { type: 'html', container: '.result', fields: { title: { selector: '.title' }, url: { selector: 'a', attr: 'href', absolute: true } } } };
     const json = JSON.stringify(initial, null, 2);
-    ui.modal('<h2>' + (rule ? '编辑规则' : '新建规则') + '</h2><label class="field"><span>规则名称</span><input id="crawler-rule-name" value="' + esc(initial.name || '') + '" data-initial-name="' + esc(initial.name || '') + '" placeholder="例如：某某影视（前端「全网搜片」的站点名显示这里）" autocomplete="off"></label><p class="field-note">规则名称由 Agent 生成时自动填写，也可以在这里自己改；保存后网页端会立即显示新名称。</p><p class="field-note">完整 JSON 规则。search.mode 可为 http 或 script；parse.type 可为 html、json 或 script。</p><textarea class="codebox config-editor crawler-json" id="crawler-rule-json" spellcheck="false" autocomplete="off">' + esc(json) + '</textarea><div class="modal-actions">' + button('取消', 'close-modal') + button('保存规则', 'crawler-rule-save', 'check', 'primary') + '</div>');
+    ui.modal('<h2>' + (rule ? '编辑规则' : '新建规则') + '</h2><label class="field"><span>规则名称</span><input id="crawler-rule-name" value="' + esc(initial.name || '') + '" data-initial-name="' + esc(initial.name || '') + '" placeholder="例如：某某影视" autocomplete="off"></label><p class="field-note">保存后网页端立即显示该名称。</p><p class="field-note">JSON 规则。search.mode：http / script；parse.type：html / json / script。</p><textarea class="codebox config-editor crawler-json" id="crawler-rule-json" spellcheck="false" autocomplete="off">' + esc(json) + '</textarea><div class="modal-actions">' + button('取消', 'close-modal') + button('保存规则', 'crawler-rule-save', 'check', 'primary') + '</div>');
   }
 
   async function saveRule() {
     const editor = $('#crawler-rule-json');
     if (!editor) return;
     let rule;
-    try { rule = JSON.parse(editor.value); } catch (error) { ui.toast('规则不是有效 JSON：' + message(error)); return; }
+    try { rule = JSON.parse(editor.value); } catch (error) { ui.toast('JSON 无效：' + message(error)); return; }
     const nameInput = $('#crawler-rule-name');
     const name = nameInput ? nameInput.value.trim() : '';
     const initialName = nameInput ? String(nameInput.dataset.initialName || '') : '';
@@ -1088,7 +1088,7 @@
     const enabled = rule.enabled === false;
     await api('PUT', '/api/crawler/rules/' + encodeURIComponent(id), { patch: { enabled: enabled } });
     await loadRules();
-    ui.toast(enabled ? '规则已启用' : '规则已停用，网页端将不再显示');
+    ui.toast(enabled ? '规则已启用' : '规则已停用');
   }
   async function deleteRule(id) {
     if (!id) return;
@@ -1118,9 +1118,9 @@
     const baseUrl = baseInput ? baseInput.value.trim() : (config.baseUrl || '');
     const apiKey = keyInput ? keyInput.value.trim() : '';
     if (!apiKey && !config.apiKeyConfigured) {
-      c.modelError = '请先填写 API Key';
-      setModelNote('请先填写 API Key，再获取模型列表');
-      ui.toast('请先填写 API Key');
+      c.modelError = '请填写 API Key';
+      setModelNote('请填写 API Key，再获取模型列表');
+      ui.toast('请填写 API Key');
       return;
     }
     c.modelsLoading = true;
@@ -1131,8 +1131,8 @@
       if (!data.success) throw new Error(data.error || '获取模型列表失败');
       c.models = data.models || [];
       if (!c.models.length) {
-        c.modelError = '接口没有返回任何模型';
-        setModelNote('接口没有返回模型，可以直接手填模型名');
+        c.modelError = '接口未返回模型';
+        setModelNote('接口未返回模型，可直接填写模型名');
         return;
       }
       let list = document.getElementById('crawler-model-options');
@@ -1265,7 +1265,7 @@
       c.runId = started.runId || '';
       if (started.sessionId) c.sessionId = started.sessionId;
       c.runStatus = 'running';
-      if (!c.runId) throw new Error('引擎没有返回 runId');
+      if (!c.runId) throw new Error('引擎未返回 runId');
       renderChat();
       scheduleRunPoll();
     } catch (error) {
@@ -1322,7 +1322,7 @@
     const text = input.value.trim();
     const images = (c.chatImages || []).slice();
     const ruleIds = (c.chatRuleRefs || []).slice();
-    if (!text && !images.length) { ui.toast(c.runBusy ? '输入内容或添加图片后回车会加入队列' : '请先输入内容或添加图片'); return; }
+    if (!text && !images.length) { ui.toast(c.runBusy ? '回车加入队列' : '请输入内容或添加图片'); return; }
     if (c.runBusy) { enqueueChat(text, images, ruleIds); return; }
     input.value = '';
     c.chatDraft = '';
@@ -1383,7 +1383,7 @@
       if (!msg.content) {
         if (status === 'cancelled') msg.content = '已停止生成。';
         else if (status === 'error') msg.content = '请求失败：' + ((snap && snap.error) || '未知错误');
-        else msg.content = '（模型没有返回内容）';
+        else msg.content = '（模型未返回内容）';
       }
     }
     renderChat();
@@ -1433,7 +1433,7 @@
         reasoningEffort: c.submissionEffort || undefined
       });
       if (!started || !started.success) {
-        throw new Error((started && started.error) || '引擎拒绝了生成请求');
+        throw new Error((started && started.error) || '引擎拒绝生成请求');
       }
       if (started.queued && !started.runId) {
         await refreshSubmissions();
@@ -1446,7 +1446,7 @@
         return;
       }
       if (!started.runId || !started.sessionId) {
-        throw new Error((started && started.error) || '引擎没有返回 runId');
+        throw new Error((started && started.error) || '引擎未返回 runId');
       }
       const prompt = String(started.message || '').trim();
       c.tab = 'agent';
@@ -1496,7 +1496,7 @@
     try {
       await api('PUT', '/api/crawler/config', { submissions: { auto_generate: Boolean(enabled) } });
       c.autoGenerate = Boolean(enabled);
-      ui.toast(enabled ? '已打开自动添加：成员提交后会自动生成规则' : '已关闭自动添加');
+      ui.toast(enabled ? '自动添加已开启' : '自动添加已关闭');
     } catch (error) {
       ui.toast(message(error));
     }
@@ -1507,7 +1507,7 @@
     try {
       await api('PUT', '/api/crawler/config', { repair: { enabled: Boolean(enabled) } });
       c.repairEnabled = Boolean(enabled);
-      ui.toast(enabled ? '已打开规则自动修复' : '已关闭规则自动修复');
+      ui.toast(enabled ? '规则自动修复已开启' : '规则自动修复已关闭');
     } catch (error) {
       ui.toast(message(error));
     }
@@ -1530,12 +1530,12 @@
       url = (urlInput && urlInput.value.trim()) || '';
       if (!url) { url = 'https://' + (loginSite() || ''); }
     }
-    if (!url || url === 'https://') { ui.toast('请先填写站点地址'); return; }
+    if (!url || url === 'https://') { ui.toast('请填写站点地址'); return; }
     c.loginBusy = true;
     renderIf();
     try {
       await api('POST', '/api/crawler/browser/open-login', { url: url });
-      ui.toast('已打开该站点的登录窗口，登录完成后点「保存登录态」');
+      ui.toast('登录窗口已打开，登录后点「保存登录态」');
       await refreshBrowser();
     } catch (error) { ui.toast(message(error)); }
     c.loginBusy = false;
@@ -1598,7 +1598,7 @@
   function openChallenge(id) {
     const item = (cs().challenges || []).find(function (entry) { return entry.id === id; });
     const url = challengeUrl(item);
-    if (!url) { ui.toast('验证页地址还没准备好，请刷新后重试'); return; }
+    if (!url) { ui.toast('验证页地址未就绪，请刷新'); return; }
     if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
     else window.open(url, '_blank', 'noreferrer');
   }
@@ -1650,11 +1650,11 @@
     }
     if (name === 'crawler-export-all' || name === 'crawler-export-selected') {
       const ids = name === 'crawler-export-selected' ? Object.keys(c.selectedRules || {}) : [];
-      if (name === 'crawler-export-selected' && !ids.length) { ui.toast('先选中要导出的规则'); return; }
+      if (name === 'crawler-export-selected' && !ids.length) { ui.toast('选择要导出的规则'); return; }
       const result = await cmd('crawler-export', { ids: ids });
       if (!result || result.canceled) return;
       // 单文件包 / Docker 版没有 GUI，只能把这个文件拿去服务端导入
-      ui.toast('已导出 ' + (result.count || 0) + ' 条规则。到服务端「管理 → 全网搜片」导入即可生效');
+      ui.toast('已导出 ' + (result.count || 0) + ' 条规则，可在服务端「管理 → 全网搜片」导入');
       return;
     }
     if (name === 'crawler-chat-send') { await sendChat(); return; }
@@ -1666,7 +1666,7 @@
     }
     if (name === 'crawler-queue-clear') { c.queue = []; renderChat(); return; }
     if (name === 'crawler-session-new') {
-      if (c.runBusy) { ui.toast('正在执行，先停止或等待完成再新建会话'); return; }
+      if (c.runBusy) { ui.toast('正在执行，停止或等待完成后再新建会话'); return; }
       c.sessionId = '';
       c.messages = [];
       c.sessionEffort = c.settingsEffort || '';
@@ -1684,7 +1684,7 @@
     if (name === 'crawler-session-rename') {
       if (!c.sessionId) return;
       const current = (c.sessions.find(function (item) { return item.id === c.sessionId; }) || {}).title || '';
-      ui.modal('<h2>重命名会话</h2><p class="field-note">标题只用于会话列表，最多 32 个字符；Agent 在对话中也可以自动修改。</p><label class="field"><span>会话标题</span><input id="crawler-session-title" maxlength="32" value="' + esc(current) + '" placeholder="例如：某影视站的搜索规则" autocomplete="off"></label><div class="modal-actions">' + button('取消', 'close-modal') + button('保存', 'crawler-session-rename-save', 'check', 'primary') + '</div>');
+      ui.modal('<h2>重命名会话</h2><p class="field-note">标题用于会话列表，最多 32 字。</p><label class="field"><span>会话标题</span><input id="crawler-session-title" maxlength="32" value="' + esc(current) + '" placeholder="例如：某影视站的搜索规则" autocomplete="off"></label><div class="modal-actions">' + button('取消', 'close-modal') + button('保存', 'crawler-session-rename-save', 'check', 'primary') + '</div>');
       const input = document.getElementById('crawler-session-title');
       if (input) { input.focus(); input.select(); }
       return;
@@ -1703,7 +1703,7 @@
       return;
     }
     if (name === 'crawler-session-delete') {
-      if (c.runBusy) { ui.toast('正在执行，先停止或等待完成再删除会话'); return; }
+      if (c.runBusy) { ui.toast('正在执行，停止或等待完成后再删除会话'); return; }
       if (!c.sessionId || !window.confirm('删除当前对话？')) return;
       await api('DELETE', '/api/crawler/agent/sessions/' + encodeURIComponent(c.sessionId));
       c.sessionId = '';
@@ -1852,7 +1852,7 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       const area = $('#crawler-mcp-prompt');
-      copyText(area ? area.value : '', '部署提示词已复制，粘给任意 AI Agent 即可');
+      copyText(area ? area.value : '', '提示词已复制');
       return;
     }
     const ruleButton = event.target.closest('[data-crawler-rule]');
@@ -1924,7 +1924,7 @@
       const c = cs();
       if (c.runBusy) {
         event.target.value = c.sessionId || '';
-        ui.toast('正在执行，先停止或等待完成再切换会话');
+        ui.toast('正在执行，停止或等待完成后再切换会话');
         return;
       }
       loadSession(event.target.value).catch(function (error) { ui.toast(message(error)); });
