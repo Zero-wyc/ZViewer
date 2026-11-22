@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2940 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2941 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -350,7 +350,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（424 条） =====
+  // ===== pages（425 条） =====
   ' 等': ' and others',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -422,6 +422,7 @@ const enUS: Record<string, string> = {
   '房间 ID: {{roomId}} · 观众 {{viewerCount}} /{{value}} {{maxViewers}} · 分享端 {{value2}}': 'Room ID: {{roomId}} · Viewers {{viewerCount}} /{{value}} {{maxViewers}} · Sharer {{value2}}',
   '房间创建权限': 'Room creation permission',
   '房间管理': 'Room management',
+  '房间角色': 'Room characters',
   '房间默认音量': 'Default room volume',
   '房间权限管理': 'Room permissions',
   '房间悬浮入口': 'Floating room entry',
@@ -457,10 +458,10 @@ const enUS: Record<string, string> = {
   '勾选各角色作为观众时可执行的动作。房主与 root 始终放行，不参与勾选；未勾选按默认：房管与管理员允许，普通用户禁止。': 'Choose which actions each role may perform as a viewer. The host and root always pass and are not listed; anything unchecked falls back to the default: moderators and admins allowed, regular users denied.',
   '构建产物：{{assetName}} ( {{value}} MB)': 'Build artifact: {{assetName}} ({{value}} MB)',
   '关闭房间': 'Close room',
-  '关闭后房间里不显示 Live2D 角色，也不加载渲染引擎。': 'Hides Live2D characters in rooms; the renderer is not loaded either.',
+  '关闭后房间里不显示 Live2D 角色，也不加载渲染引擎。仅在 Beta 功能开启时生效。': 'Hides Live2D characters in rooms; the renderer is not loaded either. Only applies while beta features are on.',
   '关闭后房间右下角不显示语音入口。': 'Turns off the voice entry in the bottom-right corner of the room.',
   '关闭后房间左下角不显示流量统计。': 'Turns off the traffic stats in the bottom-left corner of the room.',
-  '关闭后隐藏 Kazumi、AniSubs 番剧源与 B站视频下载。房间角色由上面的「显示房间角色」单独控制。': 'Hides Kazumi, AniSubs sources and Bilibili downloads. Room characters are controlled separately by "Show room characters" above.',
+  '关闭后隐藏 Kazumi、AniSubs 番剧源、B站视频下载、房间里的 Live2D 角色，以及「全网搜片」（房间内的搜片入口与管理页标签一并收起）。': 'Hides Kazumi, AniSubs sources, Bilibili downloads, the Live2D character in rooms, and "Search all sites" (both the in-room entry and the admin tab disappear).',
   '关闭失败': 'Failed to close',
   '观看端应答码（粘贴回传）': 'Viewer response code (paste it back)',
   '管理该房间的房管': 'Manage this room\'s moderators',
@@ -534,7 +535,7 @@ const enUS: Record<string, string> = {
   '屏幕共享': 'Screen share',
   '启动直连共享': 'Start direct sharing',
   '启动直连共享失败': 'Failed to start direct sharing',
-  '启用 Beta 功能（Kazumi / AniSubs 番剧源 / B站视频下载）': 'Enable beta features (Kazumi / AniSubs sources / Bilibili downloads)',
+  '启用 Beta 功能（Kazumi / AniSubs 番剧源 / B站视频下载 / 房间角色 / 全网搜片）': 'Enable beta features (Kazumi / AniSubs sources / Bilibili downloads / room characters / site search)',
   '启用该规则': 'Enable this rule',
   '强制关闭房间': 'Force close room',
   '清空房间限制': 'Clear room restrictions',

@@ -682,24 +682,28 @@ export default function AdminPage() {
             <LayoutDashboard className="h-4 w-4" />
             <span className="hidden sm:inline">{t('房间管理')}</span>
           </button>
-          <button
-            onClick={() => setActiveTab('crawler')}
-            className="relative flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 text-sm font-medium transition-all sm:px-4"
-            style={{
-              backgroundColor:
-                activeTab === 'crawler'
-                  ? 'var(--md-sys-color-primary-container)'
-                  : 'var(--glass-bg)',
-              color:
-                activeTab === 'crawler'
-                  ? 'var(--md-sys-color-on-primary-container)'
-                  : 'var(--md-sys-color-on-surface)',
-              border: '1px solid var(--md-sys-color-outline)',
-            }}
-          >
-            <Globe2 className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('全网搜片')}</span>
-          </button>
+          {/* 全网搜片属于 Beta 功能：Beta 关闭时整个标签不出现（房间里的搜片
+              入口也同步收起）。想导入规则包先到「基础设置 → Beta 功能」开启。 */}
+          {settings.betaFeaturesEnabled && (
+            <button
+              onClick={() => setActiveTab('crawler')}
+              className="relative flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 text-sm font-medium transition-all sm:px-4"
+              style={{
+                backgroundColor:
+                  activeTab === 'crawler'
+                    ? 'var(--md-sys-color-primary-container)'
+                    : 'var(--glass-bg)',
+                color:
+                  activeTab === 'crawler'
+                    ? 'var(--md-sys-color-on-primary-container)'
+                    : 'var(--md-sys-color-on-surface)',
+                border: '1px solid var(--md-sys-color-outline)',
+              }}
+            >
+              <Globe2 className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('全网搜片')}</span>
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('settings')}
             className="relative flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 text-sm font-medium transition-all sm:px-4"

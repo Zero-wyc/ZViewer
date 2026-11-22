@@ -112,6 +112,19 @@ import { t } from '@/i18n'
  */
 const CRAWLER_SEARCH_VALUE = '__crawler-search__'
 
+/**
+ * 只在 Beta 模式开启时出现的选项：番剧源三件套 + 全网搜片。
+ *
+ * 全网搜片依赖爬虫规则与 LLM 生成的站点脚本，属于试验性能力，Beta 关掉后
+ * 入口整体消失（管理页的「全网搜片」标签也一并收起）。
+ */
+const BETA_ONLY_OPTIONS = new Set<string>([
+  'anime',
+  'kazumi',
+  'cms',
+  CRAWLER_SEARCH_VALUE,
+])
+
 const ALL_SOURCE_OPTIONS: {
   value: string
   label: string
@@ -1436,10 +1449,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             options={ALL_SOURCE_OPTIONS.filter(
               (opt) =>
                 (!opt.rootOnly || userRole === 'root') &&
-                (betaFeaturesEnabled ||
-                  (opt.value !== 'anime' &&
-                    opt.value !== 'kazumi' &&
-                    opt.value !== 'cms')) &&
+                // Beta 关闭时番剧源与全网搜片一律不出现
+                (betaFeaturesEnabled || !BETA_ONLY_OPTIONS.has(opt.value)) &&
                 // 挂载类型需有对应挂载才显示
                 !(
                   ['webdav', 'ftp', 'openlist', 'emby', 'jellyfin'].includes(

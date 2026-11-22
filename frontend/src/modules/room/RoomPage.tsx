@@ -89,12 +89,16 @@ function RoomPage() {
   const showTrafficPanel = useSystemSettingsStore(
     (state) => state.showTrafficPanel
   )
-  // Live2D 角色独立开关（config/ui-prefs.json，默认开）。
+  // Live2D 角色开关（config/ui-prefs.json，默认开）+ Beta 总开关。
   //
-  // 以前它归 betaFeaturesEnabled 管，和影片推送面板绑在一起：关掉推送面板
-  // 的人同时也失去了角色，而想把角色转正也没法单独放行。
+  // 两道门是「与」关系：房间角色属于 Beta 功能，Beta 关闭时一律不出现；
+  // Beta 打开后再由「显示房间角色」决定具体房间里显不显示。
   // 读到的是公开设置，App 启动时已拉过一次；管理员改完开关需要刷新才生效。
   const live2dEnabled = useSystemSettingsStore((state) => state.live2dEnabled)
+  const betaFeaturesEnabled = useSystemSettingsStore(
+    (state) => state.betaFeaturesEnabled
+  )
+  const showRoomCharacter = betaFeaturesEnabled && live2dEnabled
 
   const storeMode = useRoomStore((state) => state.mode)
   // 共享中才把「共享设置」摆到下方卡片区（由 WebrtcSharePage 上报）
@@ -665,10 +669,11 @@ function RoomPage() {
     <>
       {pageBody}
       {/* 独立悬浮层：不随模式/换片卸载，房主与观众共用同一份实现。
-          Live2D 有独立开关：关掉时**整个宿主不挂载**——不只是不显示，
-          连事件订阅、15Hz 指针上报和约 1MB 的 pixi/Cubism 引擎都不会加载。
+          Beta 关闭时**整个宿主不挂载**——不只是不显示，连事件订阅、15Hz 指针
+          上报和约 1MB 的 pixi/Cubism 引擎都不会加载。Beta 打开后再由「显示
+          房间角色」决定具体房间里显不显示。
           用条件挂载而不是在宿主内部提前 return：后者仍会把模块拉下来。 */}
-      {live2dEnabled && (
+      {showRoomCharacter && (
         <Suspense fallback={null}>
           <RoomLive2DHost
             roomId={roomId}
