@@ -180,7 +180,7 @@ const ALL_SOURCE_OPTIONS: {
   { value: 'kazumi', label: 'Kazumi 番剧源' },
   { value: 'cms', label: 'TVBox 采集源' },
   { value: 'server-files', label: '服务器文件', rootOnly: true },
-  { value: CRAWLER_SEARCH_VALUE, label: '全网搜片（内置库）' },
+  { value: CRAWLER_SEARCH_VALUE, label: '全网搜片' },
 ]
 
 interface MoviePushPanelProps {

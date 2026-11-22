@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2957 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2956 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -350,7 +350,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（432 条） =====
+  // ===== pages（433 条） =====
   '{{count}} 个源': '{{count}} sources',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -604,6 +604,7 @@ const enUS: Record<string, string> = {
   '审批注册': 'Approve registration',
   '生成二维码失败，请重试': 'Failed to generate the QR code, try again',
   '失败': 'Failed',
+  '识别到 {{length}} 个采集源，已加入地址': 'Found {{length}} sources and filled them in',
   '使用镜像更新源': 'Use the mirror update source',
   '手动导入更新包': 'Import an update package manually',
   '手动输入默认音量': 'Enter the default volume manually',
@@ -2147,7 +2148,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（505 条） =====
+  // ===== modules/room（504 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
@@ -2395,7 +2396,6 @@ const enUS: Record<string, string> = {
   '全部站点': 'All sites',
   '全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导': 'Every member (including the host) must connect ZViewer CLI to watch; the stream is not relayed by the server. Viewers without the CLI see a setup guide.',
   '全网搜片': 'Search all sites',
-  '全网搜片（内置库）': 'Crawl all (built-in libraries)',
   '权限说明': 'Permissions',
   '确定要将房主转交给 <highlight>{{name}}</highlight> 吗？转交后您将变为观众身份，无法再管理房间。': 'Transfer the host role to <highlight>{{name}}</highlight>? You will become a viewer and lose room management.',
   '确认清空？': 'Clear everything?',
@@ -3035,14 +3035,13 @@ const enUS: Record<string, string> = {
   '解析 {{label}} 文件失败': 'Failed to resolve {{label}} files',
   '浏览 WebDAV 目录': 'Browse the WebDAV directory',
 
-  // ===== extra（7 条，见 overrides.json） =====
+  // ===== extra（6 条，见 overrides.json） =====
   '」': '”',
   '{{count}} 集_one': '{{count}} episode',
   '找到 {{count}} 条字幕_one': 'Found {{count}} subtitle track',
   '已清理 {{count}} 个无人使用的房间_one': 'Removed {{count}} unused room',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one': 'Delete the <strong>{{count}}</strong> selected room? This cannot be undone.',
   '等 {{count}} 个': 'and {{count}} more',
-  '识别到 {{length}} 个采集源，已加入地址': 'Found {{length}} sources and filled them in',
 }
 
 export default enUS

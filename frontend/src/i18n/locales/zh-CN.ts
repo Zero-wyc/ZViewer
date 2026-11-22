@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2951 条。
+ * 当前共 2950 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -2145,7 +2145,7 @@ const zhCN: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁',
   'seek 失败': 'seek 失败',
 
-  // ===== modules/room（505 条） =====
+  // ===== modules/room（504 条） =====
   ' 等 {{length}} 位观众': ' 等 {{length}} 位观众',
   '），是否允许？': '），是否允许？',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] 更新成员点片权限失败:',
@@ -2393,7 +2393,6 @@ const zhCN: Record<string, string> = {
   '全部站点': '全部站点',
   '全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导': '全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导',
   '全网搜片': '全网搜片',
-  '全网搜片（内置库）': '全网搜片（内置库）',
   '权限说明': '权限说明',
   '确定要将房主转交给 <highlight>{{name}}</highlight> 吗？转交后您将变为观众身份，无法再管理房间。': '确定要将房主转交给 <highlight>{{name}}</highlight> 吗？转交后您将变为观众身份，无法再管理房间。',
   '确认清空？': '确认清空？',

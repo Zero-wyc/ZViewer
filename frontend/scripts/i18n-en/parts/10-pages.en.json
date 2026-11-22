@@ -13,7 +13,7 @@
     "Approve registration",
     "Failed to generate the QR code, try again",
     "Failed",
-    "",
+    "Found {{length}} sources and filled them in",
     "Use the mirror update source",
     "Import an update package manually",
     "Enter the default volume manually",

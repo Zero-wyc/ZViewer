@@ -7,7 +7,6 @@
     "All sites",
     "Every member (including the host) must connect ZViewer CLI to watch; the stream is not relayed by the server. Viewers without the CLI see a setup guide.",
     "Search all sites",
-    "Crawl all (built-in libraries)",
     "Permissions",
     "Transfer the host role to <highlight>{{name}}</highlight>? You will become a viewer and lose room management.",
     "Clear everything?",
@@ -119,6 +118,7 @@
     "Danmaku text copied",
     "“CLI only” turned off",
     "Members can no longer add movies",
-    "Host approval turned off"
+    "Host approval turned off",
+    "Auto-approve turned off"
   ]
 }
