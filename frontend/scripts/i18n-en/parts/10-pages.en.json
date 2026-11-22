@@ -1,6 +1,5 @@
 {
   "items": [
-    "Delete {{size}} selected rooms",
     "Delete user",
     "Failed to delete the user",
     "Failed to upload the update",
@@ -14,7 +13,7 @@
     "Approve registration",
     "Failed to generate the QR code, try again",
     "Failed",
-    "Found {{length}} sources and added them to the list",
+    "",
     "Use the mirror update source",
     "Import an update package manually",
     "Enter the default volume manually",
@@ -88,7 +87,7 @@
     "Bilibili account linked",
     "NetEase Cloud Music account linked",
     "Saved",
-    "",
+    "Imported",
     "Imported {{count}} rules",
     "Closed rooms",
     "{{username}} is now {{role}}",
@@ -119,6 +118,7 @@
     "Dry run",
     "Dry run result",
     "Current password",
-    "Remote version:"
+    "Remote version:",
+    "Allow the CLI to resolve direct links with the host's Bilibili identity"
   ]
 }

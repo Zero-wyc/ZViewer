@@ -350,7 +350,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（430 条） =====
+  // ===== pages（432 条） =====
   '{{count}} 个源': '{{count}} sources',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -406,7 +406,6 @@ const enUS: Record<string, string> = {
   '登录请求失败': 'Sign-in request failed',
   '登录失败': 'Sign-in failed',
   '登录已过期，请重新登录后再试': 'Your session expired, sign in again and retry',
-  '等 {{count}} 个': 'and {{count}} more',
   '等待画面': 'Waiting for video',
   '点击输入 0～100 的整数': 'Click and enter an integer from 0 to 100',
   '读取规则引擎状态失败': 'Failed to read crawler engine status',
@@ -533,6 +532,7 @@ const enUS: Record<string, string> = {
   '密码至少 4 位': 'Password must be at least 4 characters',
   '默认 50%。用户首次使用一起听时生效，之后按各自本地音量。': 'Defaults to 50%. Applied when someone first uses Listen Together, after which each user\'s local volume wins.',
   '默认 https://gh-proxy.com，可换成自建代理。': 'Defaults to https://gh-proxy.com; you can point it at your own proxy.',
+  '内置库来源': 'Built-in library sources',
   '配置地址必须是 http(s) URL': 'The configuration URL must be an http(s) URL',
   '批量删除房间': 'Delete rooms in bulk',
   '批量删除房间失败': 'Failed to delete rooms in bulk',
@@ -581,6 +581,7 @@ const enUS: Record<string, string> = {
   '任命': 'Appoint',
   '任命房管失败': 'Failed to appoint the moderator',
   '任命后立即生效，无需对方在线；房管可管理影片、踢人与禁言。': 'Takes effect immediately and works even if the user is offline. Moderators can manage movies, kick members and mute viewers.',
+  '三个内置库暂无来源，先在「来源库」里配置地址': 'No sources yet — configure addresses under Libraries first',
   '扫码登录网易云': 'Scan the QR code to sign in to NetEase Cloud Music',
   '删除规则': 'Delete rule',
   '删除规则失败': 'Failed to delete rule',
@@ -603,7 +604,6 @@ const enUS: Record<string, string> = {
   '审批注册': 'Approve registration',
   '生成二维码失败，请重试': 'Failed to generate the QR code, try again',
   '失败': 'Failed',
-  '识别到 {{length}} 个采集源，已加入列表': 'Found {{length}} sources and added them to the list',
   '使用镜像更新源': 'Use the mirror update source',
   '手动导入更新包': 'Import an update package manually',
   '手动输入默认音量': 'Enter the default volume manually',
@@ -677,6 +677,7 @@ const enUS: Record<string, string> = {
   '已绑定 B站 账号': 'Bilibili account linked',
   '已绑定网易云音乐账号': 'NetEase Cloud Music account linked',
   '已保存': 'Saved',
+  '已导入': 'Imported',
   '已导入 {{count}} 条规则': 'Imported {{count}} rules',
   '已关闭房间': 'Closed rooms',
   '已将 {{username}} 设为 {{role}}': '{{username}} is now {{role}}',
@@ -725,6 +726,7 @@ const enUS: Record<string, string> = {
   '站点规则': 'Site rules',
   '账号': 'Accounts',
   '账号绑定': 'Linked accounts',
+  '这些条目在各自的库里执行；导入后编译成本地规则，可以在这里编辑': 'These entries run inside their own libraries; import one to compile it into a local rule you can edit here',
   '正常': 'Normal',
   '正在接收画面…': 'Receiving video…',
   '正在解析直连码…': 'Parsing the direct-link code…',
@@ -3033,16 +3035,14 @@ const enUS: Record<string, string> = {
   '解析 {{label}} 文件失败': 'Failed to resolve {{label}} files',
   '浏览 WebDAV 目录': 'Browse the WebDAV directory',
 
-  // ===== extra（9 条，见 overrides.json） =====
+  // ===== extra（7 条，见 overrides.json） =====
   '」': '”',
   '{{count}} 集_one': '{{count}} episode',
   '找到 {{count}} 条字幕_one': 'Found {{count}} subtitle track',
   '已清理 {{count}} 个无人使用的房间_one': 'Removed {{count}} unused room',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one': 'Delete the <strong>{{count}}</strong> selected room? This cannot be undone.',
-  '内置库来源': 'Built-in library sources',
-  '三个内置库暂无来源，先在「来源库」里配置地址': 'No sources yet — configure addresses under Libraries first',
-  '已导入': 'Imported',
-  '这些条目在各自的库里执行；导入后编译成本地规则，可以在这里编辑': 'These entries run inside their own libraries; import one to compile it into a local rule you can edit here',
+  '等 {{count}} 个': 'and {{count}} more',
+  '识别到 {{length}} 个采集源，已加入地址': 'Found {{length}} sources and filled them in',
 }
 
 export default enUS

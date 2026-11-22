@@ -1,6 +1,5 @@
 {
   "items": [
-    "Admin: {{username}}",
     "Admin accounts can create shared rooms",
     "Rules",
     "Rule directory: {{root}}",
@@ -62,7 +61,7 @@
     "Password must be at least 4 characters",
     "Defaults to 50%. Applied when someone first uses Listen Together, after which each user's local volume wins.",
     "Defaults to https://gh-proxy.com; you can point it at your own proxy.",
-    "",
+    "Built-in library sources",
     "The configuration URL must be an http(s) URL",
     "Delete rooms in bulk",
     "Failed to delete rooms in bulk",
@@ -111,7 +110,7 @@
     "Appoint",
     "Failed to appoint the moderator",
     "Takes effect immediately and works even if the user is offline. Moderators can manage movies, kick members and mute viewers.",
-    "",
+    "No sources yet — configure addresses under Libraries first",
     "Scan the QR code to sign in to NetEase Cloud Music",
     "Delete rule",
     "Failed to delete rule",
@@ -119,6 +118,7 @@
     "Failed to delete all rooms",
     "Remove avatar",
     "Failed to remove the avatar",
-    "Delete selected ({{size}})"
+    "Delete selected ({{size}})",
+    "Delete {{size}} selected rooms"
   ]
 }

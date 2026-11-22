@@ -1,5 +1,5 @@
 {
-  "total": 2952,
+  "total": 2951,
   "chunk": 120,
   "parts": [
     {
@@ -55,7 +55,7 @@
     {
       "id": "11-pages",
       "bucket": "pages",
-      "count": 74
+      "count": 73
     },
     {
       "id": "12-common",

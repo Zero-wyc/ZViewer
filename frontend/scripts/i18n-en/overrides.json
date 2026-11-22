@@ -29,7 +29,6 @@
   "没有识别到 CMS 采集源": "No CMS source found",
   "每行一个 TVBox 配置地址": "One TVBox config URL per line",
   "每行一个规则、索引或仓库地址": "One rule, index, or repo URL per line",
-  "识别到 {{length}} 个采集源，已加入列表": "Found {{length}} sources and added them to the list",
   "已保存": "Saved",
   "本地规则": "Local rules",
   "打开搜索": "Open search",
@@ -50,5 +49,6 @@
   "三个内置库暂无来源，先在「来源库」里配置地址": "No sources yet — configure addresses under Libraries first",
   "已导入": "Imported",
   "这些条目在各自的库里执行；导入后编译成本地规则，可以在这里编辑": "These entries run inside their own libraries; import one to compile it into a local rule you can edit here",
-  "导入": "Import"
+  "导入": "Import",
+  "识别到 {{length}} 个采集源，已加入地址": "Found {{length}} sources and filled them in"
 }

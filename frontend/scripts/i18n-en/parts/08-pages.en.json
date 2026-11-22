@@ -55,7 +55,6 @@
     "Sign-in request failed",
     "Sign-in failed",
     "Your session expired, sign in again and retry",
-    "and {{count}} more",
     "Waiting for video",
     "Click and enter an integer from 0 to 100",
     "Failed to read crawler engine status",
@@ -119,6 +118,7 @@
     "Manage this room's moderators",
     "Admin console",
     "Manage your ZViewer account, mount settings and NetEase Cloud Music / Bilibili links",
-    "Manage user accounts, running rooms and basic server settings"
+    "Manage user accounts, running rooms and basic server settings",
+    "Admin: {{username}}"
   ]
 }
