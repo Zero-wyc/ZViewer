@@ -95,6 +95,10 @@ type Options struct {
 	Cipher         Cipher
 	OnUpdate       func()
 	OnInitialAdmin func(InitialAdmin)
+
+	// CrawlerRoot 是爬虫数据目录（config.json / data/rules 的家）。
+	// 必须下发给后端：引擎在进程内，GUI 保存的 Key 与规则要落到同一个地方。
+	CrawlerRoot string
 }
 
 type Controller struct {
@@ -115,6 +119,9 @@ type Controller struct {
 	// desktopToken 是每次启动随机生成的壳内管理令牌：注入后端环境，
 	// 让 GUI 能调用 /api/crawler/* 管理接口（对应 Python 引擎的 admin_token）。
 	desktopToken string
+	// crawlerRoot 是壳解析出的爬虫数据目录，原样下发给后端，
+	// 保证「GUI 写 config.json」与「引擎读 config.json」是同一份。
+	crawlerRoot string
 
 	mu         sync.RWMutex
 	events     []Event
@@ -173,6 +180,7 @@ func New(opts Options) (*Controller, error) {
 		hostExe:        opts.HostExe,
 		helper:         opts.Helper,
 		version:        opts.Version,
+		crawlerRoot:    opts.CrawlerRoot,
 		onUpdate:       opts.OnUpdate,
 		onInitialAdmin: opts.OnInitialAdmin,
 		events:         []Event{},
@@ -600,6 +608,11 @@ func (c *Controller) environment() ([]string, error) {
 	// 独立评论窗口要由后端拉起同一个桌面壳，这里把壳自身路径下发过去。
 	if exe, err := os.Executable(); err == nil {
 		env["ZVIEWER_DESKTOP_EXE"] = exe
+	}
+	// 爬虫引擎跑在后端进程内，目录由壳决定：不下发就会各猜各的，
+	// 表现为「GUI 里填了 LLM Key，搜片仍然报没配置」或规则列表永远为空。
+	if c.crawlerRoot != "" {
+		env["ZVIEWER_CRAWLER_ROOT"] = c.crawlerRoot
 	}
 	// 后端在没有 PROJECT_ROOT 时会「从工作目录向上找 frontend/ + backend-go/」推断项目根。
 	// 运行包若被放在源码树里（例如开发机上的 .gui/runtime），就会一路向上误判到源码根，

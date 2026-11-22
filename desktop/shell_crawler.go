@@ -52,7 +52,12 @@ func newCrawlerBridge(exeDir, runtimeRoot string, app *App) *crawlerBridge {
 	}
 }
 
-// resolveCrawlerRoot 依次尝试环境变量、运行包内 crawler、exe 附近的 crawler。
+// resolveCrawlerRoot 依次尝试环境变量、运行包内 crawler、exe 附近与工作目录。
+//
+// 「像不像爬虫根」的判据是 data/ 或 docs/ 子目录**存在**，必须用 dirExists：
+// 早期写成 fileExists 时，传目录恒为 false，于是候选全部落空，永远返回第一个
+// 候选（运行包内 runtime/crawler）。开发期跑 dist/win 时那个目录并不存在，
+// 界面上就出现「未找到 crawler 目录」，而仓库根的 crawler/ 明明就在旁边。
 func resolveCrawlerRoot(exeDir, runtimeRoot string) string {
 	if override := strings.TrimSpace(os.Getenv("ZVIEWER_CRAWLER_ROOT")); override != "" {
 		return absolute(override)
@@ -61,15 +66,39 @@ func resolveCrawlerRoot(exeDir, runtimeRoot string) string {
 		filepath.Join(runtimeRoot, "crawler"),
 		filepath.Join(exeDir, "crawler"),
 	}
+	// searchRoots 覆盖「exe 上溯三层 + 工作目录」，开发期正好命中仓库根的 crawler/。
+	for _, base := range searchRoots(exeDir) {
+		candidates = append(candidates, filepath.Join(base, "crawler"))
+	}
 	if wd, err := os.Getwd(); err == nil {
 		candidates = append(candidates, filepath.Join(wd, "crawler"), filepath.Join(wd, "..", "crawler"))
 	}
 	for _, candidate := range candidates {
-		if fileExists(filepath.Join(candidate, "data")) || fileExists(filepath.Join(candidate, "docs")) {
+		if crawlerDirUsable(candidate) {
 			return absolute(candidate)
 		}
 	}
 	return absolute(candidates[0])
+}
+
+// crawlerDirUsable 判断一个目录能不能当爬虫根：有 data/ 或 docs/ 就算。
+func crawlerDirUsable(dir string) bool {
+	return dirExists(filepath.Join(dir, "data")) || dirExists(filepath.Join(dir, "docs"))
+}
+
+// ensureRoot 保证数据目录可用。
+//
+// 引擎（backend-go/internal/crawler）本来就会自建 data/rules，所以「目录不存在」
+// 从来不是错误，只是没建过。这里提前建好，既能给出可读的失败原因（目录不可写），
+// 也不会把「还没生成任何规则」误报成「运行包缺文件」。
+func (b *crawlerBridge) ensureRoot() error {
+	if crawlerDirUsable(b.root) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Join(b.root, "data", "rules"), 0o755); err != nil {
+		return fmt.Errorf("无法创建爬虫数据目录（%s）：%w", b.root, err)
+	}
+	return nil
 }
 
 // backend 返回后端基础地址与壳内管理令牌。
@@ -177,12 +206,10 @@ func (b *crawlerBridge) healthy() bool {
 	return resp.StatusCode > 0
 }
 
-// available 判断引擎可用：crawler 目录在、后端已在运行。
+// available 判断引擎可用：数据目录可写、后端已在运行。
 func (b *crawlerBridge) available() (bool, string) {
-	if _, err := os.Stat(filepath.Join(b.root, "data")); err != nil {
-		if _, docErr := os.Stat(filepath.Join(b.root, "docs")); docErr != nil {
-			return false, "未找到 crawler 目录（" + b.root + "）"
-		}
+	if err := b.ensureRoot(); err != nil {
+		return false, err.Error()
 	}
 	if !b.healthy() {
 		return false, "后端服务未运行"
@@ -195,6 +222,14 @@ func (b *crawlerBridge) ruleCount() int {
 	return len(matches)
 }
 
+// crawlerRoot 给控制器用：把壳解析出的目录下发给后端（可能为空，未初始化时）。
+func (a *App) crawlerRoot() string {
+	if a == nil || a.crawler == nil {
+		return ""
+	}
+	return a.crawler.root
+}
+
 // info 给界面用的快照。
 func (b *crawlerBridge) info() map[string]any {
 	available, reason := b.available()
@@ -202,24 +237,36 @@ func (b *crawlerBridge) info() map[string]any {
 	lastErr := b.lastErr
 	b.mu.Unlock()
 	return map[string]any{
-		"available":   available,
-		"reason":      reason,
-		"root":        b.root,
-		"engine":      "内置引擎（Go）",
-		"running":     available,
-		"starting":    false,
-		"port":        b.port(),
-		"ruleCount":   b.ruleCount(),
-		"logPath":     filepath.Join(b.root, "log", "engine.log"),
-		"lastError":   lastErr,
-		"config":      b.llmConfig(),
-		"desktopMode": true,
+		"available": available,
+		"reason":    reason,
+		"root":      b.root,
+		"engine":    "内置引擎（Go）",
+		"running":   available,
+		"starting":  false,
+		"port":      b.port(),
+		"ruleCount": b.ruleCount(),
+		"lastError": lastErr,
+		"config":    b.llmConfig(),
 	}
 }
 
 // start 在引擎并入后端之后没有「单独启动」这一步：后端就是引擎。
-// 保留命令是为了兼容 GUI 的启动按钮与自动拉起逻辑。
+// 保留命令是为了兼容 GUI 的启动按钮与自动拉起逻辑——按钮不能是死路，
+// 后端没在跑时顺手把它拉起来，再回状态。
 func (b *crawlerBridge) start() (map[string]any, error) {
+	if !b.healthy() && b.app != nil && b.app.ctrl != nil {
+		if _, err := b.app.ctrl.Start(); err != nil {
+			return nil, err
+		}
+		// 进程起来到接口可响应有一小段窗口：等一会儿再判可用性，
+		// 否则界面会刚点完按钮就弹「后端服务未运行」。
+		for attempt := 0; attempt < 40; attempt++ {
+			if b.healthy() {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
 	available, reason := b.available()
 	if !available {
 		b.mu.Lock()

@@ -936,7 +936,7 @@
     });
   }
   function crawlerPreview() {
-    return heading('爬虫引擎', '用大模型生成站点规则，供一起看搜索影视。') + notice('爬虫引擎页只在桌面版中可用：需要本地 Python 服务与桌面桥接。', true);
+    return heading('爬虫引擎', '用大模型生成站点规则，供一起看搜索影视。') + notice('爬虫引擎页只在桌面版中可用：引擎跑在本机后端进程里，需要桌面桥接。', true);
   }
   window.ZViewerUI = { state, icon, esc, heading, button, notice, tutorial, render, navigate, toast, modal, preview: { overview, connect, web, frp, cert, cli, mesh, crawler: crawlerPreview, logs, settings, updateModal, syncUpdate }, refreshLogs, syncWorkspace };
   render();

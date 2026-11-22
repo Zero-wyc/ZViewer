@@ -109,6 +109,16 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// dirExists 判目录。fileExists 显式排除了目录（`!info.IsDir()`），拿它测目录
+// 永远为 false——这个坑已经在 packagedInstall 上踩过一次，别再踩第二遍。
+func dirExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 func sleep(milliseconds int) { time.Sleep(time.Duration(milliseconds) * time.Millisecond) }
 
 func fatalDialog(title, message string) {

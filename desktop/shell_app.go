@@ -50,6 +50,7 @@ func (a *App) bootstrap() error {
 		HostExe:       a.hostExe,
 		Helper:        a.helper,
 		Version:       a.version,
+		CrawlerRoot:   a.crawlerRoot(),
 		Cipher:        controller.Dpapi{},
 		OnUpdate:      a.emitUpdate,
 		OnInitialAdmin: func(admin controller.InitialAdmin) {

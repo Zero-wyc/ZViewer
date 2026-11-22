@@ -162,7 +162,7 @@
     const controls = running
       ? button('停止引擎', 'crawler-stop', 'stop') + button('刷新', 'crawler-refresh', 'refresh')
       : button('启动引擎', 'crawler-start', 'play', 'primary') + button('刷新', 'crawler-refresh', 'refresh');
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎随服务进程一起运行，没有单独进程需要启动；日志目录 ' + esc(info.logPath || '') + '。</p></section>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎随后端进程一起运行，没有独立进程需要启动；日志见左侧「运行日志」。</p></section>';
   }
   function tabs(c) {
     const pendingChallenges = (c.challenges || []).filter(function (item) { return !item.completed; }).length;
@@ -861,7 +861,7 @@
     if (c.starting) return '<section class="panel"><div class="empty">正在启动爬虫引擎…</div></section>';
     if (c.loading && !c.info) return '<section class="panel"><div class="empty">正在读取爬虫引擎状态…</div></section>';
     if (c.info && c.info.available === false) {
-      return notice('当前运行包没有找到爬虫引擎：' + esc(c.info.reason || '未找到 crawler/engine') + '。开发期请在仓库根运行，分发版需把 crawler 目录放进运行包。', true);
+      return notice('爬虫引擎暂不可用：' + esc(c.info.reason || '未知原因') + '。引擎随后端启动，先点左上角「启动」；仍失败请查看运行日志。', true);
     }
     if (!c.info && c.error) return notice(esc(c.error), true);
     const content = c.tab === 'agent' ? agentPanel(c) : c.tab === 'about' ? aboutPanel(c) : c.tab === 'settings' ? settingsPanel(c) : c.tab === 'rules' ? rulesPanel(c) : c.tab === 'challenges' ? challengesPanel(c) : submissionsPanel(c);
