@@ -1,5 +1,9 @@
 {
   "items": [
+    "The Bilibili URL expired, resolve the video again",
+    "Bilibili resolution settings",
+    "Failed to resolve the Bilibili video",
+    "Bilibili downgraded the quality to {{q}} (this tier requires sign-in or higher permission)",
     "Bilibili live {{roomId}}",
     "CLI proxy not connected",
     "The CLI failed to switch the quality",

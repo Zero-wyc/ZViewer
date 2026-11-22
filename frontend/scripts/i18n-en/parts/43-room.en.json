@@ -1,5 +1,7 @@
 {
   "items": [
+    "More",
+    "Failed to update movie request permission",
     "Failed to update",
     "{{length}} parts · click to choose",
     "{{value}} results",
@@ -117,8 +119,6 @@
     "Select a server file",
     "Select a saved {{label}} mount",
     "Select a saved mount",
-    "Add and play a movie below",
-    "Complete the verification in the page below (e.g. drag the slider, enter the code); the search continues automatically when done.",
-    "Cancel (keep the current episode)"
+    "Add and play a movie below"
   ]
 }

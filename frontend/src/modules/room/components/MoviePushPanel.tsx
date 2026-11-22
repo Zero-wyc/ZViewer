@@ -7,6 +7,7 @@ import {
   Plus,
   Crown,
   ListVideo,
+  Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Dropdown } from '@/components/ui/Dropdown'
@@ -125,6 +126,44 @@ const BETA_ONLY_OPTIONS = new Set<string>([
   CRAWLER_SEARCH_VALUE,
 ])
 
+/**
+ * 「全网搜片」是一个分组入口，子源决定真正走哪个库：
+ * 本地规则（弹窗搜索）/ AniSubs / Kazumi / TVBox。
+ *
+ * 分组内仍然复用各库原有的组件与添加流程，sourceType 只是被映射成
+ * anime / kazumi / cms / crawler，所以播放链与历史记录完全不受影响。
+ */
+type CrawlLibrary = 'local' | 'anisubs' | 'kazumi' | 'cms'
+
+const CRAWL_GROUP_SOURCES = new Set<string>([
+  'crawler',
+  'anime',
+  'kazumi',
+  'cms',
+])
+
+const CRAWL_LIBRARY_SOURCES: Record<CrawlLibrary, SourceType> = {
+  local: 'crawler',
+  anisubs: 'anime',
+  kazumi: 'kazumi',
+  cms: 'cms',
+}
+
+const CRAWL_LIBRARY_OPTIONS: { value: CrawlLibrary; label: string }[] = [
+  { value: 'local', label: '本地规则' },
+  { value: 'anisubs', label: 'AniSubs 番剧源' },
+  { value: 'kazumi', label: 'Kazumi 番剧源' },
+  { value: 'cms', label: 'TVBox 采集源' },
+]
+
+/** 由当前 sourceType 反推子源（不在分组内时返回 local）。 */
+function crawlLibraryOf(sourceType: SourceType): CrawlLibrary {
+  if (sourceType === 'anime') return 'anisubs'
+  if (sourceType === 'kazumi') return 'kazumi'
+  if (sourceType === 'cms') return 'cms'
+  return 'local'
+}
+
 const ALL_SOURCE_OPTIONS: {
   value: string
   label: string
@@ -141,7 +180,7 @@ const ALL_SOURCE_OPTIONS: {
   { value: 'kazumi', label: 'Kazumi 番剧源' },
   { value: 'cms', label: 'TVBox 采集源' },
   { value: 'server-files', label: '服务器文件', rootOnly: true },
-  { value: CRAWLER_SEARCH_VALUE, label: '全网搜片（多站点）' },
+  { value: CRAWLER_SEARCH_VALUE, label: '全网搜片（内置库）' },
 ]
 
 interface MoviePushPanelProps {
@@ -284,7 +323,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       !betaFeaturesEnabled &&
       (sourceType === 'anime' ||
         sourceType === 'kazumi' ||
-        sourceType === 'cms')
+        sourceType === 'cms' ||
+        sourceType === 'crawler')
     ) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 仅在 betaFeaturesEnabled 切换时回退一次，非每次渲染触发
       setSourceType('bilibili')
@@ -1399,6 +1439,24 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             {t('从 Kazumi XPath 规则源搜索番剧并选择集数播放。')}
           </SourceHint>
         )
+      case 'crawler':
+        return (
+          <div className="flex flex-col gap-2 rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline-variant)] p-3">
+            <Text type="secondary" className="text-xs leading-snug">
+              {t('在本机「站点规则」里搜索，选中结果后直接加入房间。')}
+            </Text>
+            <Button
+              variant="primary"
+              size="md"
+              block
+              icon={<Search className="h-4 w-4" />}
+              onClick={() => setCrawlerSearchOpen(true)}
+              disabled={!isHost}
+            >
+              {t('打开搜索')}
+            </Button>
+          </div>
+        )
       case 'server-files':
         return (
           <ServerFilesSourceForm
@@ -1445,10 +1503,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         {/* 卡片内容 */}
         <div className="zen-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3">
           <Dropdown
-            value={sourceType}
+            value={
+              CRAWL_GROUP_SOURCES.has(sourceType)
+                ? CRAWLER_SEARCH_VALUE
+                : sourceType
+            }
             options={ALL_SOURCE_OPTIONS.filter(
               (opt) =>
                 (!opt.rootOnly || userRole === 'root') &&
+                // 三个内置库改由「全网搜片」的子源选择，顶层不再单列
+                !CRAWL_GROUP_SOURCES.has(opt.value) &&
                 // Beta 关闭时番剧源与全网搜片一律不出现
                 (betaFeaturesEnabled || !BETA_ONLY_OPTIONS.has(opt.value)) &&
                 // 挂载类型需有对应挂载才显示
@@ -1459,19 +1523,32 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 )
             )}
             onChange={(value) => {
-              // 动作项：只开弹窗，不改数据源（Dropdown 的值受控于 sourceType，
-              // 因此点完仍停留在原选项上，不会出现「选了却什么都没变」）
+              // 「全网搜片」先进分组（本地规则），再在下面选具体库
               if (value === CRAWLER_SEARCH_VALUE) {
-                setCrawlerSearchOpen(true)
+                setSourceType('crawler')
                 return
               }
               setSourceType(value as SourceType)
             }}
           />
 
+          {CRAWL_GROUP_SOURCES.has(sourceType) && (
+            <Dropdown
+              value={crawlLibraryOf(sourceType)}
+              options={CRAWL_LIBRARY_OPTIONS.map((item) => ({
+                value: item.value,
+                label: t(item.label),
+              }))}
+              onChange={(value) =>
+                setSourceType(CRAWL_LIBRARY_SOURCES[value as CrawlLibrary])
+              }
+            />
+          )}
+
           {renderSourceForm()}
 
-          {renderActionButton()}
+          {/* 本地规则库的搜索在主按钮里完成，不再显示通用「添加」按钮 */}
+          {sourceType !== 'crawler' && renderActionButton()}
 
           {/* 服务器中转开关：仅数据源类（ani/kazumi/cms）显示。默认关闭——
               一律直连源站，服务器零媒体流量（带防盗链的源不开中转无法播放，

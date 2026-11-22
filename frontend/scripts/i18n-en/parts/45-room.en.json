@@ -1,5 +1,7 @@
 {
   "items": [
+    "Removed that viewer from the room",
+    "Unmuted",
     "Muted",
     "Muted that viewer",
     "Join request declined",
@@ -47,6 +49,7 @@
     "Cannot delete in remote sharing mode",
     "Allow",
     "Allow this member to add movies",
+    "",
     "Online ({{length}})",
     "Online viewers ({{length}})",
     "Online users",
@@ -115,10 +118,7 @@
     "Auto-approve: off",
     "Auto-approve: on",
     "Auto-reload hit its limit and the video still will not play; reload manually, change the quality or pick another movie",
-    "Bilibili sign-in status",
-    "The Bilibili URL expired, resolve the video again",
-    "Bilibili resolution settings",
-    "Failed to resolve the Bilibili video",
-    "Bilibili downgraded the quality to {{q}} (this tier requires sign-in or higher permission)"
+    "",
+    "Bilibili sign-in status"
   ]
 }

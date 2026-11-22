@@ -10,4 +10,6 @@ export type SourceType =
   | 'anime'
   | 'kazumi'
   | 'cms'
+  // 「全网搜片」分组里的本地规则库（搜索在弹窗里完成，不走来源表单）
+  | 'crawler'
   | 'server-files'

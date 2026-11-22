@@ -1,6 +1,6 @@
 {
   "items": [
-    " and others",
+    "{{count}} sources",
     "{{length}} active",
     "1. Sign in to bilibili.com in your browser",
     "1. Sign in to music.163.com in your browser",
@@ -12,15 +12,14 @@
     "Show the announcement automatically after an update",
     "Updates are managed by the desktop app",
     "Failed to save settings",
+    "Local rules plus three built-in libraries; search by library when adding a movie",
     "Edit info",
     "Edit account info",
     "Unavailable",
     "Some rules could not be imported, see the report below",
-    "Failed to save the source configuration",
-    "Source configuration saved and applied",
     "View the current room list",
     "View release",
-    "Fill in a common endpoint:",
+    "Common endpoints",
     "Auto-delete after this many hours without access",
     "Super admin: {{username}}",
     "Remove",
@@ -54,9 +53,11 @@
     "Sign-in request failed",
     "Sign-in failed",
     "Your session expired, sign in again and retry",
+    "and {{count}} more",
     "Waiting for video",
     "Click and enter an integer from 0 to 100",
     "Failed to read crawler engine status",
+    "Failed to load libraries",
     "A platform for watching anime and movies together, in sync",
     "Multi-page login (testing only)",
     "Released: {{value}}",
@@ -118,8 +119,6 @@
     "Manage your ZViewer account, mount settings and NetEase Cloud Music / Bilibili links",
     "Manage user accounts, running rooms and basic server settings",
     "Admin: {{username}}",
-    "Admin accounts can create shared rooms",
-    "Rules",
-    "Rule directory: {{root}}"
+    "Admin accounts can create shared rooms"
   ]
 }

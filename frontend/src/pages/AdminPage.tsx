@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Users,
@@ -74,10 +74,6 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
-  const [cmsInspectUrl, setCmsInspectUrl] = useState('')
-  const [cmsInspecting, setCmsInspecting] = useState(false)
-  /** 最近一次已持久化的 cmsSources JSON（避免失焦保存重复 PUT） */
-  const cmsSavedJsonRef = useRef<string | null>(null)
   const [editingMusicVolume, setEditingMusicVolume] = useState(false)
   const [musicVolumeDraft, setMusicVolumeDraft] = useState('50')
   const commitMusicVolume = () => {
@@ -390,126 +386,6 @@ export default function AdminPage() {
     }
   }
 
-  /**
-   * 仅持久化 dataSourceConfig（CMS 采集源等数据源配置的独立保存通道）。
-   * payload 必须携带后端硬校验的 autoDelete* 字段，其余字段传 undefined
-   * 即可跳过（后端按 !== undefined 条件更新），不会提交页面上其他未保存的编辑。
-   */
-  const persistDataSourceConfig = useCallback(
-    async (nextConfig: NonNullable<AdminSettings['dataSourceConfig']>) => {
-      const res = await apiFetch('/api/admin/settings', {
-        method: 'PUT',
-        headers: authHeaders,
-        body: JSON.stringify({
-          autoDeleteInactiveRooms: settings.autoDeleteInactiveRooms,
-          autoDeleteAfterHours: settings.autoDeleteAfterHours,
-          dataSourceConfig: nextConfig,
-        }),
-      })
-      const data = (await res.json()) as {
-        success: boolean
-        settings?: AdminSettings
-        message?: string
-      }
-      if (!data.success) {
-        throw new Error(data.message ?? t('保存失败'))
-      }
-      if (data.settings) {
-        setSettings(data.settings)
-      }
-      cmsSavedJsonRef.current = JSON.stringify(
-        data.settings?.dataSourceConfig ?? nextConfig
-      )
-      invalidateSystemSettings()
-      void fetchPublicSettings()
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      authHeaders,
-      settings.autoDeleteInactiveRooms,
-      settings.autoDeleteAfterHours,
-    ]
-  )
-
-  /** textarea 手动编辑 cmsSources 失焦时自动保存（有变更才 PUT） */
-  const handleCmsSourcesBlur = async () => {
-    const cfg = settings.dataSourceConfig
-    if (!cfg) return
-    const json = JSON.stringify(cfg)
-    if (json === cmsSavedJsonRef.current) return
-    try {
-      await persistDataSourceConfig(cfg)
-      message.success(t('采集源配置已保存并生效'))
-    } catch (err) {
-      console.error('[AdminPage] save cms sources error:', err)
-      message.error(
-        err instanceof Error ? err.message : t('采集源配置保存失败')
-      )
-    }
-  }
-
-  const handleInspectCmsSource = async () => {
-    const url = cmsInspectUrl.trim()
-    if (!url) {
-      message.error(t('请输入 TVBox 配置接口地址'))
-      return
-    }
-    if (!/^https?:\/\//i.test(url)) {
-      message.error(t('配置地址必须是 http(s) URL'))
-      return
-    }
-    setCmsInspecting(true)
-    try {
-      const res = await apiFetch(
-        `/api/stream/cms/inspect?url=${encodeURIComponent(url)}&refresh=1`,
-        { headers: authHeaders }
-      )
-      const data = (await res.json()) as {
-        success: boolean
-        sites?: Array<{ key: string; name: string }>
-        message?: string
-      }
-      if (data.success && data.sites) {
-        if (data.sites.length === 0) {
-          message.warning(
-            t('配置拉取成功，但没有识别到 CMS 采集源（type 1），未保存')
-          )
-        } else {
-          // 检测成功后立即合并并持久化（去重）——不依赖「保存设置」按钮，
-          // 否则配置只存在于本地 state，刷新/漏点保存即丢失导致搜索空结果
-          const existing = settings.dataSourceConfig?.cmsSources || []
-          const nextConfig = {
-            ...settings.dataSourceConfig,
-            cmsSources: existing.includes(url) ? existing : [...existing, url],
-          }
-          await persistDataSourceConfig(nextConfig)
-          const preview = data.sites
-            .slice(0, 5)
-            .map((s) => s.name)
-            .join('、')
-          message.success(
-            t(
-              '识别到 {{length}} 个 CMS 采集源：{{preview}}{{value}}（已保存，即刻生效）',
-              {
-                length: data.sites.length,
-                preview,
-                value: data.sites.length > 5 ? t(' 等') : '',
-              }
-            )
-          )
-          setCmsInspectUrl('')
-        }
-      } else {
-        message.error(data.message ?? t('拉取配置失败'))
-      }
-    } catch (err) {
-      console.error('[AdminPage] inspect cms source error:', err)
-      message.error(err instanceof Error ? err.message : t('拉取配置失败'))
-    } finally {
-      setCmsInspecting(false)
-    }
-  }
-
   const handleSaveSettings = async () => {
     setSavingSettings(true)
     try {
@@ -537,9 +413,6 @@ export default function AdminPage() {
         live2dEnabled: settings.live2dEnabled,
         // CLI 房主直链分发（后端落 config/cli-prefs.json，不写库）
         allowCliHostResolve: settings.allowCliHostResolve,
-      }
-      if (settings.dataSourceConfig) {
-        payload.dataSourceConfig = settings.dataSourceConfig
       }
       // 权限矩阵：始终传递（编辑即产生当前矩阵；null 表示全部走缺省默认）
       if (settings.roomPermissionMatrix) {
@@ -894,11 +767,6 @@ export default function AdminPage() {
             onCommitMusicVolume={commitMusicVolume}
             onEditingMusicVolumeChange={setEditingMusicVolume}
             onSaveSettings={handleSaveSettings}
-            cmsInspectUrl={cmsInspectUrl}
-            onCmsInspectUrlChange={setCmsInspectUrl}
-            cmsInspecting={cmsInspecting}
-            onInspectCmsSource={handleInspectCmsSource}
-            onCmsSourcesBlur={handleCmsSourcesBlur}
             update={update}
           />
         ) : (

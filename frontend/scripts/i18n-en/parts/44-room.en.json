@@ -1,10 +1,12 @@
 {
   "items": [
+    "Complete the verification in the page below (e.g. drag the slider, enter the code); the search continues automatically when done.",
+    "Cancel (keep the current episode)",
     "Unmute",
     "All sites",
     "Every member (including the host) must connect ZViewer CLI to watch; the stream is not relayed by the server. Viewers without the CLI see a setup guide.",
     "Search all sites",
-    "Search all sites (multi-site)",
+    "",
     "Permissions",
     "Transfer the host role to <highlight>{{name}}</highlight>? You will become a viewer and lose room management.",
     "Clear everything?",
@@ -117,8 +119,6 @@
     "Host approval turned off",
     "Auto-approve turned off",
     "Restored to {{value}} (paused)",
-    "Transferred the host role to {{value}}",
-    "Removed that viewer from the room",
-    "Unmuted"
+    "Transferred the host role to {{value}}"
   ]
 }

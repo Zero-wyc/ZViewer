@@ -7,7 +7,7 @@
   let loading = false;
 
   function crawlerDefaults() {
-    return { info: null, loading: false, starting: false, error: '', tab: 'agent', rules: [], ruleSource: '', selectedRules: {}, sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
+    return { info: null, loading: false, starting: false, error: '', tab: 'agent', rules: [], ruleSource: '', selectedRules: {}, sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], libraries: [], librariesLoading: false, autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
   }
   function cs() {
     // app.js 里的初始状态可能落后于本文件新增的字段，这里原地补齐，不能替换对象：
@@ -676,7 +676,79 @@
   function settingsPanel(c) {
     const config = (c.info && c.info.config) || {};
     const modelNote = c.modelsLoading ? '获取模型列表…' : (c.modelError ? ('获取失败：' + c.modelError) : (c.models.length ? ('可用 ' + c.models.length + ' 个模型') : '填入 Key 后可拉取模型列表，也可直接填写模型名'));
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('settings') + '</span><h2>大模型设置</h2></div><small>OpenAI 兼容接口</small></div><div class="form-row"><label class="field"><span>服务地址</span><input id="crawler-base-url" value="' + esc(config.baseUrl || '') + '" placeholder="https://api.deepseek.com/v1" autocomplete="off"></label><label class="field"><span>模型</span><input id="crawler-model" value="' + esc(config.model || '') + '" list="crawler-model-options" placeholder="deepseek-chat" autocomplete="off"></label></div>' + modelDatalist(c) + '<label class="field"><span>API Key <small>' + (config.apiKeyConfigured ? '已保存' : '必填') + '</small></span><input id="crawler-api-key" type="password" placeholder="' + (config.apiKeyConfigured ? '已配置 ' + esc(config.apiKeyMasked || '') : 'sk-…') + '" autocomplete="off"></label><div class="form-actions">' + button('获取模型', 'crawler-models-load', 'refresh') + button('保存设置', 'crawler-config-save', 'check', 'primary') + '</div><p class="field-note" id="crawler-model-note">' + esc(modelNote) + '</p><div class="form-row">' + effortSelect('crawler-reasoning-effort', c.settingsEffort, '新会话默认强度') + effortSelect('crawler-submission-reasoning-effort', c.submissionEffort, '自动生成规则时的强度') + '</div>' + '<label class="field"><span>自定义提示词 <small>追加到系统提示词末尾</small></span><textarea id="crawler-custom-prompt" rows="4" maxlength="4000" placeholder="例如：优先使用 hls 线路；站点名取网页标题">' + esc(config.customPrompt || '') + '</textarea><span class="field-note">对生成、修复和对话生效。</span></label><label class="check-item crawler-toggle"><input type="checkbox" id="crawler-repair-enabled"' + (c.repairEnabled ? ' checked' : '') + '><div><strong>规则自动修复</strong><br>搜索失败时自动修复规则并重试，同一规则 10 分钟内最多一次。</div></label><p class="field-note">配置保存在 crawler/config.json。</p></section>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('settings') + '</span><h2>大模型设置</h2></div><small>OpenAI 兼容接口</small></div><div class="form-row"><label class="field"><span>服务地址</span><input id="crawler-base-url" value="' + esc(config.baseUrl || '') + '" placeholder="https://api.deepseek.com/v1" autocomplete="off"></label><label class="field"><span>模型</span><input id="crawler-model" value="' + esc(config.model || '') + '" list="crawler-model-options" placeholder="deepseek-chat" autocomplete="off"></label></div>' + modelDatalist(c) + '<label class="field"><span>API Key <small>' + (config.apiKeyConfigured ? '已保存' : '必填') + '</small></span><input id="crawler-api-key" type="password" placeholder="' + (config.apiKeyConfigured ? '已配置 ' + esc(config.apiKeyMasked || '') : 'sk-…') + '" autocomplete="off"></label><div class="form-actions">' + button('获取模型', 'crawler-models-load', 'refresh') + button('保存设置', 'crawler-config-save', 'check', 'primary') + '</div><p class="field-note" id="crawler-model-note">' + esc(modelNote) + '</p><div class="form-row">' + effortSelect('crawler-reasoning-effort', c.settingsEffort, '新会话默认强度') + effortSelect('crawler-submission-reasoning-effort', c.submissionEffort, '自动生成规则时的强度') + '</div>' + '<label class="field"><span>自定义提示词 <small>追加到系统提示词末尾</small></span><textarea id="crawler-custom-prompt" rows="4" maxlength="4000" placeholder="例如：优先使用 hls 线路；站点名取网页标题">' + esc(config.customPrompt || '') + '</textarea><span class="field-note">对生成、修复和对话生效。</span></label><label class="check-item crawler-toggle"><input type="checkbox" id="crawler-repair-enabled"' + (c.repairEnabled ? ' checked' : '') + '><div><strong>规则自动修复</strong><br>搜索失败时自动修复规则并重试，同一规则 10 分钟内最多一次。</div></label><p class="field-note">配置保存在 crawler/config.json。</p></section>' + librariesPanel(c);
+  }
+
+  // ----------------------------------------------------------- 来源库
+
+  /** 读取四个库的状态与地址（本地规则 + 三个内置库，同一个接口）。 */
+  async function loadLibraries(force) {
+    const c = cs();
+    if (c.librariesLoading) return;
+    if (!force && (c.libraries || []).length) return;
+    c.librariesLoading = true;
+    renderIf();
+    try {
+      const data = await api('GET', '/api/crawler/libraries');
+      c.libraries = data.libraries || [];
+    } catch (error) {
+      c.libraries = [];
+      ui.toast(message(error));
+    } finally {
+      c.librariesLoading = false;
+      renderIf();
+    }
+  }
+
+  function libraryPill(library) {
+    if (library.available) return tag('可用', 'green');
+    return tag('未启用');
+  }
+
+  /** 来源库分区：设置页底部，和「大模型设置」并列。 */
+  function librariesPanel(c) {
+    const libraries = c.libraries || [];
+    const rows = libraries.length
+      ? libraries.map(function (library) {
+          const urls = library.urls || [];
+          return '<div class="crawler-rule"><div class="crawler-rule-main"><div class="crawler-rule-title"><strong>' + esc(library.name || library.id) + '</strong>' + libraryPill(library) + '<span class="crawler-rule-meta">' + esc((library.count || 0) + ' 个源') + '</span></div>' +
+            (library.description ? '<p class="field-note">' + esc(library.description) + '</p>' : '') +
+            (library.error ? '<p class="field-note">' + esc(library.error) + '</p>' : '') +
+            (library.editable ? '<p class="field-note">' + esc(urls.length ? (urls.length + ' 个地址') : (library.note || '未配置地址')) + '</p>' : '') +
+            '</div><div class="crawler-rule-actions">' +
+            (library.editable ? '<button class="text-button" data-crawler-library="' + esc(library.id) + '">配置</button>' : '') +
+            '</div></div>';
+        }).join('')
+      : '<div class="empty">' + esc(c.librariesLoading ? '读取中…' : '暂无来源库信息') + '</div>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('server') + '</span><h2>来源库</h2></div><small>' + libraries.length + ' 个</small></div><div class="live-toolbar">' + button('刷新', 'crawler-libraries-refresh', 'refresh') + '</div><p class="field-note">本地规则与三个内置库并列；点片时按库搜索。地址留空表示不启用，AniSubs 留空用内置订阅。</p><div class="crawler-rules">' + rows + '</div></section>';
+  }
+
+  function libraryModal(library) {
+    const urls = (library.urls || []).join('\n');
+    ui.modal(
+      '<h2>' + esc(library.name || library.id) + '</h2>' +
+      '<p class="field-note">' + esc(library.note || '每行一个地址') + '</p>' +
+      '<textarea class="codebox config-editor" id="crawler-library-urls" rows="8" spellcheck="false" placeholder="https://…">' + esc(urls) + '</textarea>' +
+      '<div class="modal-actions">' + button('取消', 'close-modal') +
+        '<button class="btn primary" data-crawler-library-save="' + esc(library.id) + '">' + icon('check') + '保存</button>' +
+      '</div>',
+      { wide: true }
+    );
+  }
+
+  async function saveLibrary(id) {
+    const editor = $('#crawler-library-urls');
+    if (!id || !editor) return;
+    const urls = editor.value.split('\n').map(function (line) { return line.trim(); }).filter(Boolean);
+    try {
+      await api('PUT', '/api/crawler/libraries/' + encodeURIComponent(id) + '/config', { urls: urls });
+      const modal = $('#modal');
+      if (modal) modal.close();
+      await loadLibraries(true);
+      ui.toast('已保存');
+    } catch (error) {
+      ui.toast(message(error));
+    }
   }
   // ---------------------------------------------------------------- markdown
   function mdInline(text) {
@@ -1621,6 +1693,10 @@
       refreshChallenges().catch(function (error) { ui.toast(message(error)); });
       return;
     }
+    if (name === 'crawler-libraries-refresh') {
+      loadLibraries(true).catch(function (error) { ui.toast(message(error)); });
+      return;
+    }
     if (name === 'crawler-start' || name === 'crawler-stop') {
       c.starting = name === 'crawler-start';
       renderIf();
@@ -1808,6 +1884,24 @@
       event.stopImmediatePropagation();
       cs().tab = tab.dataset.crawlerTab;
       renderIf();
+      // 来源库要走远端规则地址，进设置页才拉，避免每次打开页面都等它。
+      if (cs().tab === 'settings') loadLibraries(false).catch(function () {});
+      return;
+    }
+    const libraryEdit = event.target.closest('[data-crawler-library]');
+    if (libraryEdit) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const id = libraryEdit.dataset.crawlerLibrary;
+      const library = (cs().libraries || []).find(function (item) { return item.id === id; });
+      if (library) libraryModal(library);
+      return;
+    }
+    const librarySave = event.target.closest('[data-crawler-library-save]');
+    if (librarySave) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      saveLibrary(librarySave.dataset.crawlerLibrarySave);
       return;
     }
     const mcpOpen = event.target.closest('[data-crawler-mcp-open]');

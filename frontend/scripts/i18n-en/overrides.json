@@ -18,5 +18,22 @@
   "[playsvideo] 音轨不可用，已降级为静音播放：{{value}}": "[playsvideo] Audio track unusable, falling back to silent playback: {{value}}",
   "未知编码": "Unknown codec",
   "该片音轨（{{codec}}）无法在浏览器端解码，已静音播放。可切换其它音轨，或改用服务器中转 / CLI 客户端播放": "This file's audio track ({{codec}}) cannot be decoded in the browser, so playback continues muted. Switch to another audio track, or use server relay / the CLI client.",
-  "暂不支持 {{format}} 容器（浏览器与浏览器转码引擎都无法解析），请先转换为 MP4 或 MKV": "{{format}} containers are not supported yet (neither the browser nor the browser transcoding engine can parse them), convert to MP4 or MKV first"
+  "暂不支持 {{format}} 容器（浏览器与浏览器转码引擎都无法解析），请先转换为 MP4 或 MKV": "{{format}} containers are not supported yet (neither the browser nor the browser transcoding engine can parse them), convert to MP4 or MKV first",
+  "{{count}} 个源": "{{count}} sources",
+  "本地规则与三个内置库的配置入口；点片时按库搜索": "Local rules plus three built-in libraries; search by library when adding a movie",
+  "常用接口": "Common endpoints",
+  "等 {{count}} 个": "and {{count}} more",
+  "读取来源库失败": "Failed to load libraries",
+  "来源库": "Libraries",
+  "留空使用内置订阅；每行一个订阅地址": "Empty uses built-in subscriptions; one URL per line",
+  "没有识别到 CMS 采集源": "No CMS source found",
+  "每行一个 TVBox 配置地址": "One TVBox config URL per line",
+  "每行一个规则、索引或仓库地址": "One rule, index, or repo URL per line",
+  "识别到 {{length}} 个采集源，已加入列表": "Found {{length}} sources and added them to the list",
+  "已保存": "Saved",
+  "本地规则": "Local rules",
+  "打开搜索": "Open search",
+  "全网搜片（内置库）": "Crawl all (built-in libraries)",
+  "在本机「站点规则」里搜索，选中结果后直接加入房间。": "Search local site rules and add the selected result to the room.",
+  "AniSubs 番剧源": "AniSubs anime source"
 }

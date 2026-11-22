@@ -297,6 +297,24 @@ Agent 也能自己决定何时显示窗口：遇到登录墙时它会调用 `bro
 
 规则根目录的解析顺序：`CRAWLER_ROOT` 环境变量 → `exe/crawler` → `exe/runtime/crawler` → `cwd/crawler` → 上级目录的 `crawler`。全部落空时兜底到 `<CONFIG_DIR>/crawler` 并自动创建（启动日志会打印 `[crawler] 规则目录=…`）。桌面壳始终通过 `ZVIEWER_CRAWLER_ROOT` 显式下发，不受兜底影响。
 
+**来源库（本地规则 + 三个内置库）**
+
+「爬虫引擎 → 设置 → 来源库」把四个库并排列出，配置统一存放在
+`system_settings.dataSourceConfig`（不搬家、无迁移）：
+
+| 库 | 形态 | 配置键 |
+|---|---|---|
+| 本地规则 | 本文描述的 Rule（Agent 生成 / 导入导出） | —（走「站点规则」） |
+| AniSubs 番剧源 | ani-subs 订阅（web-selector / RSS） | `aniSubsSubscriptions` |
+| Kazumi 番剧源 | Kazumi 规则包（JSONPath + `@var`） | `kazumiRules` |
+| TVBox 采集源 | TVBox 配置里的苹果 CMS 站点 | `cmsSources` |
+
+- `GET /api/crawler/libraries`：四个库的状态、源清单与当前地址。
+- `GET|PUT /api/crawler/libraries/{id}/config`：只改该库对应的那个键，其余键原样保留；地址留空表示不启用（AniSubs 留空用内置订阅）。
+- 点片「全网搜片」按库搜索：`POST /api/crawler/search {library, keyword, roomId}`；缺省或 `local` 走本地规则（需要 `site`），`anisubs|kazumi|cms` 按库内全部源并发搜索并返回统一卡片字段。
+
+播放解析**不**走统一入口：番剧要选集、CMS 走 `vod_play_url` 分组，仍由各库自己的端点负责，规则格式也各自保留。
+
 **网页端导入（单文件 / Docker 主路径）**
 
 「管理 → 全网搜片」：选择或粘贴规则包 → 「预检」先看报告 → 「确认导入」。合并（merge）按 `id` 或「名称 + 站点」匹配已有规则；替换（replace）会先把当前全部规则备份到 `<root>/backup-<时间>.json` 再清空。导入立即生效，不用重启——每条规则是独立 JSON 文件，搜索时现读。

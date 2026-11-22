@@ -45,6 +45,7 @@ func (s *Server) registerCrawlerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/crawler/challenge/", s.handleCrawlerChallengeProxy)
 	s.registerCrawlerAgentRoutes(mux)
 	s.registerCrawlerManageRoutes(mux)
+	s.registerCrawlerLibraryRoutes(mux)
 }
 
 // handleCrawlerChallengeProxy 原样转发验证页、静态资源、Cookie 与验证接口。
@@ -184,6 +185,9 @@ type crawlerSearchBody struct {
 	Keyword string `json:"keyword"`
 	RoomID  string `json:"roomId"`
 	Limit   int    `json:"limit"`
+	// Library 选来源库：缺省/空/local 走本地规则（需要 site）；anisubs /
+	// kazumi / cms 走内置库（不需要 site，按库内全部源并发搜索）。
+	Library string `json:"library"`
 }
 
 // handleCrawlerSearch 在指定站点执行一次搜索。规则解析、请求构造与字段抽取
@@ -202,8 +206,24 @@ func (s *Server) handleCrawlerSearch(w http.ResponseWriter, r *http.Request) {
 	body.Site = strings.TrimSpace(body.Site)
 	body.Keyword = strings.TrimSpace(body.Keyword)
 	body.RoomID = strings.TrimSpace(body.RoomID)
-	if body.Site == "" || body.Keyword == "" {
-		httpx.BadRequest(w, "缺少站点或搜索关键词")
+	body.Library = strings.ToLower(strings.TrimSpace(body.Library))
+	if body.Library == "" {
+		body.Library = crawlerLibraryLocal
+	}
+	switch body.Library {
+	case crawlerLibraryLocal, crawlerLibraryAniSubs, crawlerLibraryKazumi, crawlerLibraryCMS:
+	default:
+		httpx.BadRequest(w, "未知的来源库: "+body.Library)
+		return
+	}
+	// 内置库按库内全部源搜索，不需要站点；本地规则必须指定站点。
+	if body.Library == crawlerLibraryLocal {
+		if body.Site == "" || body.Keyword == "" {
+			httpx.BadRequest(w, "缺少站点或搜索关键词")
+			return
+		}
+	} else if body.Keyword == "" {
+		httpx.BadRequest(w, "缺少搜索关键词")
 		return
 	}
 	if body.RoomID == "" {
@@ -224,6 +244,19 @@ func (s *Server) handleCrawlerSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if !allowed {
 		httpx.Forbidden(w, "无权限在该房间搜索站点")
+		return
+	}
+	if body.Library != crawlerLibraryLocal {
+		results, searchErr := s.crawlerLibrarySearch(r.Context(), body.Library, body.Keyword, body.Limit)
+		if searchErr != nil {
+			log.Printf("[crawler] %s 搜索失败: %v", body.Library, searchErr)
+			httpx.Fail(w, http.StatusBadGateway, searchErr.Error())
+			return
+		}
+		httpx.OK(w, map[string]any{
+			"success": true, "library": body.Library,
+			"keyword": body.Keyword, "count": len(results), "results": results,
+		})
 		return
 	}
 	payload := map[string]any{

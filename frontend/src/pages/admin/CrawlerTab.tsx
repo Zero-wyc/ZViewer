@@ -21,6 +21,7 @@ import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/api'
 import { t } from '@/i18n'
+import { CrawlerLibrariesCard } from './CrawlerLibrariesCard'
 
 /** 规则列表项（后端 PublicView 的字段子集，只取这一页要显示的） */
 interface CrawlerRuleRow {
@@ -288,6 +289,8 @@ export function CrawlerTab() {
           <span>{loadError}</span>
         </div>
       )}
+
+      <CrawlerLibrariesCard />
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <StatTile label={t('规则')} value={String(rules.length)} />

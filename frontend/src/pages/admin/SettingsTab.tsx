@@ -1,6 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { Download, MonitorCog, Upload } from 'lucide-react'
-import { AniSubsGithubBrowser } from '@/modules/admin/components/AniSubsGithubBrowser'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { InputNumber } from '@/components/ui/InputNumber'
@@ -12,12 +11,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { cn } from '@/lib/utils'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import type { AdminSettings } from './shared'
-import {
-  CMS_SOURCE_PRESETS,
-  MATRIX_ACTIONS,
-  MATRIX_ROLES,
-  formatBytes,
-} from './shared'
+import { MATRIX_ACTIONS, MATRIX_ROLES, formatBytes } from './shared'
 import type { SystemUpdateApi } from './useSystemUpdate'
 import { t } from '@/i18n'
 
@@ -34,12 +28,6 @@ interface SettingsTabProps {
   onCommitMusicVolume: () => void
   onEditingMusicVolumeChange: (editing: boolean) => void
   onSaveSettings: () => void
-  /** TVBox CMS 源检测 */
-  cmsInspectUrl: string
-  onCmsInspectUrlChange: (url: string) => void
-  cmsInspecting: boolean
-  onInspectCmsSource: () => void
-  onCmsSourcesBlur: () => void
   /** 系统更新状态与动作（useSystemUpdate，状态由 AdminPage 持有跨 Tab 保持） */
   update: SystemUpdateApi
 }
@@ -56,11 +44,6 @@ export function SettingsTab({
   onCommitMusicVolume,
   onEditingMusicVolumeChange,
   onSaveSettings,
-  cmsInspectUrl,
-  onCmsInspectUrlChange,
-  cmsInspecting,
-  onInspectCmsSource,
-  onCmsSourcesBlur,
   update,
 }: SettingsTabProps) {
   const {
@@ -408,130 +391,6 @@ export function SettingsTab({
                 <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                   {t(
                     '关闭后房间里不显示 Live2D 角色，也不加载渲染引擎。仅在 Beta 功能开启时生效。'
-                  )}
-                </p>
-              </div>
-
-              <Title level={5} className="mb-4 mt-6">
-                {t('Kazumi 规则源')}
-              </Title>
-              <div className="mb-4">
-                <label className="mb-1.5 block text-sm font-medium text-[var(--md-sys-color-on-surface-variant)]">
-                  {t('Kazumi 规则、索引或官方仓库地址（每行一个）')}
-                </label>
-                <textarea
-                  rows={4}
-                  className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)]"
-                  placeholder="https://raw.githubusercontent.com/Predidit/KazumiRules/main/DM84.json"
-                  value={(settings.dataSourceConfig?.kazumiRules || []).join(
-                    '\n'
-                  )}
-                  onChange={(e) =>
-                    onSettingsChange((prev) => ({
-                      ...prev,
-                      dataSourceConfig: {
-                        ...prev.dataSourceConfig,
-                        kazumiRules: e.target.value
-                          .split('\n')
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      },
-                    }))
-                  }
-                />
-                <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  {t(
-                    '留空用内置默认规则。支持规则 JSON、index.json 与 Kazumi 仓库地址；依赖 WebView 或验证码的规则可能无法播放。'
-                  )}
-                </p>
-              </div>
-
-              <div className="mb-6">
-                <AniSubsGithubBrowser
-                  repoUrl="https://github.com/Predidit/KazumiRules"
-                  defaultPath=""
-                  title={t('从 KazumiRules 仓库选择规则')}
-                  allowAddAll={false}
-                  existingUrls={settings.dataSourceConfig?.kazumiRules || []}
-                  onAddUrls={(urls) =>
-                    onSettingsChange((prev) => ({
-                      ...prev,
-                      dataSourceConfig: {
-                        ...prev.dataSourceConfig,
-                        kazumiRules: [
-                          ...(prev.dataSourceConfig?.kazumiRules || []),
-                          ...urls,
-                        ],
-                      },
-                    }))
-                  }
-                />
-              </div>
-
-              <Title level={5} className="mb-4 mt-6">
-                {t('TVBox 采集源（CMS）')}
-              </Title>
-              <div className="mb-6">
-                <label className="mb-1.5 block text-sm font-medium text-[var(--md-sys-color-on-surface-variant)]">
-                  {t(
-                    'TVBox 配置接口地址（提取其中的苹果 CMS 采集站，检测后加入下方列表）'
-                  )}
-                </label>
-                <div className="mb-2 flex gap-2">
-                  <Input
-                    value={cmsInspectUrl}
-                    onChange={(e) => onCmsInspectUrlChange(e.target.value)}
-                    placeholder="https://example.com/jsm.json"
-                    className="flex-1"
-                  />
-                  <Button
-                    onClick={onInspectCmsSource}
-                    loading={cmsInspecting}
-                    disabled={cmsInspecting}
-                  >
-                    {t('检测并添加')}
-                  </Button>
-                </div>
-                <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                    {t('常用接口一键填入：')}
-                  </span>
-                  {CMS_SOURCE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.url}
-                      type="button"
-                      onClick={() => onCmsInspectUrlChange(preset.url)}
-                      disabled={cmsInspecting}
-                      className="rounded-full border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-2.5 py-1 text-xs text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:border-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-surface)] disabled:opacity-40"
-                    >
-                      {t(preset.label)}
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  rows={3}
-                  className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)]"
-                  placeholder="https://raw.githubusercontent.com/qist/tvbox/master/jsm.json"
-                  value={(settings.dataSourceConfig?.cmsSources || []).join(
-                    '\n'
-                  )}
-                  onChange={(e) =>
-                    onSettingsChange((prev) => ({
-                      ...prev,
-                      dataSourceConfig: {
-                        ...prev.dataSourceConfig,
-                        cmsSources: e.target.value
-                          .split('\n')
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      },
-                    }))
-                  }
-                  onBlur={onCmsSourcesBlur}
-                />
-                <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  {t(
-                    '留空则不启用。仅支持苹果 CMS（type 1）采集站，jar 与 JS 规则源不支持；编辑后失焦自动保存。'
                   )}
                 </p>
               </div>

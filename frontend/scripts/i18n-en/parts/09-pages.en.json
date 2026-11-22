@@ -1,5 +1,7 @@
 {
   "items": [
+    "Rules",
+    "Rule directory: {{root}}",
     "Rule content is not valid JSON",
     "Rule file must not exceed 8 MB",
     "No site rules yet. Import a rule bundle above.",
@@ -40,21 +42,23 @@
     "Ready to import",
     "Available",
     "Failed to fetch the configuration",
+    "Libraries",
     "Offline",
     "Disconnected",
     "The new passwords do not match",
     "Browse and join the rooms available now",
     "Browser",
-    "Leave blank to use the built-in default rules. Accepts a rule JSON, an index.json or a Kazumi repository URL; rules that need a WebView or a captcha may not play.",
-    "Leave blank to disable. Only Apple CMS (type 1) sites are supported; jar and JS rule sources are not. Edits save when the field loses focus.",
+    "Empty uses built-in subscriptions; one URL per line",
     "No accounts available to appoint",
     "No matching accounts",
+    "No CMS source found",
+    "One TVBox config URL per line",
+    "One rule, index, or repo URL per line",
     "Password changed",
     "Password must be at least 4 characters",
     "Defaults to 50%. Applied when someone first uses Listen Together, after which each user's local volume wins.",
     "Defaults to https://gh-proxy.com; you can point it at your own proxy.",
     "The configuration URL must be an http(s) URL",
-    "Fetched the configuration but found no CMS source (type 1), nothing saved",
     "Delete rooms in bulk",
     "Failed to delete rooms in bulk",
     "Bulk delete failed",
@@ -115,10 +119,6 @@
     "Failed to delete the user",
     "Failed to upload the update",
     "Upload avatar",
-    "Upload a custom avatar image",
-    "With “all signed-in users”, regular users can create rooms too; guests never can.",
-    "Review",
-    "Review failed",
-    "Review user"
+    "Upload a custom avatar image"
   ]
 }

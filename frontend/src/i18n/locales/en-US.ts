@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2941 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2945 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -351,7 +351,7 @@ const enUS: Record<string, string> = {
   '重排序失败': 'Failed to reorder',
 
   // ===== pages（425 条） =====
-  ' 等': ' and others',
+  '{{count}} 个源': '{{count}} sources',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
   '1. 在浏览器中登录 music.163.com': '1. Sign in to music.163.com in your browser',
@@ -363,15 +363,14 @@ const enUS: Record<string, string> = {
   '版本更新后自动弹出公告': 'Show the announcement automatically after an update',
   '版本更新由桌面端管理': 'Updates are managed by the desktop app',
   '保存设置失败': 'Failed to save settings',
+  '本地规则与三个内置库的配置入口；点片时按库搜索': 'Local rules plus three built-in libraries; search by library when adding a movie',
   '编辑信息': 'Edit info',
   '编辑账号信息': 'Edit account info',
   '不可用': 'Unavailable',
   '部分规则未能导入，请看下方报告': 'Some rules could not be imported, see the report below',
-  '采集源配置保存失败': 'Failed to save the source configuration',
-  '采集源配置已保存并生效': 'Source configuration saved and applied',
   '查看当前房间列表': 'View the current room list',
   '查看发布': 'View release',
-  '常用接口一键填入：': 'Fill in a common endpoint:',
+  '常用接口': 'Common endpoints',
   '超过小时数未访问则自动删除': 'Auto-delete after this many hours without access',
   '超级管理员：{{username}}': 'Super admin: {{username}}',
   '撤销': 'Remove',
@@ -405,9 +404,11 @@ const enUS: Record<string, string> = {
   '登录请求失败': 'Sign-in request failed',
   '登录失败': 'Sign-in failed',
   '登录已过期，请重新登录后再试': 'Your session expired, sign in again and retry',
+  '等 {{count}} 个': 'and {{count}} more',
   '等待画面': 'Waiting for video',
   '点击输入 0～100 的整数': 'Click and enter an integer from 0 to 100',
   '读取规则引擎状态失败': 'Failed to read crawler engine status',
+  '读取来源库失败': 'Failed to load libraries',
   '多人同步追番、观影与远程共享平台': 'A platform for watching anime and movies together, in sync',
   '多页面登录（仅供测试）': 'Multi-page login (testing only)',
   '发布时间： {{value}}': 'Released: {{value}}',
@@ -512,21 +513,23 @@ const enUS: Record<string, string> = {
   '可以直接导入': 'Ready to import',
   '可用': 'Available',
   '拉取配置失败': 'Failed to fetch the configuration',
+  '来源库': 'Libraries',
   '离线': 'Offline',
   '连接断开': 'Disconnected',
   '两次输入的新密码不一致': 'The new passwords do not match',
   '浏览并加入当前可用的房间': 'Browse and join the rooms available now',
   '浏览器': 'Browser',
-  '留空用内置默认规则。支持规则 JSON、index.json 与 Kazumi 仓库地址；依赖 WebView 或验证码的规则可能无法播放。': 'Leave blank to use the built-in default rules. Accepts a rule JSON, an index.json or a Kazumi repository URL; rules that need a WebView or a captcha may not play.',
-  '留空则不启用。仅支持苹果 CMS（type 1）采集站，jar 与 JS 规则源不支持；编辑后失焦自动保存。': 'Leave blank to disable. Only Apple CMS (type 1) sites are supported; jar and JS rule sources are not. Edits save when the field loses focus.',
+  '留空使用内置订阅；每行一个订阅地址': 'Empty uses built-in subscriptions; one URL per line',
   '没有可任命的账号': 'No accounts available to appoint',
   '没有匹配的账号': 'No matching accounts',
+  '没有识别到 CMS 采集源': 'No CMS source found',
+  '每行一个 TVBox 配置地址': 'One TVBox config URL per line',
+  '每行一个规则、索引或仓库地址': 'One rule, index, or repo URL per line',
   '密码修改成功': 'Password changed',
   '密码至少 4 位': 'Password must be at least 4 characters',
   '默认 50%。用户首次使用一起听时生效，之后按各自本地音量。': 'Defaults to 50%. Applied when someone first uses Listen Together, after which each user\'s local volume wins.',
   '默认 https://gh-proxy.com，可换成自建代理。': 'Defaults to https://gh-proxy.com; you can point it at your own proxy.',
   '配置地址必须是 http(s) URL': 'The configuration URL must be an http(s) URL',
-  '配置拉取成功，但没有识别到 CMS 采集源（type 1），未保存': 'Fetched the configuration but found no CMS source (type 1), nothing saved',
   '批量删除房间': 'Delete rooms in bulk',
   '批量删除房间失败': 'Failed to delete rooms in bulk',
   '批量删除失败': 'Bulk delete failed',
@@ -596,7 +599,7 @@ const enUS: Record<string, string> = {
   '审批注册': 'Approve registration',
   '生成二维码失败，请重试': 'Failed to generate the QR code, try again',
   '失败': 'Failed',
-  '识别到 {{length}} 个 CMS 采集源：{{preview}}{{value}}（已保存，即刻生效）': 'Found {{length}} CMS sources: {{preview}}{{value}} (saved and active)',
+  '识别到 {{length}} 个采集源，已加入列表': 'Found {{length}} sources and added them to the list',
   '使用镜像更新源': 'Use the mirror update source',
   '手动导入更新包': 'Import an update package manually',
   '手动输入默认音量': 'Enter the default volume manually',
@@ -669,6 +672,7 @@ const enUS: Record<string, string> = {
   '移除无人的房间': 'Remove empty rooms',
   '已绑定 B站 账号': 'Bilibili account linked',
   '已绑定网易云音乐账号': 'NetEase Cloud Music account linked',
+  '已保存': 'Saved',
   '已关闭房间': 'Closed rooms',
   '已将 {{username}} 设为 {{role}}': '{{username}} is now {{role}}',
   '已结束直连共享': 'Direct sharing ended',
@@ -765,16 +769,12 @@ const enUS: Record<string, string> = {
   'Cookie 登录网易云音乐': 'Sign in to NetEase Cloud Music with cookies',
   'Cookie 已复制到剪贴板': 'Cookies copied to clipboard',
   'DASH（服务器中转，高画质）': 'DASH (server relay, high quality)',
-  'Kazumi 规则、索引或官方仓库地址（每行一个）': 'Kazumi rule, index or official repository URLs (one per line)',
-  'Kazumi 规则源': 'Kazumi rule sources',
   'MP4（默认，服务器中转）': 'MP4 (default, server relay)',
   'MP4（默认，服务器中转直链）': 'MP4 (default, server relay direct link)',
   'qist/tvbox · 电视合集': 'qist/tvbox · TV collection',
   'qist/tvbox · 饭太硬': 'qist/tvbox · 饭太硬',
   'qist/tvbox · CF 镜像': 'qist/tvbox · CF mirror',
   'qist/tvbox · drpy 混合': 'qist/tvbox · drpy mixed',
-  'TVBox 采集源（CMS）': 'TVBox sources (CMS)',
-  'TVBox 配置接口地址（提取其中的苹果 CMS 采集站，检测后加入下方列表）': 'TVBox configuration endpoint (extract the Apple CMS sites it lists, then check and add them below)',
   'ZViewer 账号': 'ZViewer account',
 
   // ===== common（1 条） =====
@@ -2140,7 +2140,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（498 条） =====
+  // ===== modules/room（497 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
@@ -2385,7 +2385,6 @@ const enUS: Record<string, string> = {
   '全部站点': 'All sites',
   '全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导': 'Every member (including the host) must connect ZViewer CLI to watch; the stream is not relayed by the server. Viewers without the CLI see a setup guide.',
   '全网搜片': 'Search all sites',
-  '全网搜片（多站点）': 'Search all sites (multi-site)',
   '权限说明': 'Permissions',
   '确定要将房主转交给 <highlight>{{name}}</highlight> 吗？转交后您将变为观众身份，无法再管理房间。': 'Transfer the host role to <highlight>{{name}}</highlight>? You will become a viewer and lose room management.',
   '确认清空？': 'Clear everything?',
@@ -3021,12 +3020,17 @@ const enUS: Record<string, string> = {
   '解析 {{label}} 文件失败': 'Failed to resolve {{label}} files',
   '浏览 WebDAV 目录': 'Browse the WebDAV directory',
 
-  // ===== extra（5 条，见 overrides.json） =====
+  // ===== extra（10 条，见 overrides.json） =====
   '」': '”',
   '{{count}} 集_one': '{{count}} episode',
   '找到 {{count}} 条字幕_one': 'Found {{count}} subtitle track',
   '已清理 {{count}} 个无人使用的房间_one': 'Removed {{count}} unused room',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one': 'Delete the <strong>{{count}}</strong> selected room? This cannot be undone.',
+  '本地规则': 'Local rules',
+  '打开搜索': 'Open search',
+  '全网搜片（内置库）': 'Crawl all (built-in libraries)',
+  '在本机「站点规则」里搜索，选中结果后直接加入房间。': 'Search local site rules and add the selected result to the room.',
+  'AniSubs 番剧源': 'AniSubs anime source',
 }
 
 export default enUS

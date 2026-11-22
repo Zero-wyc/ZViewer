@@ -1,6 +1,11 @@
 {
   "bucket": "pages",
   "items": [
+    "暂无可清理的房间",
+    "暂无可用房间",
+    "暂无用户",
+    "粘贴 B站 Cookie，如：SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx",
+    "粘贴分享端提供的直连码，生成应答码并回传即可建立 P2P 连接。",
     "粘贴网易云 Cookie，如：MUSIC_U=xxx; __csrf=xxx",
     "站点规则",
     "账号",
@@ -54,16 +59,12 @@
     "Cookie 登录网易云音乐",
     "Cookie 已复制到剪贴板",
     "DASH（服务器中转，高画质）",
-    "Kazumi 规则、索引或官方仓库地址（每行一个）",
-    "Kazumi 规则源",
     "MP4（默认，服务器中转）",
     "MP4（默认，服务器中转直链）",
     "qist/tvbox · 电视合集",
     "qist/tvbox · 饭太硬",
     "qist/tvbox · CF 镜像",
     "qist/tvbox · drpy 混合",
-    "TVBox 采集源（CMS）",
-    "TVBox 配置接口地址（提取其中的苹果 CMS 采集站，检测后加入下方列表）",
     "ZViewer 账号"
   ]
 }

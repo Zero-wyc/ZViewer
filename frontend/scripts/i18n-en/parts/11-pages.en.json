@@ -1,5 +1,10 @@
 {
   "items": [
+    "No rooms to clean up",
+    "No rooms available",
+    "No users yet",
+    "Paste Bilibili cookies, e.g. SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx",
+    "Paste the direct-link code from the sharer, generate a response code and send it back to establish the P2P connection.",
     "Paste NetEase Cloud Music cookies, e.g. MUSIC_U=xxx; __csrf=xxx",
     "Site rules",
     "Accounts",
@@ -53,16 +58,12 @@
     "Sign in to NetEase Cloud Music with cookies",
     "Cookies copied to clipboard",
     "DASH (server relay, high quality)",
-    "Kazumi rule, index or official repository URLs (one per line)",
-    "Kazumi rule sources",
     "MP4 (default, server relay)",
     "MP4 (default, server relay direct link)",
     "qist/tvbox · TV collection",
     "qist/tvbox · 饭太硬",
     "qist/tvbox · CF mirror",
     "qist/tvbox · drpy mixed",
-    "TVBox sources (CMS)",
-    "TVBox configuration endpoint (extract the Apple CMS sites it lists, then check and add them below)",
     "ZViewer account"
   ]
 }

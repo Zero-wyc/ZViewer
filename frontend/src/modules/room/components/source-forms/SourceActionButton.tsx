@@ -42,6 +42,9 @@ export function SourceActionButton({
   onAdd,
   onResolve,
 }: SourceActionButtonProps) {
+  // 本地规则库的入口在表单里（打开搜索弹窗），这里不出按钮
+  if (sourceType === 'crawler') return null
+
   const search = SEARCH_ACTIONS[sourceType]
   if (search) {
     const onOpen = {
