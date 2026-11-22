@@ -1260,13 +1260,6 @@ dialog p { margin-top: 8px; color: var(--text-secondary); font-size: 12px; line-
 .mcp-tools code { flex: none; min-width: 132px; font-family: var(--font-mono); font-size: 12px; }
 .mcp-tools span { opacity: .75; line-height: 1.5; }
 /* 一键写入：一行一个客户端，路径可截断，按钮固定宽度。 */
-.mcp-clients { display: flex; flex-direction: column; gap: 8px; }
-.mcp-client { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--card-stroke); border-radius: var(--radius-card); background: var(--card-bg); }
-.mcp-client-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.mcp-client-main strong { font-size: 13px; }
-.mcp-client-main code { font-family: var(--font-mono); font-size: 11px; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mcp-client .pill { flex: none; }
-.mcp-client .btn { flex: none; }
 .mcp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 /* 部署提示词比配置片段长得多，别让它在弹窗里撑满一屏。 */
 #crawler-mcp-prompt { min-height: 168px; max-height: 220px; }

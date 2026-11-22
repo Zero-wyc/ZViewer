@@ -867,29 +867,6 @@
     return null;
   }
 
-  function mcpStatus(client) {
-    if (client.installed) return tag('已写入', 'green');
-    if (client.detected) return tag('待写入');
-    return tag('未检测到');
-  }
-
-  function mcpClientsHtml(clients) {
-    if (!clients || !clients.length) return '<div class="empty">无客户端配置路径。</div>';
-    return clients.map(function (client) {
-      return '<div class="mcp-client">' +
-        '<div class="mcp-client-main"><strong>' + esc(client.name || '') + '</strong><code>' + esc(client.path || '—') + '</code></div>' +
-        mcpStatus(client) +
-        '<button class="btn" data-mcp-install="' + esc(client.id || '') + '">' + icon('check') + (client.installed ? '覆盖' : '写入') + '</button>' +
-        '</div>';
-    }).join('');
-  }
-
-  function renderMcpClients(clients) {
-    if (clients && clients.length) mcpView.clients = clients;
-    const box = $('#crawler-mcp-clients');
-    if (box) box.innerHTML = mcpClientsHtml(mcpView.clients);
-  }
-
   /** 标题区常驻入口：MCP 配置和引擎启停无关，放状态卡里会被「引擎信息」标签藏起来。 */
   function mcpButton() {
     return '<button class="btn" data-crawler-mcp-open="1">' + icon('terminal') + 'MCP 工具</button>';
@@ -911,27 +888,6 @@
     document.querySelectorAll('[data-mcp-client]').forEach(function (tab) {
       tab.classList.toggle('active', tab.dataset.mcpClient === mcpClient);
     });
-  }
-
-  /** 一键写入：clients 为空表示「检测到的都写」，后端会跳过没装的客户端。 */
-  async function installMcp(clients) {
-    if (!mcpView.command) { ui.toast('缺少 MCP 可执行文件路径'); return; }
-    let result;
-    try {
-      result = await cmd('mcp-install', { command: mcpView.command, args: mcpView.args, clients: clients || [] });
-    } catch (error) {
-      ui.toast(message(error));
-      return;
-    }
-    renderMcpClients(result.clients || []);
-    const results = result.results || [];
-    const done = results.filter(function (item) { return item.status === 'installed'; });
-    const failed = results.filter(function (item) { return item.status === 'error'; });
-    const parts = [];
-    if (done.length) parts.push('已写入 ' + done.map(function (item) { return item.name; }).join('、') + '，重启对应客户端后生效');
-    if (failed.length) parts.push(failed.length + ' 个失败：' + failed[0].name + '（' + (failed[0].message || '未知原因') + '）');
-    if (!parts.length) parts.push('未检测到客户端');
-    ui.toast(parts.join('；'));
   }
 
   async function openMcp() {
@@ -974,10 +930,6 @@
         '<div class="crawler-fact wide"><span>数据目录</span><code>' + esc(info.root || '') + '</code></div>' +
       '</div>' +
       (info.commandExists ? '' : notice('未找到 zviewer-backend.exe，请构建或重装。', true)) +
-      '<h3 class="mcp-tools-title">一键写入客户端</h3>' +
-      '<p class="field-note">写入用户级配置文件。原文件备份为 <code>.zviewer-bak</code>，其它服务保留。' + esc(source) + '</p>' +
-      '<div class="mcp-clients" id="crawler-mcp-clients">' + mcpClientsHtml(mcpView.clients) + '</div>' +
-      '<div class="mcp-actions"><button class="btn" data-mcp-install-all="1">' + icon('check') + '写入所有已检测客户端</button></div>' +
       '<h3 class="mcp-tools-title">手动配置</h3>' +
       '<div class="tabs crawler-tabs" id="crawler-mcp-tabs">' + MCP_CLIENT_TABS.map(function (item) {
         return '<button data-mcp-client="' + item[0] + '"' + (item[0] === mcpClient ? ' class="active"' : '') + '>' + item[1] + '</button>';
@@ -985,11 +937,12 @@
       '<p class="field-note" id="crawler-mcp-path"></p>' +
       '<textarea class="codebox config-editor crawler-json" id="crawler-mcp-text" readonly spellcheck="false"></textarea>' +
       '<div class="mcp-actions"><button class="btn" data-crawler-mcp-copy="1">' + icon('copy') + '复制配置</button></div>' +
+      '<h3 class="mcp-tools-title">工具清单' + (tools.length ? '（' + tools.length + '）' : '') + '</h3>' + list +
+      (source ? '<p class="field-note">' + esc(source) + '</p>' : '') +
       '<h3 class="mcp-tools-title">部署提示词</h3>' +
       '<p class="field-note">发给可读写文件的 Agent，由它查找客户端配置、写入并校验。</p>' +
       '<textarea class="codebox config-editor crawler-json mcp-prompt" id="crawler-mcp-prompt" readonly spellcheck="false"></textarea>' +
       '<div class="mcp-actions"><button class="btn primary" data-crawler-mcp-prompt="1">' + icon('copy') + '复制部署提示词</button></div>' +
-      '<h3 class="mcp-tools-title">工具清单' + (tools.length ? '（' + tools.length + '）' : '') + '</h3>' + list +
       '<div class="modal-actions">' + button('关闭', 'close-modal') + '</div>',
       { wide: true }
     );
@@ -1925,20 +1878,6 @@
       event.stopImmediatePropagation();
       const textarea = $('#crawler-mcp-text');
       copyText(textarea ? textarea.value : '');
-      return;
-    }
-    const mcpInstallOne = event.target.closest('[data-mcp-install]');
-    if (mcpInstallOne) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      installMcp([mcpInstallOne.dataset.mcpInstall]);
-      return;
-    }
-    const mcpInstallAll = event.target.closest('[data-mcp-install-all]');
-    if (mcpInstallAll) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      installMcp([]);
       return;
     }
     const mcpPromptCopy = event.target.closest('[data-crawler-mcp-prompt]');

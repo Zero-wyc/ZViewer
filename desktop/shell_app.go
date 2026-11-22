@@ -395,8 +395,6 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 		return a.crawlerInfo()
 	case "mcp-info":
 		return a.mcpInfo()
-	case "mcp-install":
-		return a.mcpInstall(payload)
 	case "crawler-start":
 		return a.crawler.start()
 	case "crawler-stop":

@@ -1,17 +1,19 @@
 package main
 
-// MCP 工具的桌面侧能力：清单探测、配置片段、以及「写进各家客户端」的自动部署。
+// MCP 工具的桌面侧能力：清单探测、各家客户端的配置文件位置、部署提示词。
 //
-// 三件事都围绕同一份事实：后端可执行文件自己就是 MCP stdio 服务
+// 都围绕同一份事实：后端可执行文件自己就是 MCP stdio 服务
 // （`zviewer-backend.exe --mcp`），客户端配置里只需要 command + args。
 // 所以这里不复制工具清单、也不内置任何站规，只负责：
 //   1. 探测工具清单——先问运行中的后端 HTTP 接口，失败就真的拉起一次
 //      `--mcp` 走 JSON-RPC 问 tools/list（MCP 不需要 HTTP 服务，这条路更接近
 //      客户端看到的东西，也能救「后端版本旧、没有 /api/crawler/tools」的情况）；
-//   2. 生成给别的 Agent 平台看的部署提示词（让对面的大模型自己找配置文件、
-//      自己合并、自己校验，而不是让用户手动粘）；
-//   3. 直接把条目写进 Claude Desktop / Claude Code / Cursor / VS Code /
-//      Windsurf / Codex 的配置文件，写前备份、写后回读校验。
+//   2. 给出各家客户端的配置文件路径，界面上按客户端展示可复制的片段；
+//   3. 生成给别的 Agent 平台看的部署提示词（让对面的大模型自己找配置文件、
+//      自己合并、自己校验，而不是让用户手动粘）。
+//
+// 桌面端**不直接改客户端配置**：写别人的配置文件风险高（备份、格式、并发），
+// 复制片段或交给能读写文件的 Agent 更可控。
 //
 // 为什么探测要真的拉进程：桌面控制台和后端是两个产物，运行包里后端可能是
 // 旧版本。只信 HTTP 会把「后端旧了」报成「工具有 0 个」，用户完全看不出原因；
@@ -40,19 +42,12 @@ const mcpServerEntryName = "zviewer-crawler"
 // mcpProbeTimeout 给 stdio 探测的总预算：进程启动 + 两次往返，正常几十毫秒。
 const mcpProbeTimeout = 12 * time.Second
 
-// mcpClientSpec 描述一个客户端：配置文件在哪、结构是什么、改完怎么生效。
+// mcpClientSpec 描述一个客户端：配置文件在哪、改完怎么生效。
 type mcpClientSpec struct {
-	ID       string
-	Name     string
-	Format   string // json | toml
-	Key      string // JSON 里的容器键：mcpServers / servers
-	StdioTyp bool   // VS Code 风格：条目必须带 "type": "stdio"
-	Path     string
-	// DetectPath 是「这个客户端装过」的判据（默认取配置文件所在目录）。
-	// Claude Code 的配置直接落在 ~/.claude.json，父目录是用户主目录——
-	// 拿主目录当判据会把所有机器都判成装了 Claude Code。
-	DetectPath string
-	Hint       string
+	ID   string
+	Name string
+	Path string
+	Hint string
 }
 
 // mcpClientSpecs 返回支持的客户端清单（顺序即界面顺序）。
@@ -73,130 +68,55 @@ func mcpClientSpecs() []mcpClientSpec {
 	}
 	return []mcpClientSpec{
 		{
-			ID: "claude", Name: "Claude Desktop", Format: "json", Key: "mcpServers",
+			ID: "claude", Name: "Claude Desktop",
 			Path: join(appData, "Claude", "claude_desktop_config.json"),
-			Hint: "写完后完全退出 Claude（含托盘）再启动才会加载新服务。",
+			Hint: "改完完全退出 Claude（含托盘）再启动才会加载新服务。",
 		},
 		{
-			ID: "claude-code", Name: "Claude Code", Format: "json", Key: "mcpServers",
-			Path:       join(home, ".claude.json"),
-			DetectPath: join(home, ".claude"),
-			Hint:       "用户级配置。写完后新开一个会话即可，已开着的会话要重进。",
+			ID: "claude-code", Name: "Claude Code",
+			Path: join(home, ".claude.json"),
+			Hint: "用户级配置。改完新开一个会话即可，已开着的会话要重进。",
 		},
 		{
-			ID: "cursor", Name: "Cursor", Format: "json", Key: "mcpServers",
+			ID: "cursor", Name: "Cursor",
 			Path: join(home, ".cursor", "mcp.json"),
-			Hint: "写完后在 Cursor 设置的 MCP 面板点一下刷新。",
+			Hint: "保存后在 Cursor 设置的 MCP 面板点一下刷新。",
 		},
 		{
-			ID: "vscode", Name: "VS Code (Copilot)", Format: "json", Key: "servers", StdioTyp: true,
+			ID: "vscode", Name: "VS Code (Copilot)",
 			Path: join(appData, "Code", "User", "mcp.json"),
 			Hint: "需要 VS Code 设置里启用 MCP，用户级配置对所有工作区生效。",
 		},
 		{
-			ID: "windsurf", Name: "Windsurf", Format: "json", Key: "mcpServers",
+			ID: "windsurf", Name: "Windsurf",
 			Path: join(home, ".codeium", "windsurf", "mcp_config.json"),
-			Hint: "写完后在 Windsurf 的 Cascade → MCP 面板点刷新。",
+			Hint: "保存后在 Windsurf 的 Cascade → MCP 面板点刷新。",
 		},
 		{
-			ID: "codex", Name: "Codex CLI", Format: "toml",
+			ID: "codex", Name: "Codex CLI",
 			Path: join(home, ".codex", "config.toml"),
-			Hint: "TOML 配置，写完后重开 codex 会话；用 /mcp 可查看已接入的服务。",
+			Hint: "TOML 配置，改完重开 codex 会话；用 /mcp 可查看已接入的服务。",
 		},
 	}
 }
 
-// mcpClientState 带现场信息的客户端：装没装、写没写、能不能写。
-type mcpClientState struct {
-	mcpClientSpec
-	Detected  bool
-	Exists    bool
-	Installed bool
-	Writable  bool
-	Problem   string
-}
-
-// inspect 读一次配置文件，得出「已装客户端 / 已写入 / 可写」。
-func (spec mcpClientSpec) inspect() mcpClientState {
-	state := mcpClientState{mcpClientSpec: spec}
-	if strings.TrimSpace(spec.Path) == "" {
-		state.Problem = "无法确定用户目录"
-		return state
-	}
-	state.Exists = fileExists(spec.Path)
-	marker := spec.DetectPath
-	if marker == "" {
-		marker = filepath.Dir(spec.Path)
-	}
-	state.Detected = state.Exists || dirExists(marker) || fileExists(marker)
-	state.Writable = state.Detected || writableParent(spec.Path)
-	state.Installed = mcpConfigured(spec)
-	return state
-}
-
-// writableParent 判断配置文件的父目录能不能建出来（用户级配置首次写入很常见）。
-func writableParent(path string) bool {
-	dir := filepath.Dir(path)
-	for dir != "" && !dirExists(dir) {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	if !dirExists(dir) {
-		return false
-	}
-	probe := filepath.Join(dir, ".zviewer-mcp-probe")
-	if err := os.WriteFile(probe, []byte(""), 0o600); err != nil {
-		return false
-	}
-	_ = os.Remove(probe)
-	return true
-}
-
-// mcpConfigured 判断配置文件里是否已有 zviewer-crawler 条目。
-func mcpConfigured(spec mcpClientSpec) bool {
-	raw, err := os.ReadFile(spec.Path)
-	if err != nil {
-		return false
-	}
-	if spec.Format == "toml" {
-		return strings.Contains(string(raw), "[mcp_servers."+mcpServerEntryName+"]")
-	}
-	var doc map[string]any
-	if json.Unmarshal(raw, &doc) != nil {
-		return false
-	}
-	container, _ := doc[spec.Key].(map[string]any)
-	_, ok := container[mcpServerEntryName]
-	return ok
-}
-
-// mcpClients 供界面渲染「一键写入」列表。
+// mcpClients 供界面渲染「手动配置」标签：名称、配置文件路径与生效提示。
 func mcpClients() []map[string]any {
 	specs := mcpClientSpecs()
 	out := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
-		state := spec.inspect()
 		out = append(out, map[string]any{
-			"id":        state.ID,
-			"name":      state.Name,
-			"path":      state.Path,
-			"hint":      state.Hint,
-			"format":    state.Format,
-			"detected":  state.Detected,
-			"exists":    state.Exists,
-			"installed": state.Installed,
-			"writable":  state.Writable,
-			"problem":   state.Problem,
+			"id":   spec.ID,
+			"name": spec.Name,
+			"path": spec.Path,
+			"hint": spec.Hint,
 		})
 	}
 	return out
 }
 
 // mcpInfo 给 GUI 的「MCP 工具」弹窗：客户端要填的命令、参数、目录、工具清单，
-// 一键写入的客户端状态，以及给别的 Agent 平台自动部署用的提示词。
+// 各家客户端的配置文件位置，以及给别的 Agent 平台自动部署用的提示词。
 func (a *App) mcpInfo() (any, error) {
 	if a.crawler == nil {
 		return map[string]any{"available": false, "reason": "桌面桥接未初始化"}, nil
@@ -385,244 +305,13 @@ func probeMCPTools(command string, args []string) ([]map[string]any, error) {
 	}
 }
 
-// ---------------------------------------------------------------- 自动写入
-
-// mcpInstall 把服务条目写进客户端配置。payload.clients 为空表示「能写的都写」。
-//
-// 只写用户级配置，写前把原文件备份成 <文件名>.zviewer-bak，写后回读校验：
-// 配置文件是用户的东西，出错必须能退回去，且不能让用户自己排查。
-func (a *App) mcpInstall(payload map[string]any) (any, error) {
-	if a.crawler == nil {
-		return nil, errors.New("桌面桥接未初始化")
-	}
-	command := strings.TrimSpace(payloadString(payload, "command"))
-	if command == "" {
-		command = filepath.Join(a.root, "zviewer-backend.exe")
-	}
-	if !fileExists(command) {
-		return nil, errors.New("找不到 MCP 可执行文件：" + command)
-	}
-	args := payloadStrings(payload, "args")
-	if len(args) == 0 {
-		args = []string{"--mcp"}
-	}
-	wanted := map[string]bool{}
-	for _, id := range payloadStrings(payload, "clients") {
-		wanted[strings.TrimSpace(id)] = true
-	}
-	all := len(wanted) == 0
-
-	results := make([]map[string]any, 0, len(mcpClientSpecs()))
-	written := 0
-	for _, spec := range mcpClientSpecs() {
-		if !all && !wanted[spec.ID] {
-			continue
-		}
-		state := spec.inspect()
-		if all && !state.Detected {
-			// 「全部写入」只在检测到客户端的机器上动手，免得凭空造出
-			// %APPDATA%\Claude 这种空目录，让用户以为装过。
-			results = append(results, map[string]any{
-				"id": state.ID, "name": state.Name, "path": state.Path,
-				"status": "skipped", "message": "未检测到该客户端",
-			})
-			continue
-		}
-		result := installMCPClient(state, command, args)
-		if result["status"] == "installed" {
-			written++
-		}
-		results = append(results, result)
-	}
-	return map[string]any{
-		"success": written > 0,
-		"written": written,
-		"results": results,
-		"clients": mcpClients(),
-	}, nil
-}
-
-// installMCPClient 写单个客户端，返回带 status 的结果（installed / error / skipped）。
-func installMCPClient(state mcpClientState, command string, args []string) map[string]any {
-	base := map[string]any{"id": state.ID, "name": state.Name, "path": state.Path}
-	if state.Path == "" {
-		base["status"] = "error"
-		base["message"] = "无法确定用户目录"
-		return base
-	}
-	var backup string
-	var err error
-	if state.Format == "toml" {
-		backup, err = installMCPTOML(state.Path, command, args)
-	} else {
-		backup, err = installMCPJSON(state, command, args)
-	}
-	if err != nil {
-		base["status"] = "error"
-		base["message"] = err.Error()
-		if backup != "" {
-			base["backup"] = backup
-		}
-		return base
-	}
-	// 回读校验：写成功但结构不对（比如容器键被别的工具改形状）要当场发现。
-	if !mcpConfigured(state.mcpClientSpec) {
-		base["status"] = "error"
-		base["message"] = "已写入但回读校验失败，请检查 " + state.Path
-		if backup != "" {
-			base["backup"] = backup
-		}
-		return base
-	}
-	base["status"] = "installed"
-	base["message"] = "已写入"
-	if backup != "" {
-		base["backup"] = backup
-	}
-	base["hint"] = state.Hint
-	return base
-}
-
-// installMCPJSON 按 mcpServers / servers 结构合并条目。
-func installMCPJSON(state mcpClientState, command string, args []string) (string, error) {
-	doc := map[string]any{}
-	backup := ""
-	if raw, err := os.ReadFile(state.Path); err == nil && len(bytes.TrimSpace(raw)) > 0 {
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			// 解析不了的配置不能猜着改：备份原文，让用户/客户端自己修。
-			if saved, saveErr := backupFile(state.Path); saveErr == nil {
-				backup = saved
-			}
-			return backup, fmt.Errorf("配置文件不是有效 JSON，未改动（原文已备份）")
-		}
-		if saved, saveErr := backupFile(state.Path); saveErr == nil {
-			backup = saved
-		}
-	}
-	container, ok := doc[state.Key].(map[string]any)
-	if !ok {
-		container = map[string]any{}
-	}
-	entry := map[string]any{"command": command, "args": args}
-	if state.StdioTyp {
-		entry["type"] = "stdio"
-	}
-	container[mcpServerEntryName] = entry
-	doc[state.Key] = container
-
-	raw, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return backup, err
-	}
-	raw = append(raw, '\n')
-	if err := os.MkdirAll(filepath.Dir(state.Path), 0o755); err != nil {
-		return backup, fmt.Errorf("无法创建配置目录：%w", err)
-	}
-	tmp := state.Path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return backup, fmt.Errorf("无法写入配置：%w", err)
-	}
-	if err := os.Rename(tmp, state.Path); err != nil {
-		_ = os.Remove(tmp)
-		return backup, fmt.Errorf("无法替换配置：%w", err)
-	}
-	return backup, nil
-}
-
-// installMCPTOML 只替换（或追加）[mcp_servers.zviewer-crawler] 这一段。
-//
-// 不引 TOML 依赖：要改的只有一节，按行定位、整段替换比全量解析回写安全得多
-// ——全量回写会把用户的注释、锚点、顺序全部打散。
-func installMCPTOML(path, command string, args []string) (string, error) {
-	header := "[mcp_servers." + mcpServerEntryName + "]"
-	quotedArgs := make([]string, 0, len(args))
-	for _, arg := range args {
-		quotedArgs = append(quotedArgs, strconv.Quote(arg))
-	}
-	section := []string{
-		header,
-		"command = " + strconv.Quote(command),
-		"args = [" + strings.Join(quotedArgs, ", ") + "]",
-	}
-
-	backup := ""
-	lines := []string{}
-	if raw, err := os.ReadFile(path); err == nil {
-		if saved, saveErr := backupFile(path); saveErr == nil {
-			backup = saved
-		}
-		lines = strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
-	}
-	// 去掉末尾空行，方便拼段。
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	start := -1
-	for index, line := range lines {
-		if strings.TrimSpace(line) == header {
-			start = index
-			break
-		}
-	}
-	if start >= 0 {
-		end := len(lines)
-		for index := start + 1; index < len(lines); index++ {
-			trimmed := strings.TrimSpace(lines[index])
-			if strings.HasPrefix(trimmed, "[") {
-				end = index
-				break
-			}
-		}
-		merged := append([]string{}, lines[:start]...)
-		merged = append(merged, section...)
-		merged = append(merged, "")
-		merged = append(merged, lines[end:]...)
-		lines = merged
-	} else {
-		if len(lines) > 0 {
-			lines = append(lines, "")
-		}
-		lines = append(lines, section...)
-	}
-	content := strings.Join(lines, "\n") + "\n"
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return backup, fmt.Errorf("无法创建配置目录：%w", err)
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
-		return backup, fmt.Errorf("无法写入配置：%w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return backup, fmt.Errorf("无法替换配置：%w", err)
-	}
-	return backup, nil
-}
-
-// backupFile 把文件复制成 <文件名>.zviewer-bak，返回备份路径（文件不存在时返回空）。
-func backupFile(path string) (string, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	backup := path + ".zviewer-bak"
-	if err := os.WriteFile(backup, raw, 0o600); err != nil {
-		return "", err
-	}
-	return backup, nil
-}
-
 // ---------------------------------------------------------------- 部署提示词
 
 // mcpDeployPrompt 生成一段可直接粘给「别的 AI Agent」的部署指令。
 //
-// 用处是跨平台：桌面端能把配置写进上面那六家，但 Cherry Studio、Cline、
-// Trae 这些还在长；与其一家家适配，不如把「怎么装」讲清楚，让对面那个
-// 本来就能读写文件的模型自己去装、自己去校验。
+// 用处是跨平台：桌面端只提供上面那六家的片段，Cherry Studio、Cline、Trae
+// 这些还在长；与其一家家适配，不如把「怎么装」讲清楚，让对面那个本来就能
+// 读写文件的模型自己去装、自己去校验。
 func mcpDeployPrompt(command string, args []string, root string, tools []any) string {
 	argsJSON, _ := json.Marshal(args)
 	entry, _ := json.MarshalIndent(map[string]any{
