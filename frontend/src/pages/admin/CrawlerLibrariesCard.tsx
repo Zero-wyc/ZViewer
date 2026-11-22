@@ -18,7 +18,7 @@ import { CMS_SOURCE_PRESETS } from './shared'
  * 数据和写入都走后端 `/api/crawler/libraries*`（与桌面控制台同一套接口），
  * 配置最终落在 system_settings.dataSourceConfig，不另建存储。
  */
-interface CrawlerLibrary {
+export interface CrawlerLibrary {
   id: string
   name: string
   kind: string
@@ -63,7 +63,17 @@ function configHint(library: CrawlerLibrary): string {
   return library.note ?? ''
 }
 
-export function CrawlerLibrariesCard() {
+interface CrawlerLibrariesCardProps {
+  /** 外部（例如单条导入）改了来源后，靠它触发重新读取。 */
+  refreshToken?: number
+  /** 卡片内导入成功后通知外部刷新规则列表。 */
+  onChanged?: () => void
+}
+
+export function CrawlerLibrariesCard({
+  refreshToken,
+  onChanged,
+}: CrawlerLibrariesCardProps = {}) {
   const [libraries, setLibraries] = useState<CrawlerLibrary[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -101,10 +111,10 @@ export function CrawlerLibrariesCard() {
   }, [])
 
   useEffect(() => {
-    // 进页面即拉一次；置位在 load 内部，这里不需要同步 setState。
+    // 进页面即拉一次；refreshToken 变了说明外面导入过，也要重拉。
     /* eslint-disable-next-line react-hooks/set-state-in-effect -- 首屏加载 */
     void load()
-  }, [load])
+  }, [load, refreshToken])
 
   const saveUrls = useCallback(
     async (library: CrawlerLibrary, urls: string[]) => {
@@ -229,13 +239,14 @@ export function CrawlerLibrariesCard() {
           t('已导入 {{count}} 条规则', { count: data.saved ?? 0 })
         )
         await load()
+        onChanged?.()
       } catch {
         message.error(t('导入失败'))
       } finally {
         setImportingId('')
       }
     },
-    [drafts, load]
+    [drafts, load, onChanged]
   )
 
   const sourceTags = useCallback((library: CrawlerLibrary) => {

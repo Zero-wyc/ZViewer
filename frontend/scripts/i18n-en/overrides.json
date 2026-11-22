@@ -45,5 +45,10 @@
   "把该库的源编译成本地规则，导入后可在站点规则里编辑": "Compile this library into local rules you can edit under site rules",
   "导入为本地规则": "Import as local rules",
   "将导入为规则": "Will import as a rule",
-  "确认导入": "Confirm import"
+  "确认导入": "Confirm import",
+  "内置库来源": "Built-in library sources",
+  "三个内置库暂无来源，先在「来源库」里配置地址": "No sources yet — configure addresses under Libraries first",
+  "已导入": "Imported",
+  "这些条目在各自的库里执行；导入后编译成本地规则，可以在这里编辑": "These entries run inside their own libraries; import one to compile it into a local rule you can edit here",
+  "导入": "Import"
 }

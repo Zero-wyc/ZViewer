@@ -377,7 +377,9 @@ docker exec zviewer ./zviewer-backend --import-rules /app/rules.json
 
 ### 4.1.1 从内置库导入（三条外源 → 本地规则）
 
-`POST /api/crawler/libraries/import`，请求体 `{"kind":"cms|anisubs|kazumi","urls":[],"dryRun":true}`。`urls` 为空时用该库已保存的地址。`dryRun=true` 只回报编译结果，不落库。
+`POST /api/crawler/libraries/import`，请求体 `{"kind":"cms|anisubs|kazumi","urls":[],"source":"","dryRun":true}`。`dryRun=true` 只回报编译结果，不落库；`source` 非空只导入这一条（界面上的「导入」按钮走的就是它）。
+
+源从哪来按库区分：`cms` 用 `urls`（为空则用已保存地址）；`anisubs` 与 `kazumi` **走注册表**，忽略 `urls`——内置订阅没有地址，Kazumi 的索引也要按规则拼成具体规则文件，这两件事只有各自的注册表知道。
 
 - **cms**：TVBox 配置里的苹果 CMS 站点（或直接给采集接口）编译成 `json` 规则，`vod_play_url` / `vod_play_from` 走 `parse.groups`，搜索即带线路与选集。
 - **anisubs**：订阅里的 web-selector 源编译成 `html` 规则；`subjectFormatId` 支持 `a` / `indexed` / `json-path-indexed`，选集取 `no-channel` 或 `index-grouped` 的选择器。

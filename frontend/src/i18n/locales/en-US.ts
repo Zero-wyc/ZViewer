@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2953 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2957 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -350,7 +350,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（425 条） =====
+  // ===== pages（430 条） =====
   '{{count}} 个源': '{{count}} sources',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -359,6 +359,7 @@ const enUS: Record<string, string> = {
   '3. 复制 Cookie（至少需包含 MUSIC_U），登录态有效性会在提交时校验': '3. Copy the cookies (MUSIC_U at minimum); the session is validated on submit',
   '3. 复制全部 Cookie（至少需包含 SESSDATA）': '3. Copy all cookies (SESSDATA at minimum)',
   '按用户名搜索账号': 'Search accounts by username',
+  '把该库的源编译成本地规则，导入后可在站点规则里编辑': 'Compile this library into local rules you can edit under site rules',
   '版本更新': 'Version update',
   '版本更新后自动弹出公告': 'Show the announcement automatically after an update',
   '版本更新由桌面端管理': 'Updates are managed by the desktop app',
@@ -398,6 +399,7 @@ const enUS: Record<string, string> = {
   '导入后即刻参与全网搜片；停用的规则不会被搜索': 'Imported rules take effect immediately; disabled rules are skipped',
   '导入结果': 'Import result',
   '导入完成': 'Import complete',
+  '导入为本地规则': 'Import as local rules',
   '登录 ZViewer': 'Sign in to ZViewer',
   '登录后可保留历史与身份，注册后需管理员审核': 'Sign in to keep your history and identity; new accounts need admin approval',
   '登录后可创建房间': 'Sign in to create rooms',
@@ -491,6 +493,7 @@ const enUS: Record<string, string> = {
   '检查更新': 'Check for updates',
   '检查更新失败': 'Update check failed',
   '检查更新中...': 'Checking for updates...',
+  '将导入为规则': 'Will import as a rule',
   '接收最新构建版本更新': 'Get updates for the latest builds',
   '解析并生成应答码': 'Parse and generate a response code',
   '仅 CLI 模式（媒体流不经服务器转发）': 'CLI only (media is not relayed by the server)',
@@ -520,6 +523,7 @@ const enUS: Record<string, string> = {
   '浏览并加入当前可用的房间': 'Browse and join the rooms available now',
   '浏览器': 'Browser',
   '留空使用内置订阅；每行一个订阅地址': 'Empty uses built-in subscriptions; one URL per line',
+  '没有可编译的源': 'Nothing to compile',
   '没有可任命的账号': 'No accounts available to appoint',
   '没有匹配的账号': 'No matching accounts',
   '没有识别到 CMS 采集源': 'No CMS source found',
@@ -673,6 +677,7 @@ const enUS: Record<string, string> = {
   '已绑定 B站 账号': 'Bilibili account linked',
   '已绑定网易云音乐账号': 'NetEase Cloud Music account linked',
   '已保存': 'Saved',
+  '已导入 {{count}} 条规则': 'Imported {{count}} rules',
   '已关闭房间': 'Closed rooms',
   '已将 {{username}} 设为 {{role}}': '{{username}} is now {{role}}',
   '已结束直连共享': 'Direct sharing ended',
@@ -2140,7 +2145,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（502 条） =====
+  // ===== modules/room（505 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
@@ -2158,6 +2163,7 @@ const enUS: Record<string, string> = {
   '[useWatchTogether] applySourceToVideo 失败:': '[useWatchTogether] applySourceToVideo failed:',
   '[useWatchTogether] previewPlay 加载失败:': '[useWatchTogether] previewPlay failed to load:',
   '{{count}} 条': '{{count}} items',
+  '{{groups}} 条线路 · {{count}} 集': '{{groups}} sources · {{count}} episodes',
   '{{length}} 部影片': '{{length}} movies',
   '{{message}}，已按单 P 添加': '{{message}}; added as a single part',
   '{{site}} 需要完成人机验证': '{{site}} requires human verification',
@@ -2474,8 +2480,10 @@ const enUS: Record<string, string> = {
   '需要人工验证后才能搜索': 'Human verification is required before searching',
   '需要审批：关': 'Approval: off',
   '需要审批：开': 'Approval: on',
+  '选集': 'Episodes',
   '选择分集': 'Select an episode',
   '选择挂载后点击「浏览 {{name}} 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。服务器转发由本服务中转（跨域/防盗链友好）；直链直连由浏览器直接访问 {{name2}} 服务器。': 'Pick a mount, then use “Browse the {{name}} library” to drill down to a movie or show; multi-select adds in bulk. Server relay goes through this service (CORS and hotlink friendly); direct links reach the {{name2}} server from the browser.',
+  '选择集数后加入一起看': 'Pick an episode to add to the room',
   '选择来源并添加': 'Choose a source and add',
   '选择清晰度': 'Select a quality',
   '选择一种共享方案，邀请其他人加入': 'Choose a sharing option and invite others',
@@ -3025,20 +3033,16 @@ const enUS: Record<string, string> = {
   '解析 {{label}} 文件失败': 'Failed to resolve {{label}} files',
   '浏览 WebDAV 目录': 'Browse the WebDAV directory',
 
-  // ===== extra（13 条，见 overrides.json） =====
+  // ===== extra（9 条，见 overrides.json） =====
   '」': '”',
   '{{count}} 集_one': '{{count}} episode',
   '找到 {{count}} 条字幕_one': 'Found {{count}} subtitle track',
   '已清理 {{count}} 个无人使用的房间_one': 'Removed {{count}} unused room',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one': 'Delete the <strong>{{count}}</strong> selected room? This cannot be undone.',
-  '{{groups}} 条线路 · {{count}} 集': '{{groups}} sources · {{count}} episodes',
-  '选择集数后加入一起看': 'Pick an episode to add to the room',
-  '选集': 'Episodes',
-  '没有可编译的源': 'Nothing to compile',
-  '已导入 {{count}} 条规则': 'Imported {{count}} rules',
-  '把该库的源编译成本地规则，导入后可在站点规则里编辑': 'Compile this library into local rules you can edit under site rules',
-  '导入为本地规则': 'Import as local rules',
-  '将导入为规则': 'Will import as a rule',
+  '内置库来源': 'Built-in library sources',
+  '三个内置库暂无来源，先在「来源库」里配置地址': 'No sources yet — configure addresses under Libraries first',
+  '已导入': 'Imported',
+  '这些条目在各自的库里执行；导入后编译成本地规则，可以在这里编辑': 'These entries run inside their own libraries; import one to compile it into a local rule you can edit here',
 }
 
 export default enUS

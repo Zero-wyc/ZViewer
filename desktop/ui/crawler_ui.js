@@ -206,6 +206,29 @@
     const verify = '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('shield') + '</span><h2>人机验证</h2></div><small>' + (c.challenges || []).length + ' 条</small></div><div class="live-toolbar">' + button('刷新', 'crawler-challenges-refresh', 'refresh') + '</div><p class="field-note">「打开验证页」在系统浏览器打开代理页面；完成后点「我已完成」，引擎用同一会话重新抓取。</p><div class="crawler-rules">' + rows + '</div></section>';
     return verify + browserPanel(c);
   }
+  /** 内置库来源：规则列表的只读分区，单条导入后才成本地规则。 */
+  function librarySourcesSection(c) {
+    const libraries = (c.libraries || []).filter(function (library) { return library.id !== 'local'; });
+    const localNames = {};
+    (c.rules || []).forEach(function (rule) { localNames[rule.name] = true; });
+    const rows = [];
+    libraries.forEach(function (library) {
+      (library.sources || []).forEach(function (source) {
+        const name = source.name || source.id || '';
+        const imported = !!localNames[name];
+        rows.push('<div class="crawler-rule"><div class="crawler-rule-main"><div class="crawler-rule-title"><strong>' + esc(name) + '</strong>' + tag(library.name || library.id) + (imported ? tag('已导入', 'green') : '') + '</div>' +
+          '<div class="crawler-rule-meta"><span>' + esc(library.description || '') + '</span></div></div>' +
+          '<div class="crawler-rule-actions">' +
+          (imported ? '' : '<button class="text-button" data-crawler-library-import="' + esc(library.id) + '" data-crawler-library-source="' + esc(name) + '">导入</button>') +
+          '</div></div>');
+      });
+    });
+    const empty = c.librariesLoading ? '读取中…' : '三个内置库暂无来源；先在「设置 → 来源库」配置地址。';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('server') + '</span><h2>内置库来源</h2></div><small>' + rows.length + ' 条</small></div>' +
+      '<p class="field-note">这些条目在各自库里执行；「导入」后编译成本地规则，可编辑、试跑、导出。</p>' +
+      '<div class="crawler-rules">' + (rows.length ? rows.join('') : '<div class="empty">' + esc(empty) + '</div>') + '</div></section>';
+  }
+
   function rulesPanel(c) {
     const rows = c.rules.length ? c.rules.map(ruleRow).join('') : '<div class="empty">暂无规则。可在 Agent 对话生成，也可手动新建或导入。</div>';
     const local = c.ruleSource === 'local' ? '<p class="field-note">引擎未运行，当前显示本地规则文件；启动后可测试和保存。</p>' : '';
@@ -700,6 +723,23 @@
     }
   }
 
+  /** 导入某一条源（source 为空表示导入整个库）。 */
+  async function importLibrarySource(kind, source) {
+    if (!kind) return;
+    try {
+      const data = await api('POST', '/api/crawler/libraries/import', { kind: kind, source: source || '', dryRun: false });
+      const saved = (data && data.saved) || 0;
+      const skipped = ((data && data.items) || []).filter(function (item) { return item.skipped; });
+      if (saved) ui.toast('已导入 ' + saved + ' 条规则');
+      else if (skipped.length) ui.toast(skipped[0].skipped || '没有可导入的规则');
+      else ui.toast('没有可导入的规则');
+      await loadRules();
+      await loadLibraries(true);
+    } catch (error) {
+      ui.toast(message(error));
+    }
+  }
+
   function libraryPill(library) {
     if (library.available) return tag('可用', 'green');
     return tag('未启用');
@@ -716,6 +756,7 @@
             (library.error ? '<p class="field-note">' + esc(library.error) + '</p>' : '') +
             (library.editable ? '<p class="field-note">' + esc(urls.length ? (urls.length + ' 个地址') : (library.note || '未配置地址')) + '</p>' : '') +
             '</div><div class="crawler-rule-actions">' +
+            (library.id !== 'local' ? '<button class="text-button" data-crawler-library-import="' + esc(library.id) + '">导入为本地规则</button>' : '') +
             (library.editable ? '<button class="text-button" data-crawler-library="' + esc(library.id) + '">配置</button>' : '') +
             '</div></div>';
         }).join('')
@@ -1073,7 +1114,7 @@
       return notice('爬虫引擎不可用：' + esc(c.info.reason || '未知原因') + '。启动引擎后重试。', true);
     }
     if (!c.info && c.error) return notice(esc(c.error), true);
-    const content = c.tab === 'agent' ? agentPanel(c) : c.tab === 'about' ? aboutPanel(c) : c.tab === 'settings' ? settingsPanel(c) : c.tab === 'rules' ? rulesPanel(c) : c.tab === 'challenges' ? challengesPanel(c) : submissionsPanel(c);
+    const content = c.tab === 'agent' ? agentPanel(c) : c.tab === 'about' ? aboutPanel(c) : c.tab === 'settings' ? settingsPanel(c) : c.tab === 'rules' ? rulesPanel(c) + librarySourcesSection(c) : c.tab === 'challenges' ? challengesPanel(c) : submissionsPanel(c);
     return tabs(c) + (c.error ? notice(esc(c.error), true) : '') + content;
   }
   function page() {
@@ -1838,7 +1879,7 @@
       cs().tab = tab.dataset.crawlerTab;
       renderIf();
       // 来源库要走远端规则地址，进设置页才拉，避免每次打开页面都等它。
-      if (cs().tab === 'settings') loadLibraries(false).catch(function () {});
+      if (cs().tab === 'settings' || cs().tab === 'rules') loadLibraries(false).catch(function () {});
       return;
     }
     const libraryEdit = event.target.closest('[data-crawler-library]');
@@ -1855,6 +1896,13 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       saveLibrary(librarySave.dataset.crawlerLibrarySave);
+      return;
+    }
+    const libraryImport = event.target.closest('[data-crawler-library-import]');
+    if (libraryImport) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      importLibrarySource(libraryImport.dataset.crawlerLibraryImport, libraryImport.dataset.crawlerLibrarySource || '');
       return;
     }
     const mcpOpen = event.target.closest('[data-crawler-mcp-open]');

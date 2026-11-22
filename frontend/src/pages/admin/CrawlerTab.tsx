@@ -21,7 +21,10 @@ import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/api'
 import { t } from '@/i18n'
-import { CrawlerLibrariesCard } from './CrawlerLibrariesCard'
+import {
+  CrawlerLibrariesCard,
+  type CrawlerLibrary,
+} from './CrawlerLibrariesCard'
 
 /** 规则列表项（后端 PublicView 的字段子集，只取这一页要显示的） */
 interface CrawlerRuleRow {
@@ -70,8 +73,13 @@ interface ImportReport {
 export function CrawlerTab() {
   const [status, setStatus] = useState<CrawlerRuntimeStatus | null>(null)
   const [rules, setRules] = useState<CrawlerRuleRow[]>([])
+  const [libraries, setLibraries] = useState<CrawlerLibrary[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  // 单条导入的忙碌键：`kind:source`
+  const [importingSource, setImportingSource] = useState('')
+  // 导入会改来源库的条目数，卡片要靠它刷新
+  const [libraryToken, setLibraryToken] = useState(0)
 
   const [text, setText] = useState('')
   const [fileName, setFileName] = useState('')
@@ -97,12 +105,63 @@ export function CrawlerTab() {
     }
   }, [])
 
+  const fetchLibraries = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/crawler/libraries')
+      const data = (await res.json()) as {
+        success?: boolean
+        libraries?: CrawlerLibrary[]
+      }
+      if (data.success && data.libraries) setLibraries(data.libraries)
+    } catch {
+      // 来源库读不到不影响规则列表，静默即可
+    }
+  }, [])
+
+  /** 把来源库的一条源编译成本地规则。 */
+  const handleImportSource = useCallback(
+    async (libraryId: string, source: string) => {
+      setImportingSource(`${libraryId}:${source}`)
+      try {
+        const res = await apiFetch('/api/crawler/libraries/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: libraryId, source, dryRun: false }),
+        })
+        const data = (await res.json()) as {
+          success?: boolean
+          saved?: number
+          items?: { skipped?: string }[]
+          message?: string
+        }
+        if (!res.ok || !data.success) {
+          message.error(
+            data.message ?? data.items?.[0]?.skipped ?? t('导入失败')
+          )
+          return
+        }
+        message.success(
+          t('已导入 {{count}} 条规则', { count: data.saved ?? 0 })
+        )
+        await fetchRules()
+        await fetchLibraries()
+        setLibraryToken((value) => value + 1)
+      } catch {
+        message.error(t('导入失败'))
+      } finally {
+        setImportingSource('')
+      }
+    },
+    [fetchLibraries, fetchRules]
+  )
+
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
       const [statusRes] = await Promise.all([
         apiFetch('/api/crawler/status'),
         fetchRules(),
+        fetchLibraries(),
       ])
       const data = (await statusRes.json()) as {
         success?: boolean
@@ -126,7 +185,7 @@ export function CrawlerTab() {
     } finally {
       setLoading(false)
     }
-  }, [fetchRules])
+  }, [fetchLibraries, fetchRules])
 
   useEffect(() => {
     // 进标签即拉一次数据：这里 loading 必须同步置位，否则首帧会闪空列表。
@@ -290,7 +349,13 @@ export function CrawlerTab() {
         </div>
       )}
 
-      <CrawlerLibrariesCard />
+      <CrawlerLibrariesCard
+        refreshToken={libraryToken}
+        onChanged={() => {
+          void fetchRules()
+          void fetchLibraries()
+        }}
+      />
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <StatTile label={t('规则')} value={String(rules.length)} />
@@ -516,6 +581,77 @@ export function CrawlerTab() {
               </div>
             ))
           )}
+        </div>
+      </Card>
+
+      <Card className="p-4 sm:p-5">
+        <SectionHeader
+          icon={<Globe2 className="h-4 w-4" />}
+          title={t('内置库来源')}
+          subtitle={t(
+            '这些条目在各自的库里执行；导入后编译成本地规则，可以在这里编辑'
+          )}
+          extra={
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<RefreshCw className="h-4 w-4" />}
+              onClick={() => void fetchLibraries()}
+              title={t('刷新')}
+            />
+          }
+        />
+        <div className="mt-3 flex flex-col gap-2">
+          {(() => {
+            const rows = libraries
+              .filter((library) => library.id !== 'local')
+              .flatMap((library) =>
+                (library.sources ?? []).map((source) => ({ library, source }))
+              )
+            if (rows.length === 0) {
+              return (
+                <EmptyState
+                  icon={<Globe2 className="h-8 w-8" />}
+                  text={t('三个内置库暂无来源，先在「来源库」里配置地址')}
+                />
+              )
+            }
+            return rows.map(({ library, source }) => {
+              const imported = rules.some((rule) => rule.name === source.name)
+              const busy = importingSource === `${library.id}:${source.name}`
+              return (
+                <div
+                  key={`${library.id}:${source.id}`}
+                  className="flex flex-wrap items-center gap-3 rounded-[var(--md-sys-shape-corner)] border p-3"
+                  style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Title level={5} className="m-0 truncate text-sm">
+                        {source.name}
+                      </Title>
+                      <Tag tinted>{library.name}</Tag>
+                      {imported && <Tag color="success">{t('已导入')}</Tag>}
+                    </div>
+                    <Text type="secondary" className="mt-0.5 block text-xs">
+                      {library.description}
+                    </Text>
+                  </div>
+                  {!imported && (
+                    <Button
+                      size="sm"
+                      loading={busy}
+                      onClick={() =>
+                        void handleImportSource(library.id, source.name)
+                      }
+                    >
+                      {t('导入')}
+                    </Button>
+                  )}
+                </div>
+              )
+            })
+          })()}
         </div>
       </Card>
 

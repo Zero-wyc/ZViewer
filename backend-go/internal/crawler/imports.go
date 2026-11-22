@@ -160,7 +160,12 @@ func AniSubsRule(source anisubs.MediaSource) ImportedRule {
 	if name == "" {
 		name = source.FactoryID
 	}
-	config := source.Arguments.SearchConfig
+	return AniSubsRuleFromConfig(name, source.FactoryID, source.Arguments.SearchConfig)
+}
+
+// AniSubsRuleFromConfig 按解析好的配置编译；AniSubs 注册表用的是这个入口
+// （内置订阅没有地址，拿不到原始 MediaSource，但注册表里有 SearchConfig）。
+func AniSubsRuleFromConfig(name, factoryID string, config *anisubs.SearchConfig) ImportedRule {
 	if config == nil {
 		return skipped(name, "该源没有 web-selector 抓取配置（可能是 RSS 源）")
 	}
@@ -265,7 +270,7 @@ func AniSubsRule(source anisubs.MediaSource) ImportedRule {
 		Site:        HostOf(config.SearchURL),
 		Enabled:     true,
 		Visibility:  "public",
-		Description: "由 AniSubs 订阅源 " + source.FactoryID + " 导入",
+		Description: "由 AniSubs 订阅源 " + factoryID + " 导入",
 		Search: Search{
 			Mode:    "http",
 			Request: SearchRequest{Method: "GET", URL: strings.TrimSpace(config.SearchURL)},

@@ -17,7 +17,7 @@
     "[useWatchTogether] applySourceToVideo failed:",
     "[useWatchTogether] previewPlay failed to load:",
     "{{count}} items",
-    "",
+    "{{groups}} sources · {{count}} episodes",
     "{{length}} movies",
     "{{message}}; added as a single part",
     "{{site}} requires human verification",

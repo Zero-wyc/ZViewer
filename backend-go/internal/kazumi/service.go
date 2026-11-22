@@ -3,6 +3,7 @@ package kazumi
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"sync"
 
 	"zviewer/backend/internal/store"
@@ -133,4 +134,36 @@ func (s *Service) ClearCache() {
 	s.order = nil
 	s.hash = ""
 	s.mu.Unlock()
+}
+
+// RuleURLs 返回展开后的具体规则地址（索引与仓库会展开成一条条规则 JSON）。
+//
+// 导入器只认具体规则文件：索引文件里是规则名，拼地址这件事有既定规则
+// （index.json 同名替换），留在包内，别让调用方各写一份。
+func (s *Service) RuleURLs(ctx context.Context) ([]string, error) {
+	settings, err := s.settings.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sources := ruleURLs(settings.DataSourceConfig)
+	seen := make(map[string]struct{}, len(sources))
+	out := make([]string, 0, len(sources))
+	for _, source := range sources {
+		expanded, expandErr := expandRuleSource(ctx, source)
+		if expandErr != nil {
+			log.Printf("[kazumi] 展开规则源失败: %s (%v)", source, expandErr)
+			continue
+		}
+		for _, item := range expanded {
+			if item == "" {
+				continue
+			}
+			if _, dup := seen[item]; dup {
+				continue
+			}
+			seen[item] = struct{}{}
+			out = append(out, item)
+		}
+	}
+	return out, nil
 }

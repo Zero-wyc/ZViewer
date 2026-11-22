@@ -24,9 +24,11 @@ import (
 // crawlerImportBody 是导入请求体。
 type crawlerImportBody struct {
 	Kind string `json:"kind"`
-	// URLs 为空时用该库当前配置的地址列表。
-	URLs   []string `json:"urls"`
-	DryRun bool     `json:"dryRun"`
+	// URLs 为空时用该库当前配置的地址列表（anisubs / kazumi 走注册表，忽略它）。
+	URLs []string `json:"urls"`
+	// Source 非空时只导入这一条（界面上的「导入这一条」）。
+	Source string `json:"source"`
+	DryRun bool   `json:"dryRun"`
 }
 
 const (
@@ -67,26 +69,26 @@ func (s *Server) handleCrawlerLibrariesImport(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	urls := normalizeImportURLs(body.URLs)
-	if len(urls) == 0 {
-		urls = normalizeImportURLs(s.crawlerLibraryConfigURLs(r.Context())[kind])
-	}
-	if len(urls) == 0 {
-		httpx.BadRequest(w, "没有可导入的地址，请先在来源库里填配置")
-		return
-	}
-	if len(urls) > crawlerImportMaxURLs {
-		urls = urls[:crawlerImportMaxURLs]
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), crawlerImportTimeout)
 	defer cancel()
 
-	items := make([]crawlerImportItem, 0, len(urls))
-	imported := make([]crawler.ImportedRule, 0, len(urls))
-	for _, url := range urls {
-		imported = append(imported, s.compileImportURL(ctx, bundle, kind, url)...)
+	imported, listErr := s.compileLibrarySources(ctx, bundle, kind, body.URLs)
+	if listErr != nil {
+		httpx.Fail(w, http.StatusBadGateway, listErr.Error())
+		return
 	}
+	if len(imported) == 0 {
+		httpx.BadRequest(w, "该库里没有可编译的源，请先配置地址")
+		return
+	}
+	if wanted := strings.TrimSpace(body.Source); wanted != "" {
+		imported = filterImported(imported, wanted)
+		if len(imported) == 0 {
+			httpx.BadRequest(w, "没有找到名为「"+wanted+"」的源")
+			return
+		}
+	}
+	items := make([]crawlerImportItem, 0, len(imported))
 	for _, candidate := range imported {
 		item := crawlerImportItem{Name: candidate.Name, Warnings: candidate.Warnings}
 		if candidate.Rule == nil {
@@ -119,6 +121,66 @@ func (s *Server) handleCrawlerLibrariesImport(w http.ResponseWriter, r *http.Req
 		"success": true, "kind": kind, "dryRun": body.DryRun,
 		"count": len(items), "saved": saved, "items": items,
 	})
+}
+
+// compileLibrarySources 按库取源并编译。
+//
+// 三个库的「源从哪来」并不一样：
+//   - cms：TVBox 配置地址（显式 url 或库配置），一个配置可能出多条；
+//   - anisubs：注册表里的 SearchConfig（内置订阅只有注册表里有）；
+//   - kazumi：注册表展开后的规则地址（索引要按 Kazumi 的 URL 规则展开）。
+//
+// 所以 anisubs / kazumi 不信调用方给的 url，一律走注册表；cms 保留 url 覆盖，
+// 方便「导入一个还没存进配置的地址」。
+func (s *Server) compileLibrarySources(ctx context.Context, bundle *crawler.Runtime, kind string, rawURLs []string) ([]crawler.ImportedRule, error) {
+	switch kind {
+	case crawlerLibraryAniSubs:
+		configs := s.AniSubs.ImportConfigs(ctx)
+		out := make([]crawler.ImportedRule, 0, len(configs))
+		for _, item := range configs {
+			out = append(out, crawler.AniSubsRuleFromConfig(item.Name, "web-selector", item.Config))
+		}
+		return out, nil
+	case crawlerLibraryKazumi:
+		urls, err := s.Kazumi.RuleURLs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]crawler.ImportedRule, 0, len(urls))
+		for _, url := range urls {
+			page, fetchErr := fetchImportJSON(ctx, bundle, url)
+			if fetchErr != nil {
+				out = append(out, crawler.ImportedRule{Name: url, Reason: "读取失败：" + fetchErr.Error()})
+				continue
+			}
+			out = append(out, crawler.KazumiRule(page))
+		}
+		return out, nil
+	default:
+		urls := normalizeImportURLs(rawURLs)
+		if len(urls) == 0 {
+			urls = normalizeImportURLs(s.crawlerLibraryConfigURLs(ctx)[kind])
+		}
+		if len(urls) > crawlerImportMaxURLs {
+			urls = urls[:crawlerImportMaxURLs]
+		}
+		out := make([]crawler.ImportedRule, 0, len(urls))
+		for _, url := range urls {
+			out = append(out, s.compileImportURL(ctx, bundle, kind, url)...)
+		}
+		return out, nil
+	}
+}
+
+// filterImported 只保留指定名称的那一条（界面上的「导入这一条」）。
+func filterImported(items []crawler.ImportedRule, name string) []crawler.ImportedRule {
+	out := make([]crawler.ImportedRule, 0, 1)
+	for _, item := range items {
+		if item.Name == name {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // compileImportURL 取一个地址并按库编译；一个地址可能编译出多条规则（TVBox 配置）。

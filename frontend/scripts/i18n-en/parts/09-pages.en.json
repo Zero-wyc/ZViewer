@@ -22,7 +22,7 @@
     "Check for updates",
     "Update check failed",
     "Checking for updates...",
-    "",
+    "Will import as a rule",
     "Get updates for the latest builds",
     "Parse and generate a response code",
     "CLI only (media is not relayed by the server)",
@@ -52,7 +52,7 @@
     "Browse and join the rooms available now",
     "Browser",
     "Empty uses built-in subscriptions; one URL per line",
-    "",
+    "Nothing to compile",
     "No accounts available to appoint",
     "No matching accounts",
     "No CMS source found",
@@ -62,6 +62,7 @@
     "Password must be at least 4 characters",
     "Defaults to 50%. Applied when someone first uses Listen Together, after which each user's local volume wins.",
     "Defaults to https://gh-proxy.com; you can point it at your own proxy.",
+    "",
     "The configuration URL must be an http(s) URL",
     "Delete rooms in bulk",
     "Failed to delete rooms in bulk",
@@ -110,6 +111,7 @@
     "Appoint",
     "Failed to appoint the moderator",
     "Takes effect immediately and works even if the user is offline. Moderators can manage movies, kick members and mute viewers.",
+    "",
     "Scan the QR code to sign in to NetEase Cloud Music",
     "Delete rule",
     "Failed to delete rule",
@@ -117,8 +119,6 @@
     "Failed to delete all rooms",
     "Remove avatar",
     "Failed to remove the avatar",
-    "Delete selected ({{size}})",
-    "Delete {{size}} selected rooms",
-    "Delete user"
+    "Delete selected ({{size}})"
   ]
 }

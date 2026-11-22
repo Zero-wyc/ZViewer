@@ -105,3 +105,29 @@ func (s *Service) Get(ctx context.Context, id string) Provider {
 	}
 	return nil
 }
+
+// ImportConfig 是「编译成本地规则」用的源配置快照。
+//
+// 只覆盖 web-selector 源：RSS 源没有选择器，编译不出类目结构。
+type ImportConfig struct {
+	ID     string
+	Name   string
+	Config *SearchConfig
+}
+
+// ImportConfigs 返回可编译成规则的源配置。
+//
+// 走注册表而不是 dataSourceConfig 里的地址：内置订阅没有地址，只有注册表里
+// 才有解析后的源；界面上的「导入这一条」也因此对内置源同样可用。
+func (s *Service) ImportConfigs(ctx context.Context) []ImportConfig {
+	providers := s.load(ctx)
+	out := make([]ImportConfig, 0, len(providers))
+	for _, item := range providers {
+		provider, ok := item.Provider.(*webSelectorProvider)
+		if !ok || provider.config == nil {
+			continue
+		}
+		out = append(out, ImportConfig{ID: item.ID, Name: provider.Name(), Config: provider.config})
+	}
+	return out
+}

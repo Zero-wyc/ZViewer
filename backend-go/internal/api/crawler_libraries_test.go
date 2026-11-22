@@ -218,3 +218,74 @@ func TestCrawlerLibrariesImportRejectsUnknownKind(t *testing.T) {
 		t.Fatalf("未知库不应成功: %s", recorder.Body.String())
 	}
 }
+
+// 单条导入（source 过滤）：只落指定的那一条，其余不写。
+func TestCrawlerLibrariesImportSingleSource(t *testing.T) {
+	configServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sites":[
+			{"key":"a","name":"甲站","type":1,"api":"https://a.example.com/api.php/provide/vod/"},
+			{"key":"b","name":"乙站","type":1,"api":"https://b.example.com/api.php/provide/vod/"}
+		]}`))
+	}))
+	defer configServer.Close()
+
+	t.Setenv("ZVIEWER_CRAWLER_ROOT", t.TempDir())
+	crawlerMu.Lock()
+	crawlerResolved = false
+	crawlerBundle = nil
+	crawlerMu.Unlock()
+	defer func() {
+		crawlerMu.Lock()
+		crawlerResolved = false
+		crawlerBundle = nil
+		crawlerMu.Unlock()
+	}()
+
+	server := &Server{}
+	body := `{"kind":"cms","urls":["` + configServer.URL + `/tvbox.json"],"source":"乙站"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/crawler/libraries/import", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+	server.handleCrawlerLibrariesImport(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	bundle := localBundle()
+	if bundle == nil {
+		t.Fatal("引擎应已初始化")
+	}
+	rules := bundle.Store.List(true)
+	if len(rules) != 1 || rules[0].Name != "乙站" {
+		t.Fatalf("rules = %+v", rules)
+	}
+}
+
+// 名字对不上时报 400，而不是静默成功 0 条。
+func TestCrawlerLibrariesImportUnknownSource(t *testing.T) {
+	configServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sites":[{"key":"a","name":"甲站","type":1,"api":"https://a.example.com/api.php/provide/vod/"}]}`))
+	}))
+	defer configServer.Close()
+
+	t.Setenv("ZVIEWER_CRAWLER_ROOT", t.TempDir())
+	crawlerMu.Lock()
+	crawlerResolved = false
+	crawlerBundle = nil
+	crawlerMu.Unlock()
+	defer func() {
+		crawlerMu.Lock()
+		crawlerResolved = false
+		crawlerBundle = nil
+		crawlerMu.Unlock()
+	}()
+
+	server := &Server{}
+	body := `{"kind":"cms","urls":["` + configServer.URL + `/tvbox.json"],"source":"不存在"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/crawler/libraries/import", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+	server.handleCrawlerLibrariesImport(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+}

@@ -1,5 +1,7 @@
 {
   "items": [
+    "Delete {{size}} selected rooms",
+    "Delete user",
     "Failed to delete the user",
     "Failed to upload the update",
     "Upload avatar",
@@ -87,6 +89,7 @@
     "NetEase Cloud Music account linked",
     "Saved",
     "",
+    "Imported {{count}} rules",
     "Closed rooms",
     "{{username}} is now {{role}}",
     "Direct sharing ended",
@@ -116,9 +119,6 @@
     "Dry run",
     "Dry run result",
     "Current password",
-    "Remote version:",
-    "Allow the CLI to resolve direct links with the host's Bilibili identity",
-    "Who may create rooms",
-    "Allow one user to join the same room from several pages"
+    "Remote version:"
   ]
 }
