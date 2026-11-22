@@ -206,6 +206,42 @@ func ResolveRoot() string {
 	return ""
 }
 
+// UseDefaultRoot 在没有可用爬虫目录时，把 <configDir>/crawler 立为默认根。
+//
+// 单文件包与 Docker 镜像只带二进制和前端静态文件，没有 crawler/ 目录，于是
+// ResolveRoot 一无所获、localBundle 返回 nil，全网搜片表现为「引擎未运行」。
+// 缺的其实不是引擎（引擎就在后端进程里），而是「放规则的地方」——规则只是
+// 一堆 JSON。这里按 CONFIG_DIR 兜底，让三种部署都能「导入规则即可搜」：
+// Docker 的 /app/config 是数据卷，规则随容器升级保留；单文件包则是 exe 旁
+// 的 config/crawler。
+//
+// 显式配置（CRAWLER_ROOT / ZVIEWER_CRAWLER_ROOT）与已存在的 crawler/ 一律
+// 尊重，不会把老安装的规则搬走；只有「哪儿都找不到」时才建默认目录。
+// 返回最终使用的根目录；目录建不出来时返回错误，调用方降级为引擎不可用。
+func UseDefaultRoot(configDir string) (string, error) {
+	if root := ResolveRoot(); root != "" {
+		return root, nil
+	}
+	if strings.TrimSpace(configDir) == "" {
+		return "", fmt.Errorf("未指定配置目录，无法确定爬虫规则目录")
+	}
+	root := filepath.Join(configDir, "crawler")
+	// CONFIG_DIR 可能是相对路径（Docker 里就是 "config"）：规则根会往下发到
+	// MCP 子进程与日志里，绝对路径才不会被后续 cwd 变化带偏。
+	if abs, absErr := filepath.Abs(root); absErr == nil {
+		root = abs
+	}
+	if err := os.MkdirAll(filepath.Join(root, "data", "rules"), 0o755); err != nil {
+		return "", fmt.Errorf("创建爬虫规则目录失败（%s）：%w", root, err)
+	}
+	// 写回环境变量而不是只返回：ResolveRoot 是进程内唯一取根入口，
+	// 首次请求（localBundle）、/api/crawler/status、MCP 子进程都按它取值。
+	if err := os.Setenv("CRAWLER_ROOT", root); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
 // EnsureRoot 解析根目录并准备好它（不存在就建）。
 //
 // MCP 是独立进程，缺目录不是「运行包不完整」，而是配置错了：

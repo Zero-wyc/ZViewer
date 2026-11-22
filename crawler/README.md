@@ -46,10 +46,27 @@ crawler/
 
 不需要单独启动任何进程：桌面控制台与网页端都通过 `/api/crawler/*` 访问后端内置引擎。
 
-- 桌面控制台：右栏「爬虫引擎」页（状态、站点规则、登录/验证、Agent 对话、设置）。
+- 桌面控制台：右栏「爬虫引擎」页（状态、站点规则、登录/验证、Agent 对话、设置）。这里的规则**写完就生效**——GUI 与后端读的是同一个 `data/rules` 目录。
 - 网页端：一起看房间 → 添加影片的数据源下拉 → 全网搜片。
 
 配置在 GUI 的「爬虫引擎 → 设置」里填（服务地址 / 模型 / API Key / 自定义提示词），写入 `crawler/config.json`；后端按文件修改时间热加载，改完不用重启。
+
+### 单文件版 / Docker 的规则怎么来
+
+这两种形态没有桌面 GUI，规则只能从桌面版搬过去（规则包格式见手册 4.2）：
+
+1. 桌面版「爬虫引擎 → 站点规则 → 导出全部 / 导出选中」，得到一个 JSON。
+2. 目标机用网页「管理 → 全网搜片」导入（有预检报告），或者跑命令行：
+
+```bash
+zviewer-backend --import-rules rules.json --dry-run     # 预检
+zviewer-backend --import-rules rules.json               # 合并导入
+zviewer-backend --import-rules rules.json --mode replace  # 替换（自动备份）
+```
+
+Docker：`docker cp rules.json zviewer:/app/ && docker exec zviewer ./zviewer-backend --import-rules /app/rules.json`。
+
+规则落在 `<CONFIG_DIR>/crawler/data/rules`（单文件版是 exe 同级 `config/`，Docker 是 `/app/config`，后者已是命名卷，重建容器不丢）。导入立即生效，无需重启。
 
 ## 文档与测试
 
@@ -60,5 +77,6 @@ crawler/
 
 - 只抓公开页面，不处理付费墙 / DRM；需要登录的站点由用户在本机浏览器窗口里人工完成。
 - 纯元数据站（豆瓣等）不编造播放地址；解析不到就明确报「不可播放」。
+- 规则包里的 `account_id` / `allowed_rooms` 属于源机器；跨机导入后若不清理，搜索会因缺账号失败、或规则只有管理员可见。
 - MCP 客户端可直接调用全部工具：`zviewer-backend --mcp`（stdio），配置见使用手册第 6 节。
 - MCP 与桌面端共用 `data/`，不要两边同时高频写搜索日志 / 账号库。

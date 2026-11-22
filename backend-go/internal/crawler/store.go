@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // 规则持久化：一个站点一个 JSON 文件，落在 <crawler>/data/rules/<id>.json。
@@ -357,124 +358,292 @@ func (s *RuleStore) ExportBundle(ruleIDs []string) map[string]any {
 	}
 	return map[string]any{
 		"format":      1,
-		"kind":        "zviewer-crawler-rules",
+		"kind":        importBundleKind,
 		"exported_at": NowISO(),
 		"count":       len(rules),
 		"rules":       rules,
 	}
 }
 
-// ImportBundle 导入规则包。merge 按 id 或「名称+站点」匹配已有规则并更新，
-// replace 先清空再导入；dry_run 只做校验不落盘。
+// ImportOptions 描述「从别处搬来的规则包」该怎么落地。
+//
+// 规则包里有两类引用换机器后必然失真，调用方必须显式选择怎么处理：
+//   - search.account_id / play.account_id 指向源机器的 accounts.json（Cookie 资产），
+//     目标机没有同名账号时，规则一搜就报「账号不存在」；
+//   - allowed_rooms 是源服务器的房间 ID，目标机对不上就等于对所有人都隐身。
+//
+// ClearAccounts / ClearRooms 为真时在落库前清空对应引用。注意清空房间列表的
+// 语义是「对所有房间开放」，是放大可见范围，调用方应二次确认。
+type ImportOptions struct {
+	Mode          string
+	DryRun        bool
+	ClearAccounts bool
+	ClearRooms    bool
+	// HasAccount 判断目标机有没有这个账号；nil 表示无从检查（不产生警告）。
+	HasAccount func(accountID string) bool
+}
+
+// ImportBundle 是 ImportOptions 的简写：merge/replace + 是否 dry-run。
 func (s *RuleStore) ImportBundle(payload any, mode string, dryRun bool) (map[string]any, error) {
-	var incoming []any
-	switch typed := payload.(type) {
-	case map[string]any:
-		list, ok := typed["rules"].([]any)
-		if !ok {
-			return nil, RuleError("导入内容必须包含 rules 数组", nil)
-		}
-		incoming = list
-	case []any:
-		incoming = typed
-	default:
-		return nil, RuleError("导入内容必须包含 rules 数组", nil)
+	return s.ImportBundleWithOptions(payload, ImportOptions{Mode: mode, DryRun: dryRun})
+}
+
+// ImportBundleWithOptions 导入规则包。merge 按 id 或「名称+站点」匹配已有规则并更新，
+// replace 先清空再导入；dryRun 只做校验不落盘。
+//
+// 报告里除了 imported/updated/failed，还带两样东西：
+//   - warnings：包级问题（kind/format 不匹配、声明条数与实际不符）；
+//   - items[].warnings / items[].notes：单条规则的「换机后可能搜不出来」提示，
+//     以及按选项实际清空了哪些引用。前端与 CLI 共用这份报告，不用各拼一套话。
+func (s *RuleStore) ImportBundleWithOptions(payload any, opts ImportOptions) (map[string]any, error) {
+	incoming, bundleWarnings, err := decodeImportBundle(payload)
+	if err != nil {
+		return nil, err
 	}
-	normalizedMode := strings.ToLower(strings.TrimSpace(mode))
-	if normalizedMode == "" {
-		normalizedMode = "merge"
+	mode := strings.ToLower(strings.TrimSpace(opts.Mode))
+	if mode == "" {
+		mode = "merge"
 	}
-	if normalizedMode != "merge" && normalizedMode != "replace" {
+	if mode != "merge" && mode != "replace" {
 		return nil, RuleError("导入模式只能是 merge 或 replace", nil)
 	}
 
-	if normalizedMode == "replace" && !dryRun {
+	// replace 是不可逆的：先整包备份到 <root>/backup-<时间>.json，再清空。
+	// 备份失败就中止——宁可导不进去，也不能把用户现有的规则抹掉。
+	backupFile := ""
+	if mode == "replace" && !opts.DryRun {
+		backupFile, err = s.backupBeforeReplace()
+		if err != nil {
+			return nil, err
+		}
 		for _, rule := range s.List(true) {
 			_, _ = s.Delete(rule.ID)
 		}
 	}
 
-	report := map[string]any{
-		"success":  true,
-		"mode":     normalizedMode,
-		"dryRun":   dryRun,
-		"total":    len(incoming),
-		"imported": 0,
-		"updated":  0,
-		"skipped":  0,
-		"failed":   0,
-		"items":    []map[string]any{},
-	}
 	items := make([]map[string]any, 0, len(incoming))
+	imported, updated, skipped, failed, warningCount := 0, 0, 0, 0, len(bundleWarnings)
 
 	for index, rawItem := range incoming {
-		label := ""
 		object, ok := rawItem.(map[string]any)
 		if !ok {
-			report["failed"] = report["failed"].(int) + 1
+			failed++
 			items = append(items, map[string]any{
 				"name": "", "action": "failed", "error": "规则必须是 JSON 对象",
 			})
 			continue
 		}
-		encoded, err := json.Marshal(object)
-		if err != nil {
-			report["failed"] = report["failed"].(int) + 1
-			items = append(items, map[string]any{"name": "", "action": "failed", "error": err.Error()})
+		encoded, encodeErr := json.Marshal(object)
+		if encodeErr != nil {
+			failed++
+			items = append(items, map[string]any{"name": "", "action": "failed", "error": encodeErr.Error()})
 			continue
 		}
 		var candidate Rule
 		decodeErr := json.Unmarshal(encoded, &candidate)
-		label = firstNonEmpty(candidate.Name, candidate.ID, "第 "+itoa(index+1)+" 条")
+		label := firstNonEmpty(candidate.Name, candidate.ID, "第 "+itoa(index+1)+" 条")
 		if decodeErr != nil {
-			report["failed"] = report["failed"].(int) + 1
+			failed++
 			items = append(items, map[string]any{"name": label, "action": "failed", "error": decodeErr.Error()})
 			continue
 		}
 
-		existing := s.findExistingForImport(&candidate)
-		if dryRun {
+		// 清洗必须早于校验：Validate 校验的是「真正要落库的那一份」。
+		notes := applyImportCleanup(&candidate, opts)
+		itemWarnings := importWarnings(&candidate, opts)
+
+		item := map[string]any{"name": label}
+		if len(itemWarnings) > 0 {
+			item["warnings"] = itemWarnings
+			warningCount += len(itemWarnings)
+		}
+		if len(notes) > 0 {
+			item["notes"] = notes
+		}
+
+		if opts.DryRun {
 			if _, validateErr := Validate(&candidate); validateErr != nil {
-				report["failed"] = report["failed"].(int) + 1
-				items = append(items, map[string]any{"name": label, "action": "failed", "error": validateErr.Error()})
+				failed++
+				item["action"] = "failed"
+				item["error"] = validateErr.Error()
+				items = append(items, item)
 				continue
 			}
-			if existing != nil {
-				report["updated"] = report["updated"].(int) + 1
-				items = append(items, map[string]any{"name": label, "action": "update", "ruleId": existing.ID})
+			if existing := s.findExistingForImport(&candidate); existing != nil {
+				updated++
+				item["action"] = "update"
+				item["ruleId"] = existing.ID
 			} else {
-				report["imported"] = report["imported"].(int) + 1
-				items = append(items, map[string]any{"name": label, "action": "create", "ruleId": nil})
+				imported++
+				item["action"] = "create"
+				item["ruleId"] = nil
 			}
+			items = append(items, item)
 			continue
 		}
-		if existing != nil {
-			saved, saveErr := s.Save(&candidate, existing.ID)
-			if saveErr != nil {
-				report["failed"] = report["failed"].(int) + 1
-				items = append(items, map[string]any{"name": label, "action": "failed", "error": saveErr.Error()})
-				continue
-			}
-			report["updated"] = report["updated"].(int) + 1
-			items = append(items, map[string]any{"name": label, "action": "update", "ruleId": saved.ID})
-			continue
+
+		targetID := ""
+		action := "create"
+		if existing := s.findExistingForImport(&candidate); existing != nil {
+			targetID = existing.ID
+			action = "update"
 		}
-		saved, saveErr := s.Save(&candidate, "")
+		saved, saveErr := s.Save(&candidate, targetID)
 		if saveErr != nil {
-			report["failed"] = report["failed"].(int) + 1
-			items = append(items, map[string]any{"name": label, "action": "failed", "error": saveErr.Error()})
+			failed++
+			item["action"] = "failed"
+			item["error"] = saveErr.Error()
+			items = append(items, item)
 			continue
 		}
-		report["imported"] = report["imported"].(int) + 1
-		items = append(items, map[string]any{"name": label, "action": "create", "ruleId": saved.ID})
+		if action == "update" {
+			updated++
+		} else {
+			imported++
+		}
+		item["action"] = action
+		item["ruleId"] = saved.ID
+		items = append(items, item)
 	}
 
-	if report["failed"].(int) > 0 {
-		report["success"] = false
+	report := map[string]any{
+		"success":      failed == 0,
+		"mode":         mode,
+		"dryRun":       opts.DryRun,
+		"total":        len(incoming),
+		"imported":     imported,
+		"updated":      updated,
+		"skipped":      skipped,
+		"failed":       failed,
+		"warnings":     bundleWarnings,
+		"warningCount": warningCount,
+		"items":        items,
 	}
-	report["items"] = items
+	if backupFile != "" {
+		report["backupFile"] = backupFile
+	}
 	return report, nil
 }
+
+// backupBeforeReplace 把当前全部规则写进 <root>/backup-<时间>.json 并返回路径。
+// 空库不备份（没什么可丢的，留一堆空文件反而碍事）。
+func (s *RuleStore) backupBeforeReplace() (string, error) {
+	existing := s.List(true)
+	if len(existing) == 0 {
+		return "", nil
+	}
+	bundle := s.ExportBundle(nil)
+	raw, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		return "", RuleErrorf("replace 前备份失败，已中止（没有改动任何规则）：%v", err)
+	}
+	// 文件名不能带冒号（Windows），所以不用 NowISO 的格式。
+	name := "backup-" + time.Now().Format("20060102-150405") + ".json"
+	path := filepath.Join(filepath.Dir(filepath.Dir(s.dir)), name)
+	if err := os.WriteFile(path, append(raw, '\n'), 0o600); err != nil {
+		return "", RuleErrorf("replace 前备份失败，已中止（没有改动任何规则）：%v", err)
+	}
+	return path, nil
+}
+
+// importBundleKind 是规则包的 kind 标识；导出与导入共用一份，改名就两边一起改。
+const importBundleKind = "zviewer-crawler-rules"
+
+// decodeImportBundle 接受三种形态：bundle（含 kind/format）、{"rules":[...]}、裸规则数组。
+// 包级元信息不匹配只警告不拒绝：宁可导进来让用户看到，也比一句「格式不对」强。
+func decodeImportBundle(payload any) ([]any, []string, error) {
+	switch typed := payload.(type) {
+	case map[string]any:
+		list, ok := typed["rules"].([]any)
+		if !ok {
+			return nil, nil, RuleError("导入内容必须包含 rules 数组", nil)
+		}
+		warnings := make([]string, 0, 3)
+		if kind, _ := typed["kind"].(string); kind != "" && kind != importBundleKind {
+			warnings = append(warnings,
+				"规则包类型是 "+strconv.Quote(kind)+"，不是 "+strconv.Quote(importBundleKind)+"；仍按 rules 数组导入")
+		}
+		if version := anyInt(typed["format"]); version > 0 && version != RuleFormat {
+			warnings = append(warnings,
+				"规则包格式版本 "+itoa(version)+" 与当前 "+itoa(RuleFormat)+" 不一致，未知字段会被丢弃")
+		}
+		if declared := anyInt(typed["count"]); declared > 0 && declared != len(list) {
+			warnings = append(warnings,
+				"规则包声明 "+itoa(declared)+" 条，实际 "+itoa(len(list))+" 条")
+		}
+		return list, warnings, nil
+	case []any:
+		return typed, nil, nil
+	default:
+		return nil, nil, RuleError("导入内容必须包含 rules 数组", nil)
+	}
+}
+
+// applyImportCleanup 按选项抹掉跨机引用，返回「实际做了什么」给报告用。
+func applyImportCleanup(rule *Rule, opts ImportOptions) []string {
+	var notes []string
+	if opts.ClearAccounts {
+		if id := strings.TrimSpace(rule.Search.AccountID); id != "" {
+			rule.Search.AccountID = ""
+			notes = append(notes, "已清空 search.account_id（"+id+"）")
+		}
+		if rule.Play != nil {
+			if id := strings.TrimSpace(rule.Play.AccountID); id != "" {
+				rule.Play.AccountID = ""
+				notes = append(notes, "已清空 play.account_id（"+id+"）")
+			}
+		}
+	}
+	if opts.ClearRooms && len(rule.AllowedRooms) > 0 {
+		notes = append(notes, "已清空 allowed_rooms（清空后对所有房间开放）")
+		rule.AllowedRooms = nil
+	}
+	return notes
+}
+
+// importWarnings 指出「这条规则导进来以后大概搜不出来」的原因。
+// 只在真的能判断时才说：没有账号库（HasAccount=nil）就不猜。
+func importWarnings(rule *Rule, opts ImportOptions) []string {
+	var warnings []string
+	if !opts.ClearAccounts && opts.HasAccount != nil {
+		check := func(field, id string) {
+			if strings.TrimSpace(id) == "" || opts.HasAccount(id) {
+				return
+			}
+			warnings = append(warnings, "账号 "+id+" 在本机不存在（"+field+"），该规则会搜索失败；可勾选「清空账号绑定」")
+		}
+		check("search.account_id", rule.Search.AccountID)
+		if rule.Play != nil {
+			check("play.account_id", rule.Play.AccountID)
+		}
+	}
+	if !opts.ClearRooms && len(rule.AllowedRooms) > 0 {
+		warnings = append(warnings, "allowed_rooms 是源服务器的房间 ID，本机对不上时该规则只有管理员可见；可勾选「清空房间限制」")
+	}
+	if rule.Visibility == "root" {
+		warnings = append(warnings, "visibility=root：导入后仅管理员可见")
+	}
+	return warnings
+}
+
+// anyInt 读 JSON 解码后的数字（float64/json.Number）或数字字符串。
+func anyInt(value any) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	case json.Number:
+		parsed, _ := typed.Int64()
+		return int(parsed)
+	case string:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(typed))
+		return parsed
+	default:
+		return 0
+	}
+}
+
 
 // findExistingForImport 先按 id 找，再按「名称 + 站点」找。
 func (s *RuleStore) findExistingForImport(candidate *Rule) *Rule {

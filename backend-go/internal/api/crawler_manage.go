@@ -500,8 +500,29 @@ func (s *Server) handleCrawlerRulesImport(w http.ResponseWriter, r *http.Request
 	if !dryRun {
 		dryRun, _ = body["dry_run"].(bool)
 	}
+	clearAccounts, _ := body["clearAccounts"].(bool)
+	if !clearAccounts {
+		clearAccounts, _ = body["clear_accounts"].(bool)
+	}
+	clearRooms, _ := body["clearRooms"].(bool)
+	if !clearRooms {
+		clearRooms, _ = body["clear_rooms"].(bool)
+	}
 	mode, _ := body["mode"].(string)
-	report, err := bundle.Store.ImportBundle(payload, mode, dryRun)
+	opts := crawler.ImportOptions{
+		Mode:          mode,
+		DryRun:        dryRun,
+		ClearAccounts: clearAccounts,
+		ClearRooms:    clearRooms,
+	}
+	// 账号库初始化失败时 bundle.Accounts 为 nil：此时不给 HasAccount，
+	// 报告就不去猜「缺账号」，避免整包规则都被打上无根据的警告。
+	if bundle.Accounts != nil {
+		opts.HasAccount = func(accountID string) bool {
+			return bundle.Accounts.Get(accountID) != nil
+		}
+	}
+	report, err := bundle.Store.ImportBundleWithOptions(payload, opts)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return

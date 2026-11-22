@@ -9,6 +9,7 @@ import {
   LayoutGrid,
   List,
   Settings,
+  Globe2,
 } from 'lucide-react'
 import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
@@ -30,6 +31,7 @@ import { UsersTab } from './admin/UsersTab'
 import { RoomsTab } from './admin/RoomsTab'
 import { RoomModeratorsModal } from './admin/RoomModeratorsModal'
 import { SettingsTab } from './admin/SettingsTab'
+import { CrawlerTab } from './admin/CrawlerTab'
 
 export default function AdminPage() {
   useHideBodyScrollbar()
@@ -42,9 +44,9 @@ export default function AdminPage() {
     // 等消费方读取 betaFeaturesEnabled
     fetchSettings: fetchPublicSettings,
   } = useSystemSettingsStore()
-  const [activeTab, setActiveTab] = useState<'users' | 'rooms' | 'settings'>(
-    'users'
-  )
+  const [activeTab, setActiveTab] = useState<
+    'users' | 'rooms' | 'crawler' | 'settings'
+  >('users')
   const [users, setUsers] = useState<AdminUser[]>([])
   const [rooms, setRooms] = useState<AdminRoom[]>([])
   const [settings, setSettings] = useState<AdminSettings>({
@@ -193,6 +195,8 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!isAuthenticated) return
+    // 全网搜片标签自己拉数据，这里不参与顶层 loading，避免切页闪一次骨架。
+    if (activeTab === 'crawler') return
     /* eslint-disable react-hooks/set-state-in-effect -- tab 切换时加载对应数据 */
     if (activeTab === 'settings') {
       void loadSettings()
@@ -679,6 +683,24 @@ export default function AdminPage() {
             <span className="hidden sm:inline">{t('房间管理')}</span>
           </button>
           <button
+            onClick={() => setActiveTab('crawler')}
+            className="relative flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 text-sm font-medium transition-all sm:px-4"
+            style={{
+              backgroundColor:
+                activeTab === 'crawler'
+                  ? 'var(--md-sys-color-primary-container)'
+                  : 'var(--glass-bg)',
+              color:
+                activeTab === 'crawler'
+                  ? 'var(--md-sys-color-on-primary-container)'
+                  : 'var(--md-sys-color-on-surface)',
+              border: '1px solid var(--md-sys-color-outline)',
+            }}
+          >
+            <Globe2 className="h-4 w-4" />
+            <span className="hidden sm:inline">{t('全网搜片')}</span>
+          </button>
+          <button
             onClick={() => setActiveTab('settings')}
             className="relative flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 text-sm font-medium transition-all sm:px-4"
             style={{
@@ -706,7 +728,7 @@ export default function AdminPage() {
                 ? t('共 {{length}} 个房间', { length: rooms.length })
                 : ''}
           </Text>
-          {activeTab !== 'settings' && (
+          {(activeTab === 'users' || activeTab === 'rooms') && (
             <div className="flex flex-wrap items-center gap-2">
               {activeTab === 'rooms' && (
                 <>
@@ -856,7 +878,7 @@ export default function AdminPage() {
             onManageModerators={setModeratorRoom}
             onEnterRoom={handleEnterRoom}
           />
-        ) : (
+        ) : activeTab === 'settings' ? (
           <SettingsTab
             settings={settings}
             onSettingsChange={setSettings}
@@ -875,6 +897,8 @@ export default function AdminPage() {
             onCmsSourcesBlur={handleCmsSourcesBlur}
             update={update}
           />
+        ) : (
+          <CrawlerTab />
         )}
       </Card>
 

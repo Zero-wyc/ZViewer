@@ -30,6 +30,7 @@ import (
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/cms"
 	"zviewer/backend/internal/config"
+	"zviewer/backend/internal/crawler"
 	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/kazumi"
@@ -87,6 +88,13 @@ func main() {
 
 	if err := cfg.EnsureDirs(); err != nil {
 		log.Fatalf("[config] %v", err)
+	}
+
+	// `--import-rules` / `--export-rules`：只动规则文件，不连库、不起服务。
+	// 刻意放在数据库之前——首次部署时库可能还没初始化，「先导规则」不该
+	// 被库结构问题拦住（规则与库本来就无关）。
+	if args := os.Args[1:]; hasFlag(args, "--import-rules") || hasFlag(args, "--export-rules") {
+		os.Exit(runRulesCLI(args, cfg, os.Stdout, os.Stderr))
 	}
 
 	// v4（Node）→ v5（Go）升级收尾：删掉 Node 版专属、Go 版不再使用的文件。
@@ -376,6 +384,15 @@ func main() {
 	// 凭证缓存、WBI 密钥、buvid 都在实例内，分成两份会重复握手。
 	biliService := bilibili.NewService(conn)
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
+
+	// 规则目录兜底：单文件包与 Docker 镜像没有 crawler/ 目录，这里按 CONFIG_DIR
+	// 建一个，让「导入规则包就能全网搜片」在三种部署上都成立（GUI 版仍用
+	// runtime/crawler，那个目录存在时这里什么都不做）。
+	if root, rootErr := crawler.UseDefaultRoot(cfg.ConfigDir); rootErr != nil {
+		log.Printf("[crawler] 规则目录不可用，全网搜片将不可用: %v", rootErr)
+	} else {
+		log.Printf("[crawler] 规则目录=%s", root)
+	}
 
 	server := api.New(api.Deps{
 		Cfg:       cfg,

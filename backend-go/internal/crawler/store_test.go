@@ -253,6 +253,147 @@ func TestStoreExportImport(t *testing.T) {
 	}
 }
 
+// decodeBundle 把导出结果过一遍 JSON，模拟「从文件读回来的规则包」。
+//
+// 直接把 ExportBundle 的 map 喂给导入器是不对的：那里的 rules 是 []*Rule，
+// 而导入器只认 JSON 解码后的 []any——跳过这一步会得到「必须包含 rules 数组」。
+func decodeBundle(t *testing.T, bundle map[string]any) map[string]any {
+	t.Helper()
+	encoded, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatalf("marshal bundle: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("unmarshal bundle: %v", err)
+	}
+	return payload
+}
+
+// 跨机引用必须逐个说清楚：账号、房间白名单、root 可见性在目标机都会"变味"，
+// 报告不说，用户只会看到「导入成功」然后搜不出东西。
+func TestImportBundlePortabilityWarnings(t *testing.T) {
+	dir := t.TempDir()
+	source, _ := NewRuleStore(filepath.Join(dir, "source"))
+	rule := newTestRule("带账号", "a.com")
+	rule.Search.AccountID = "acc-1"
+	rule.AllowedRooms = []string{"room-1"}
+	rule.Visibility = "root"
+	if _, err := source.Save(rule, ""); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	target, _ := NewRuleStore(filepath.Join(dir, "target"))
+	report, err := target.ImportBundleWithOptions(decodeBundle(t, source.ExportBundle(nil)), ImportOptions{
+		DryRun:     true,
+		HasAccount: func(string) bool { return false },
+	})
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	items := report["items"].([]map[string]any)
+	warnings, _ := items[0]["warnings"].([]string)
+	if len(warnings) != 3 {
+		t.Fatalf("warnings = %v, want 账号/房间/可见性 三条", warnings)
+	}
+	if report["warningCount"].(int) != 3 {
+		t.Errorf("warningCount = %v", report["warningCount"])
+	}
+}
+
+// 勾选清空后：规则不再引用源机的账号与房间，报告用 notes 记下实际改了什么。
+func TestImportBundleClearsCrossMachineRefs(t *testing.T) {
+	dir := t.TempDir()
+	source, _ := NewRuleStore(filepath.Join(dir, "source"))
+	rule := newTestRule("带账号", "a.com")
+	rule.Search.AccountID = "acc-1"
+	rule.AllowedRooms = []string{"room-1"}
+	if _, err := source.Save(rule, ""); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	target, _ := NewRuleStore(filepath.Join(dir, "target"))
+	report, err := target.ImportBundleWithOptions(decodeBundle(t, source.ExportBundle(nil)), ImportOptions{
+		ClearAccounts: true,
+		ClearRooms:    true,
+		HasAccount:    func(string) bool { return false },
+	})
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if report["imported"].(int) != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	saved := target.List(true)
+	if len(saved) != 1 {
+		t.Fatalf("saved = %d", len(saved))
+	}
+	if saved[0].Search.AccountID != "" {
+		t.Errorf("account_id 未清空: %q", saved[0].Search.AccountID)
+	}
+	if len(saved[0].AllowedRooms) != 0 {
+		t.Errorf("allowed_rooms 未清空: %v", saved[0].AllowedRooms)
+	}
+	items := report["items"].([]map[string]any)
+	notes, _ := items[0]["notes"].([]string)
+	if len(notes) != 2 {
+		t.Fatalf("notes = %v, want 账号与房间各一条", notes)
+	}
+	if _, ok := items[0]["warnings"]; ok {
+		t.Errorf("清空后不该再有缺账号/房间的警告: %v", items[0]["warnings"])
+	}
+}
+
+// 包级元信息不匹配只警告不拒绝：宁可导进来让人看见，也别一句「格式不对」挡死。
+func TestImportBundleWarnsOnBundleMetadata(t *testing.T) {
+	dir := t.TempDir()
+	source, _ := NewRuleStore(filepath.Join(dir, "source"))
+	if _, err := source.Save(newTestRule("alpha", "a.com"), ""); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	payload := decodeBundle(t, source.ExportBundle(nil))
+	payload["kind"] = "other-tool-export"
+	payload["format"] = float64(9)
+	payload["count"] = float64(9)
+
+	target, _ := NewRuleStore(filepath.Join(dir, "target"))
+	report, err := target.ImportBundle(payload, "merge", true)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	warnings := report["warnings"].([]string)
+	if len(warnings) != 3 {
+		t.Fatalf("warnings = %v, want kind/format/count 三条", warnings)
+	}
+	if report["failed"].(int) != 0 {
+		t.Errorf("元信息不匹配不应导致失败: %+v", report)
+	}
+}
+
+// replace 是「先清空再导入」：源包少了某条规则时，目标机也要跟着消失。
+func TestImportBundleReplaceDropsMissingRules(t *testing.T) {
+	dir := t.TempDir()
+	source, _ := NewRuleStore(filepath.Join(dir, "source"))
+	if _, err := source.Save(newTestRule("alpha", "a.com"), ""); err != nil {
+		t.Fatalf("save alpha: %v", err)
+	}
+	target, _ := NewRuleStore(filepath.Join(dir, "target"))
+	if _, err := target.Save(newTestRule("stale", "old.com"), ""); err != nil {
+		t.Fatalf("save stale: %v", err)
+	}
+	report, err := target.ImportBundle(decodeBundle(t, source.ExportBundle(nil)), "replace", false)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if report["imported"].(int) != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	rules := target.List(true)
+	if len(rules) != 1 || rules[0].Name != "alpha" {
+		t.Fatalf("replace 后应只剩 alpha，得到 %d 条", len(rules))
+	}
+}
+
 func TestStoreCorruptFileSkipped(t *testing.T) {
 	dir := t.TempDir()
 	store, _ := NewRuleStore(dir)

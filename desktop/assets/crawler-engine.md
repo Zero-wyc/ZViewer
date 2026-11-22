@@ -285,9 +285,51 @@ Agent 也能自己决定何时显示窗口：遇到登录墙时它会调用 `bro
 
 ## 4. 手动添加与导入导出
 
-### 4.1 管理与导出
+### 4.1 规则怎么进来（三种部署形态）
 
-引擎已并入后端，没有独立命令行；规则管理走 GUI 的「爬虫引擎 → 站点规则」，或直接调 HTTP 接口（见第 5 节）。桌面控制台导出的文件就是下面的规则包格式。
+| 形态 | 规则来源 | 落盘位置 |
+|---|---|---|
+| Windows 桌面版 | GUI「爬虫引擎 → 站点规则」生成后**直接生效** | `<运行包>/runtime/crawler/data/rules` |
+| 单文件版 | 桌面版导出的 JSON → 网页「管理 → 全网搜片」导入，或命令行 `--import-rules` | `<exe 同级>/config/crawler/data/rules` |
+| Docker | 同上；`docker cp` + `docker exec` 或管理页导入 | `/app/config/crawler/data/rules`（`config` 是命名卷，重建容器不丢） |
+
+桌面版「即写即生效」不是导入动作：GUI 与后端本来就共用同一个规则目录。另外两种形态没有 GUI，需要把桌面版导出的规则包搬过去。
+
+规则根目录的解析顺序：`CRAWLER_ROOT` 环境变量 → `exe/crawler` → `exe/runtime/crawler` → `cwd/crawler` → 上级目录的 `crawler`。全部落空时兜底到 `<CONFIG_DIR>/crawler` 并自动创建（启动日志会打印 `[crawler] 规则目录=…`）。桌面壳始终通过 `ZVIEWER_CRAWLER_ROOT` 显式下发，不受兜底影响。
+
+**网页端导入（单文件 / Docker 主路径）**
+
+「管理 → 全网搜片」：选择或粘贴规则包 → 「预检」先看报告 → 「确认导入」。合并（merge）按 `id` 或「名称 + 站点」匹配已有规则；替换（replace）会先把当前全部规则备份到 `<root>/backup-<时间>.json` 再清空。导入立即生效，不用重启——每条规则是独立 JSON 文件，搜索时现读。
+
+**命令行导入（无人值守 / 脚本化部署）**
+
+```bash
+# 预检：只校验，不落盘
+zviewer-backend --import-rules rules.json --dry-run
+# 合并导入
+zviewer-backend --import-rules rules.json
+# 整体替换（自动备份原规则）
+zviewer-backend --import-rules rules.json --mode replace
+# 目标机没有源机的 Cookie，一次性清掉账号与房间引用
+zviewer-backend --import-rules rules.json --clear-accounts --clear-rooms
+# 反向导出
+zviewer-backend --export-rules out.json
+# 临时指定别的规则根
+zviewer-backend --import-rules rules.json --root /data/crawler
+```
+
+Docker 里：
+
+```bash
+docker cp rules.json zviewer:/app/rules.json
+docker exec zviewer ./zviewer-backend --import-rules /app/rules.json
+```
+
+命令行与网页端走同一个导入器，报告字段完全一致（`imported` / `updated` / `failed` / `items` / `warnings` / `backupFile`）。
+
+**换机必看的两个引用**
+
+规则里的 `search.account_id` / `play.account_id` 指向源机的 Cookie 资产，`allowed_rooms` 是源服务器的房间 ID。目标机对不上时导入仍会成功，但会出现「搜了必报账号不存在」或「只有管理员可见」。导入报告会逐条给 `warnings`；不想逐条处理就加 `--clear-accounts` / `--clear-rooms`（管理页对应两个勾选框）。
 
 ### 4.2 导出文件格式
 
@@ -301,7 +343,7 @@ Agent 也能自己决定何时显示窗口：遇到登录墙时它会调用 `bro
 }
 ```
 
-导入接受三种形态：上述 bundle、`{"rules":[...]}`、裸规则数组。导入会逐条校验；有失败时返回 `success=false` 并列出 `items[].error`，成功的条目仍会写入（除非 `dryRun`）。
+导入接受三种形态：上述 bundle、`{"rules":[...]}`、裸规则数组。导入会逐条校验；有失败时返回 `success=false` 并列出 `items[].error`，成功的条目仍会写入（除非 `dryRun`）。`kind` / `format` 对不上只记警告不拒绝——宁可导进来让人看见，也比一句「格式不对」强。单个规则包上限 8 MB。
 
 ## 5. HTTP API
 
