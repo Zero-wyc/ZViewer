@@ -141,6 +141,30 @@ CSS 子集：标签、`*`、`#id`、`.class`、`[attr]` / `[attr=value]` / `^=` 
 
 `list_path` 支持点号与 `[*]`（如 `result[*].items`）；`path` 支持 `a.b.c`。
 
+### 3.3.1 线路与选集（parse.groups）
+
+苹果 CMS / TVBox 采集站把线路和集数压在一个字段里，规则加 `groups` 就能描述：
+
+```json
+"parse": {
+  "type": "json",
+  "list_path": "$.list",
+  "fields": {
+    "title": {"path": "vod_name"},
+    "url": {"path": "vod_id", "prefix": "https://site.com/api.php/provide/vod/?ac=detail&ids="},
+    "play_url": {"path": "vod_play_url"},
+    "play_from": {"path": "vod_play_from"}
+  },
+  "groups": {"field": "play_url", "names_field": "play_from"}
+}
+```
+
+`field` 指向已抽取的字段；`names_field` 是并行线路名列表（可省，省略时线路名为「线路 N」）。分隔符默认就是 CMS 约定：`group_sep="$$$"`、`episode_sep="#"`、`name_sep="$"`，需要时再覆盖。`url_template` 可用 `{url}` 包装每条集链接。
+
+解析产物是搜索结果条目的 `groups: [{name, episodes: [{name, url}]}]`，点片界面据此出线路与选集。`field`/`names_field` 不必是标准六字段，但必须出现在 `parse.fields` 里。
+
+规则也支持 XPath（Kazumi 等外站规则只有 XPath）：`parse.container_xpath` 替代 `container`，字段写 `xpath` 代替 `selector`，两者可混用在同一段里（容器用 XPath 时字段必须用 XPath）。
+
 ### 3.4 脚本规则（JS 沙箱）
 
 适合需要签名、加密参数、接口合并或页面由 JS 渲染的站点。脚本在内置 goja 沙箱中执行（不依赖 Node），注入 `fetch`、`URL`、`URLSearchParams`、`TextEncoder/TextDecoder`、`atob/btoa`、`setTimeout`、`console`。`runtime` 写 `"script"` 或 `"node"` 都可以（历史规则沿用了后者）。
@@ -203,6 +227,8 @@ CSS 子集：标签、`*`、`#id`、`.class`、`[attr]` / `[attr=value]` / `^=` 
   }
 }
 ```
+
+- `play.episodes`：用抽取段描述详情页选集（`{type, container|container_xpath, fields:{title,url}}`），比 `episode_regex` 猜页面结构可靠。抽到 0 集时自动回落到正则与通用兜底。
 
 - `play.script`：**最优先**。适合反爬站点——脚本里用 `fetch` 调站点自己的 `/api/*`，自己选线路，返回 `{url, format, title, headers, episodes:[{name,url}], note}`。入参 `{pageUrl,site,rule,headers,account}`，`account` 只在规则绑定账号时非空。解析器会再用 `Range: bytes=0-1` 探测 `url` 是否真的可拉，失败则静默降级到后续兜底。
 - 清晰度（可选）：站点有多档清晰度时，脚本再返回 `qualities:[{name,url,format?,headers?}]`（name 取站点自己的叫法，如「标清」「高清」「1080P」；url 仍为默认档）。解析器按顺序探测，默认档不可拉时自动换下一档；返回值原样透传给前端，「一起看」播放器据此出清晰度下拉，切换时重新调用一次解析拿最新地址。能拿到几档给几档，拿不到就不要编造。
@@ -348,6 +374,16 @@ docker exec zviewer ./zviewer-backend --import-rules /app/rules.json
 **换机必看的两个引用**
 
 规则里的 `search.account_id` / `play.account_id` 指向源机的 Cookie 资产，`allowed_rooms` 是源服务器的房间 ID。目标机对不上时导入仍会成功，但会出现「搜了必报账号不存在」或「只有管理员可见」。导入报告会逐条给 `warnings`；不想逐条处理就加 `--clear-accounts` / `--clear-rooms`（管理页对应两个勾选框）。
+
+### 4.1.1 从内置库导入（三条外源 → 本地规则）
+
+`POST /api/crawler/libraries/import`，请求体 `{"kind":"cms|anisubs|kazumi","urls":[],"dryRun":true}`。`urls` 为空时用该库已保存的地址。`dryRun=true` 只回报编译结果，不落库。
+
+- **cms**：TVBox 配置里的苹果 CMS 站点（或直接给采集接口）编译成 `json` 规则，`vod_play_url` / `vod_play_from` 走 `parse.groups`，搜索即带线路与选集。
+- **anisubs**：订阅里的 web-selector 源编译成 `html` 规则；`subjectFormatId` 支持 `a` / `indexed` / `json-path-indexed`，选集取 `no-channel` 或 `index-grouped` 的选择器。
+- **kazumi**：XPath 模式规则编译成 `container_xpath` 规则；API 模式（JSONPath + `@var`）超出规则表达能力，直接报「跳过 + 原因」。
+
+编译不出东西的源一律返回 `items[].skipped` 原因，不产出跑不通的规则。
 
 ### 4.2 导出文件格式
 
