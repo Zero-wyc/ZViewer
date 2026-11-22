@@ -159,10 +159,9 @@
       fact('API Key', config.apiKeyConfigured ? ('已配置 ' + (config.apiKeyMasked || '')) : '尚未配置'),
       fact('最后错误', info.lastError || c.error || '')
     ].join('');
-    const controls = (running
+    const controls = running
       ? button('停止引擎', 'crawler-stop', 'stop') + button('刷新', 'crawler-refresh', 'refresh')
-      : button('启动引擎', 'crawler-start', 'play', 'primary') + button('刷新', 'crawler-refresh', 'refresh')) +
-      '<button class="btn" data-crawler-mcp-open="1">' + icon('terminal') + 'MCP 工具</button>';
+      : button('启动引擎', 'crawler-start', 'play', 'primary') + button('刷新', 'crawler-refresh', 'refresh');
     return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎随后端进程一起运行，没有独立进程需要启动；日志见左侧「运行日志」。</p></section>';
   }
   function tabs(c) {
@@ -766,6 +765,11 @@
     };
   }
 
+  /** 标题区常驻入口：MCP 配置和引擎启停无关，放状态卡里会被「引擎信息」标签藏起来。 */
+  function mcpButton() {
+    return '<button class="btn" data-crawler-mcp-open="1">' + icon('terminal') + 'MCP 工具</button>';
+  }
+
   function renderMcpConfig() {
     const textarea = $('#crawler-mcp-text');
     const hint = $('#crawler-mcp-path');
@@ -955,7 +959,8 @@
   function page() {
     const c = cs();
     if (!c.info && !c.loading) ensure(false);
-    return heading('爬虫引擎', '用大模型生成站点规则，供一起看搜索影视。', enginePill(c) + button('刷新', 'crawler-refresh', 'refresh')) + bodyFor(c);
+    return heading('爬虫引擎', '用大模型生成站点规则，供一起看搜索影视。',
+      enginePill(c) + button('刷新', 'crawler-refresh', 'refresh') + mcpButton()) + bodyFor(c);
   }
 
   function ruleModal(rule) {
