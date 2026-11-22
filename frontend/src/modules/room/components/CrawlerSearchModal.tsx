@@ -121,7 +121,9 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
     const query = keyword.trim()
     if (!query || !roomId) return
     if (sites.length === 0) {
-      message.info(t('还没有可用的站点规则，请先在爬虫引擎里添加'))
+      message.info(
+        t('还没有可用的站点规则，请联系管理员在「管理 → 全网搜片」导入规则包')
+      )
       return
     }
     const seq = ++requestSeqRef.current
@@ -416,7 +418,7 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
             <div className="flex flex-col items-start gap-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-3 text-xs">
               <Text type="secondary">
                 {t(
-                  '还没有可用的站点规则。请在爬虫引擎（crawler/）里添加或导入站点规则后再试。'
+                  '还没有可用的站点规则。管理员可在「管理 → 全网搜片」导入规则包，或在爬虫引擎里手动添加。'
                 )}
               </Text>
             </div>
