@@ -432,7 +432,15 @@ zviewer-backend --mcp --root D:\crawler   # 显式指定数据目录
 }
 ```
 
-VS Code 的 `.vscode/mcp.json` 把 `mcpServers` 换成 `servers`，并加 `"type": "stdio"`。桌面控制台的「爬虫引擎 → MCP 工具」按钮会按当前安装路径生成这三份配置，可直接复制。
+VS Code 的 `.vscode/mcp.json` 把 `mcpServers` 换成 `servers`，并加 `"type": "stdio"`；Codex CLI 写在 `~/.codex/config.toml` 的 `[mcp_servers.zviewer-crawler]` 段里。
+
+桌面控制台「爬虫引擎 → MCP 工具」做三件事：
+
+- **一键写入**：按当前安装路径把条目写进 Claude Desktop / Claude Code / Cursor / VS Code / Windsurf / Codex 的**用户级**配置。写前把原文件备份成 `<文件名>.zviewer-bak`，只增改 `zviewer-crawler` 这一条（其它服务与键原样保留），写后回读校验；没检测到客户端的机器不会被凭空建目录。
+- **手动配置**：按客户端给出片段，可直接复制。
+- **部署提示词**：一段自解释的指令（命令、参数、数据目录、各家配置文件位置、校验步骤、边界），粘给任意能读写文件的 Agent 就能让它自己完成接入——新客户端不必等桌面端逐个适配。
+
+工具清单有两条来源：优先问运行中的后端 `GET /api/crawler/tools`；失败时（例如后端比界面旧、没有这个接口）桌面端会直接拉起一次 `zviewer-backend --mcp` 走 `tools/list`。所以弹窗里显示的就是客户端即将看到的同一份清单，`--mcp` 探测也不依赖 HTTP 服务在跑。
 
 协议：支持 `2024-11-05` / `2025-03-26` / `2025-06-18`，按客户端请求协商，不认识的版本回最新；方法有 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`、`resources/list`、`prompts/list`（后两个返回空列表，部分客户端会先探一下）。
 

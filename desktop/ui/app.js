@@ -47,7 +47,7 @@
     logLevel: 'all', logSource: 'all', logSearch: '', paused: false, cliDraft: null, cliEmbedUrl: '',
     meshDraft: null, meshSecretDraft: '', meshProbe: null,
     meshConfig: null, meshConfigDraft: null, meshConfigError: '', meshPreviewMode: 'form',
-    crawler: { info: null, loading: false, starting: false, error: '', tab: 'submissions', rules: [], ruleSource: '', sessions: [], sessionId: '', messages: [], submissions: [], autoGenerate: false, browser: null, loginBusy: false, chatBusy: false, autoTried: false },
+    crawler: { info: null, loading: false, starting: false, error: '', tab: 'agent', rules: [], ruleSource: '', sessions: [], sessionId: '', messages: [], submissions: [], autoGenerate: false, browser: null, loginBusy: false, chatBusy: false, autoTried: false },
     events: [], prefs, updateOpen: false, updateKey: '', webURL: ''
   };
   function clock() { return new Date().toLocaleTimeString('zh-CN', { hour12: false }); }

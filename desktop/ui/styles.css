@@ -1013,6 +1013,8 @@ main > div { padding: 0 var(--page-padding) var(--gap-xl); max-width: 1120px; }
 
 dialog {
   width: min(548px, calc(100vw - 48px)); padding: 24px;
+  /* MCP 弹窗这类长内容要能滚：不给上限时内容会顶出视口，底部按钮点不到。 */
+  max-height: calc(100vh - 72px); overflow: auto;
   border: 1px solid var(--control-stroke); border-radius: var(--radius-overlay);
   background: var(--flyout-bg); color: var(--text-primary);
   box-shadow: var(--shadow-dialog);
@@ -1257,6 +1259,17 @@ dialog p { margin-top: 8px; color: var(--text-secondary); font-size: 12px; line-
 .mcp-tools li:last-child { border-bottom: none; }
 .mcp-tools code { flex: none; min-width: 132px; font-family: var(--font-mono); font-size: 12px; }
 .mcp-tools span { opacity: .75; line-height: 1.5; }
+/* 一键写入：一行一个客户端，路径可截断，按钮固定宽度。 */
+.mcp-clients { display: flex; flex-direction: column; gap: 8px; }
+.mcp-client { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--card-stroke); border-radius: var(--radius-card); background: var(--card-bg); }
+.mcp-client-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.mcp-client-main strong { font-size: 13px; }
+.mcp-client-main code { font-family: var(--font-mono); font-size: 11px; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-client .pill { flex: none; }
+.mcp-client .btn { flex: none; }
+.mcp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+/* 部署提示词比配置片段长得多，别让它在弹窗里撑满一屏。 */
+#crawler-mcp-prompt { min-height: 168px; max-height: 220px; }
 .crawler-doc { max-height: 60vh; overflow: auto; padding: 4px 14px 8px; border: 1px solid var(--card-stroke); border-radius: var(--radius-card); background: var(--subtle-hover); font-size: 13px; line-height: 1.65; }
 .crawler-doc h2, .crawler-doc h3, .crawler-doc h4 { margin: 18px 0 8px; }
 .crawler-doc h2 { font-size: 17px; }

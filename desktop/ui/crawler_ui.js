@@ -7,7 +7,7 @@
   let loading = false;
 
   function crawlerDefaults() {
-    return { info: null, loading: false, starting: false, error: '', tab: 'rules', rules: [], ruleSource: '', selectedRules: {}, sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
+    return { info: null, loading: false, starting: false, error: '', tab: 'agent', rules: [], ruleSource: '', selectedRules: {}, sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
   }
   function cs() {
     // app.js 里的初始状态可能落后于本文件新增的字段，这里原地补齐，不能替换对象：
@@ -173,7 +173,8 @@
   }
   function tabs(c) {
     const pendingChallenges = (c.challenges || []).filter(function (item) { return !item.completed; }).length;
-    const items = [['rules', '站点规则'], ['challenges', '登录/验证' + (pendingChallenges ? ' (' + pendingChallenges + ')' : '')], ['agent', 'Agent 对话'], ['about', '引擎信息'], ['settings', '设置']];
+    // 顺序即使用频率：先对话（建规则的主路径），再规则/信息，最后才是验证与设置。
+    const items = [['agent', 'Agent 对话'], ['rules', '站点规则'], ['about', '引擎信息'], ['challenges', '登录验证' + (pendingChallenges ? ' (' + pendingChallenges + ')' : '')], ['settings', '设置']];
     return '<div class="tabs crawler-tabs">' + items.map(function (item) {
       return '<button data-crawler-tab="' + item[0] + '" class="' + (c.tab === item[0] ? 'active' : '') + '">' + item[1] + '</button>';
     }).join('') + '</div>';
@@ -754,25 +755,67 @@
 
   // 当前弹窗里选中的客户端。只影响文本框与路径提示，不参与渲染状态机。
   let mcpClient = 'claude';
-  // 弹窗打开时缓存的命令与参数：切客户端标签时不用再问一次后端。
-  let mcpView = { command: '', args: [] };
+  // 弹窗打开时缓存的命令、参数、客户端状态与部署提示词：切标签时不用再问一次后端。
+  let mcpView = { command: '', args: [], clients: [], prompt: '' };
 
-  /** 三份客户端配置。Claude Desktop 与 Cursor 都是 mcpServers，VS Code 用 servers + type。 */
+  // 手动配置的标签顺序：先桌面三家，再 Claude Code / Windsurf / Codex。
+  const MCP_CLIENT_TABS = [
+    ['claude', 'Claude Desktop'],
+    ['claude-code', 'Claude Code'],
+    ['cursor', 'Cursor'],
+    ['vscode', 'VS Code'],
+    ['windsurf', 'Windsurf'],
+    ['codex', 'Codex']
+  ];
+
+  /** 各客户端的配置片段。VS Code 用 servers + type，Codex 是 TOML，其余都是 mcpServers。 */
   function mcpSnippets(command, args) {
     const entry = { command: command, args: args };
+    const servers = JSON.stringify({ mcpServers: { 'zviewer-crawler': entry } }, null, 2);
+    const toml = [
+      '[mcp_servers.zviewer-crawler]',
+      'command = ' + JSON.stringify(command),
+      'args = ' + JSON.stringify(args)
+    ].join('\n');
     return {
-      claude: JSON.stringify({ mcpServers: { 'zviewer-crawler': entry } }, null, 2),
-      cursor: JSON.stringify({ mcpServers: { 'zviewer-crawler': entry } }, null, 2),
-      vscode: JSON.stringify({ servers: { 'zviewer-crawler': Object.assign({ type: 'stdio' }, entry) } }, null, 2)
+      claude: servers,
+      'claude-code': servers,
+      cursor: servers,
+      windsurf: servers,
+      vscode: JSON.stringify({ servers: { 'zviewer-crawler': Object.assign({ type: 'stdio' }, entry) } }, null, 2),
+      codex: toml
     };
   }
 
-  function mcpHints() {
-    return {
-      claude: '配置文件：%APPDATA%\\Claude\\claude_desktop_config.json（没有就新建）。改完完全退出并重启 Claude。',
-      cursor: '配置文件：用户级 ~/.cursor/mcp.json，或项目下 .cursor/mcp.json。保存后在 MCP 面板点一下刷新。',
-      vscode: '配置文件：项目下 .vscode/mcp.json（GitHub Copilot 需在设置里启用 MCP）。保存后从面板启动服务。'
-    };
+  function mcpClientInfo(id) {
+    const clients = mcpView.clients || [];
+    for (let i = 0; i < clients.length; i += 1) {
+      if (clients[i].id === id) return clients[i];
+    }
+    return null;
+  }
+
+  function mcpStatus(client) {
+    if (client.installed) return tag('已写入', 'green');
+    if (client.detected) return tag('待写入');
+    return tag('未检测到');
+  }
+
+  function mcpClientsHtml(clients) {
+    if (!clients || !clients.length) return '<div class="empty">读取不到客户端配置路径。</div>';
+    return clients.map(function (client) {
+      return '<div class="mcp-client">' +
+        '<div class="mcp-client-main"><strong>' + esc(client.name || '') + '</strong><code>' + esc(client.path || '—') + '</code></div>' +
+        mcpStatus(client) +
+        '<button class="btn" data-mcp-install="' + esc(client.id || '') + '">' + icon('check') + (client.installed ? '重写' : '写入') + '</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  function renderMcpClients(clients) {
+    if (clients && clients.length) mcpView.clients = clients;
+    const box = $('#crawler-mcp-clients');
+    if (box) box.innerHTML = mcpClientsHtml(mcpView.clients);
   }
 
   /** 标题区常驻入口：MCP 配置和引擎启停无关，放状态卡里会被「引擎信息」标签藏起来。 */
@@ -783,12 +826,40 @@
   function renderMcpConfig() {
     const textarea = $('#crawler-mcp-text');
     const hint = $('#crawler-mcp-path');
+    const prompt = $('#crawler-mcp-prompt');
     const snippets = mcpSnippets(mcpView.command, mcpView.args);
     if (textarea) textarea.value = snippets[mcpClient] || '';
-    if (hint) hint.textContent = mcpHints()[mcpClient] || '';
+    if (prompt) prompt.value = mcpView.prompt || '';
+    const client = mcpClientInfo(mcpClient);
+    if (hint) {
+      hint.textContent = client
+        ? ('配置文件：' + (client.path || '—') + '　' + (client.hint || ''))
+        : '把下面的片段粘进客户端的 MCP 配置里。';
+    }
     document.querySelectorAll('[data-mcp-client]').forEach(function (tab) {
       tab.classList.toggle('active', tab.dataset.mcpClient === mcpClient);
     });
+  }
+
+  /** 一键写入：clients 为空表示「检测到的都写」，后端会跳过没装的客户端。 */
+  async function installMcp(clients) {
+    if (!mcpView.command) { ui.toast('缺少 MCP 可执行文件路径'); return; }
+    let result;
+    try {
+      result = await cmd('mcp-install', { command: mcpView.command, args: mcpView.args, clients: clients || [] });
+    } catch (error) {
+      ui.toast(message(error));
+      return;
+    }
+    renderMcpClients(result.clients || []);
+    const results = result.results || [];
+    const done = results.filter(function (item) { return item.status === 'installed'; });
+    const failed = results.filter(function (item) { return item.status === 'error'; });
+    const parts = [];
+    if (done.length) parts.push('已写入 ' + done.map(function (item) { return item.name; }).join('、') + '，重启对应客户端后生效');
+    if (failed.length) parts.push(failed.length + ' 个失败：' + failed[0].name + '（' + (failed[0].message || '未知原因') + '）');
+    if (!parts.length) parts.push('没检测到已安装的客户端，可以「写入」单个或复制提示词让 AI 自己装');
+    ui.toast(parts.join('；'));
   }
 
   async function openMcp() {
@@ -803,8 +874,13 @@
       ui.toast((info && info.reason) || 'MCP 不可用');
       return;
     }
-    mcpView = { command: info.command || '', args: info.args || ['--mcp'] };
     const tools = info.tools || [];
+    mcpView = {
+      command: info.command || '',
+      args: info.args || ['--mcp'],
+      clients: info.clients || [],
+      prompt: info.prompt || ''
+    };
     const toolCount = tools.length
       ? tools.length + ' 个'
       : (info.engineReady ? '0 个' : '待服务启动');
@@ -813,9 +889,12 @@
           return '<li><code>' + esc(tool.name || '') + '</code><span>' + esc(tool.description || '') + '</span></li>';
         }).join('') + '</ul>'
       : '<p class="field-note">' + esc(info.toolsError || '启动服务后即可读取工具清单。') + '</p>';
+    const source = info.toolsSource === 'stdio'
+      ? '清单由 MCP 服务直连读出（后端接口没响应，不影响客户端使用）。'
+      : '';
     ui.modal(
       '<h2>MCP 工具</h2>' +
-      '<p class="field-note">把配置粘到客户端的 MCP 配置文件里，就能在对话中直接调用爬虫工具（生成、测试、管理站点规则）。工具走本机后端，桌面端没在运行也能用。</p>' +
+      '<p class="field-note">ZViewer 自带一个 MCP 服务（stdio），接进任意 AI 客户端后，那个 AI 就能直接生成、测试、管理站点规则。工具走本机后端，桌面端没在运行也能用。</p>' +
       '<div class="crawler-facts">' +
         '<div class="crawler-fact wide"><span>命令</span><code>' + esc(info.command || '') + '</code></div>' +
         fact('参数', (info.args || []).join(' ')) +
@@ -823,17 +902,23 @@
         '<div class="crawler-fact wide"><span>数据目录</span><code>' + esc(info.root || '') + '</code></div>' +
       '</div>' +
       (info.commandExists ? '' : notice('运行包里没有找到 zviewer-backend.exe，请先构建或重新安装。', true)) +
-      '<div class="tabs crawler-tabs" id="crawler-mcp-tabs">' +
-        '<button data-mcp-client="claude" class="active">Claude Desktop</button>' +
-        '<button data-mcp-client="cursor">Cursor</button>' +
-        '<button data-mcp-client="vscode">VS Code</button>' +
-      '</div>' +
+      '<h3 class="mcp-tools-title">一键写入客户端</h3>' +
+      '<p class="field-note">检测到的客户端会直接写进它们的用户级配置文件，写前备份成 <code>.zviewer-bak</code>，已有的其它服务不动。' + esc(source) + '</p>' +
+      '<div class="mcp-clients" id="crawler-mcp-clients">' + mcpClientsHtml(mcpView.clients) + '</div>' +
+      '<div class="mcp-actions"><button class="btn" data-mcp-install-all="1">' + icon('check') + '写入所有已检测客户端</button></div>' +
+      '<h3 class="mcp-tools-title">手动配置</h3>' +
+      '<div class="tabs crawler-tabs" id="crawler-mcp-tabs">' + MCP_CLIENT_TABS.map(function (item) {
+        return '<button data-mcp-client="' + item[0] + '"' + (item[0] === mcpClient ? ' class="active"' : '') + '>' + item[1] + '</button>';
+      }).join('') + '</div>' +
       '<p class="field-note" id="crawler-mcp-path"></p>' +
       '<textarea class="codebox config-editor crawler-json" id="crawler-mcp-text" readonly spellcheck="false"></textarea>' +
-      '<div class="modal-actions">' + button('关闭', 'close-modal') +
-        '<button class="btn primary" data-crawler-mcp-copy="1">' + icon('copy') + '复制配置</button>' +
-      '</div>' +
-      '<h3 class="mcp-tools-title">工具清单' + (tools.length ? '（' + tools.length + '）' : '') + '</h3>' + list,
+      '<div class="mcp-actions"><button class="btn" data-crawler-mcp-copy="1">' + icon('copy') + '复制配置</button></div>' +
+      '<h3 class="mcp-tools-title">交给别的 AI 自动部署</h3>' +
+      '<p class="field-note">把这段提示词发给任何能读写文件的 AI Agent（Cline、Trae、Cherry Studio、Codex…），它会自己判断客户端、自己找配置文件、自己写入并校验，不需要你手填 JSON。</p>' +
+      '<textarea class="codebox config-editor crawler-json mcp-prompt" id="crawler-mcp-prompt" readonly spellcheck="false"></textarea>' +
+      '<div class="mcp-actions"><button class="btn primary" data-crawler-mcp-prompt="1">' + icon('copy') + '复制部署提示词</button></div>' +
+      '<h3 class="mcp-tools-title">工具清单' + (tools.length ? '（' + tools.length + '）' : '') + '</h3>' + list +
+      '<div class="modal-actions">' + button('关闭', 'close-modal') + '</div>',
       { wide: true }
     );
     renderMcpConfig();
@@ -1107,17 +1192,18 @@
       c.sessions = data.sessions || [];
     } catch (error) { /* 会话列表刷新失败不影响本轮 */ }
   }
-  function copyText(value) {
+  function copyText(value, doneText) {
     const text = String(value || '');
+    const done = doneText || '已复制';
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () { ui.toast('已复制'); }).catch(function () { ui.toast('复制失败'); });
+      navigator.clipboard.writeText(text).then(function () { ui.toast(done); }).catch(function () { ui.toast('复制失败'); });
       return;
     }
     const area = document.createElement('textarea');
     area.value = text;
     document.body.appendChild(area);
     area.select();
-    try { document.execCommand('copy'); ui.toast('已复制'); } catch (error) { ui.toast('复制失败'); }
+    try { document.execCommand('copy'); ui.toast(done); } catch (error) { ui.toast('复制失败'); }
     document.body.removeChild(area);
   }
   function runContext(ruleIds, text) {
@@ -1745,6 +1831,28 @@
       event.stopImmediatePropagation();
       const textarea = $('#crawler-mcp-text');
       copyText(textarea ? textarea.value : '');
+      return;
+    }
+    const mcpInstallOne = event.target.closest('[data-mcp-install]');
+    if (mcpInstallOne) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      installMcp([mcpInstallOne.dataset.mcpInstall]);
+      return;
+    }
+    const mcpInstallAll = event.target.closest('[data-mcp-install-all]');
+    if (mcpInstallAll) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      installMcp([]);
+      return;
+    }
+    const mcpPromptCopy = event.target.closest('[data-crawler-mcp-prompt]');
+    if (mcpPromptCopy) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const area = $('#crawler-mcp-prompt');
+      copyText(area ? area.value : '', '部署提示词已复制，粘给任意 AI Agent 即可');
       return;
     }
     const ruleButton = event.target.closest('[data-crawler-rule]');
