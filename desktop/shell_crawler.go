@@ -565,8 +565,19 @@ func engineError(body map[string]any) error {
 	return errors.New("引擎请求失败")
 }
 
-func (b *crawlerBridge) exportRules() (any, error) {
-	result, err := b.do("GET", "/api/crawler/rules/export", nil)
+// exportRulesPath 拼导出接口路径。ids 为空走全量导出。
+func exportRulesPath(ids []string) string {
+	path := "/api/crawler/rules/export"
+	if len(ids) > 0 {
+		path += "?ids=" + url.QueryEscape(strings.Join(ids, ","))
+	}
+	return path
+}
+
+// exportRules 导出规则包。ids 为空表示导出全部（含停用规则）。
+func (b *crawlerBridge) exportRules(ids []string) (any, error) {
+	path := exportRulesPath(ids)
+	result, err := b.do("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -585,13 +596,13 @@ func (b *crawlerBridge) exportRules() (any, error) {
 		return nil, err
 	}
 	raw = append(raw, '\n')
-	path, err := runtime.SaveFileDialog(b.dialogCtx(), runtime.SaveDialogOptions{
+	path, dialogErr := runtime.SaveFileDialog(b.dialogCtx(), runtime.SaveDialogOptions{
 		Title:            "导出爬虫规则",
 		DefaultFilename:  "crawler-rules.json",
 		DefaultDirectory: downloadsDir(),
 		Filters:          []runtime.FileFilter{{DisplayName: "爬虫规则（JSON）", Pattern: "*.json"}},
 	})
-	if err != nil || path == "" {
+	if dialogErr != nil || path == "" {
 		return map[string]any{"canceled": true}, nil
 	}
 	if err := os.WriteFile(path, raw, 0o600); err != nil {

@@ -1107,6 +1107,7 @@ dialog p { margin-top: 8px; color: var(--text-secondary); font-size: 12px; line-
 .crawler-rule-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 12px; opacity: .7; }
 .crawler-rule-actions { display: flex; gap: 4px; flex: none; }
 .crawler-rule.disabled { opacity: .6; }
+.crawler-rule.selected { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .text-button.danger { color: var(--system-critical, #c42b1c); }
 .crawler-rule .field-note { margin: 6px 0 0; }
 .crawler-chat-panel { display: flex; flex-direction: column; min-height: 560px; }

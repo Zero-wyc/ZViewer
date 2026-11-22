@@ -97,3 +97,13 @@ func TestDirExistsVersusFileExists(t *testing.T) {
 		t.Fatalf("fileExists(%s)=true，说明 fileExists 的语义被改了", dir)
 	}
 }
+
+// 导出接口的 ids 参数来自界面勾选：不传 = 全量，传了要拼成逗号分隔并转义。
+func TestExportRulesPath(t *testing.T) {
+	if got := exportRulesPath(nil); got != "/api/crawler/rules/export" {
+		t.Errorf("全量导出路径 = %q", got)
+	}
+	if got := exportRulesPath([]string{"a", "b"}); got != "/api/crawler/rules/export?ids=a%2Cb" {
+		t.Errorf("选中导出路径 = %q", got)
+	}
+}

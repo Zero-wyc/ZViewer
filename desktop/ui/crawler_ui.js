@@ -7,7 +7,7 @@
   let loading = false;
 
   function crawlerDefaults() {
-    return { info: null, loading: false, starting: false, error: '', tab: 'rules', rules: [], ruleSource: '', sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
+    return { info: null, loading: false, starting: false, error: '', tab: 'rules', rules: [], ruleSource: '', selectedRules: {}, sessions: [], sessionId: '', sessionEffort: '', sessionModel: '', messages: [], submissions: [], challenges: [], autoGenerate: false, repairEnabled: true, browser: null, loginBusy: false, chatBusy: false, autoTried: false, models: [], modelsLoading: false, modelError: '', settingsEffort: '', submissionEffort: '', chatDraft: '', chatImages: [], chatRuleRefs: [], mentionOpen: false, mentionQuery: '', mentionIndex: 0, mentionStart: 0, mentionEnd: 0, chatSending: false, queue: [], queueSeq: 0, runBusy: false, runId: '', runCursor: 0, runStatus: 'idle', runSteps: 0, generatingSession: '', loginUrl: '', loginSite: '', loginName: '', workOpen: {}, stepOpen: {} };
   }
   function cs() {
     // app.js 里的初始状态可能落后于本文件新增的字段，这里原地补齐，不能替换对象：
@@ -68,7 +68,14 @@
     const c = cs();
     try {
       const result = await cmd('crawler-rules');
-      if (result && Array.isArray(result.rules)) c.rules = result.rules;
+      if (result && Array.isArray(result.rules)) {
+      c.rules = result.rules;
+      // 规则被删/改名后旧 id 会残留，导出选中前先就地清掉
+      const alive = {};
+      const previous = c.selectedRules || {};
+      c.rules.forEach(function (item) { if (previous[item.id]) alive[item.id] = true; });
+      c.selectedRules = alive;
+    }
       c.ruleSource = result && result.source || 'engine';
     } catch (error) {
       c.error = message(error);
@@ -176,13 +183,16 @@
     const rooms = rule.allowedRooms || rule.allowed_rooms || [];
     return rooms.length ? ('指定 ' + rooms.length + ' 个房间') : '所有房间';
   }
+  // 选中集合只存 id → true，导出时直接当 ids 用
+  function selectedCount(c) { return Object.keys((c && c.selectedRules) || {}).length; }
   function ruleRow(rule) {
     const id = rule.id || '';
     const search = rule.search || {};
     const parse = rule.parse || {};
     const updated = rule.updated_at || rule.updatedAt || '';
     const disabled = rule.enabled === false;
-    return '<div class="crawler-rule' + (disabled ? ' disabled' : '') + '"><div class="crawler-rule-main"><div class="crawler-rule-title"><strong>' + esc(rule.name || id) + '</strong>' + (disabled ? tag('已停用') : '') + '</div><div class="crawler-rule-meta"><span>' + esc(rule.site || '') + '</span><span>' + esc(search.mode || 'http') + ' · ' + esc(parse.type || 'html') + '</span><span>' + esc(visibilityLabel(rule)) + '</span><span>' + esc(updated.slice(0, 19)) + '</span></div>' + (rule.description ? '<p class="field-note">' + esc(rule.description) + '</p>' : '') + '</div><div class="crawler-rule-actions"><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="login">登录站点</button><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="toggle">' + (disabled ? '启用' : '停用') + '</button><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="edit">编辑</button><button class="text-button danger" data-crawler-rule="' + esc(id) + '" data-crawler-do="delete">删除</button></div></div>';
+    const selected = !!(cs().selectedRules || {})[id];
+    return '<div class="crawler-rule' + (disabled ? ' disabled' : '') + (selected ? ' selected' : '') + '"><div class="crawler-rule-main"><div class="crawler-rule-title"><strong>' + esc(rule.name || id) + '</strong>' + (disabled ? tag('已停用') : '') + '</div><div class="crawler-rule-meta"><span>' + esc(rule.site || '') + '</span><span>' + esc(search.mode || 'http') + ' · ' + esc(parse.type || 'html') + '</span><span>' + esc(visibilityLabel(rule)) + '</span><span>' + esc(updated.slice(0, 19)) + '</span></div>' + (rule.description ? '<p class="field-note">' + esc(rule.description) + '</p>' : '') + '</div><div class="crawler-rule-actions"><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="select">' + (selected ? '取消选中' : '选中') + '</button><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="login">登录站点</button><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="toggle">' + (disabled ? '启用' : '停用') + '</button><button class="text-button" data-crawler-rule="' + esc(id) + '" data-crawler-do="edit">编辑</button><button class="text-button danger" data-crawler-rule="' + esc(id) + '" data-crawler-do="delete">删除</button></div></div>';
   }
   function challengeRow(item) {
     const id = item.id || '';
@@ -198,7 +208,7 @@
   function rulesPanel(c) {
     const rows = c.rules.length ? c.rules.map(ruleRow).join('') : '<div class="empty">还没有站点规则。可以用 Agent 生成，也可以手动新建或导入。</div>';
     const local = c.ruleSource === 'local' ? '<p class="field-note">引擎未运行，当前直接读取规则文件；启动引擎后才能测试与保存。</p>' : '';
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('server') + '</span><h2>站点规则</h2></div><small>' + c.rules.length + ' 条</small></div><div class="live-toolbar">' + button('新建规则', 'crawler-rule-new', 'check') + button('规则文档', 'crawler-doc', 'book') + button('导入', 'crawler-import', 'download') + button('导出', 'crawler-export', 'folder') + '</div>' + local + '<div class="crawler-rules">' + rows + '</div></section>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('server') + '</span><h2>站点规则</h2></div><small>' + c.rules.length + ' 条</small></div><div class="live-toolbar">' + button('新建规则', 'crawler-rule-new', 'check') + button('规则文档', 'crawler-doc', 'book') + button('导入', 'crawler-import', 'download') + button('导出全部', 'crawler-export-all', 'folder') + (selectedCount(c) ? button('导出选中 (' + selectedCount(c) + ')', 'crawler-export-selected', 'check') : '') + '</div>' + local + '<div class="crawler-rules">' + rows + '</div></section>';
   }
   const TOOL_LABELS = {
     fetch_page: '打开页面', inspect_html: '检查页面', test_rule: '试跑规则',
@@ -1552,10 +1562,13 @@
       ui.toast('导入完成：新增 ' + (report.imported || 0) + '，更新 ' + (report.updated || 0) + '，失败 ' + (report.failed || 0));
       return;
     }
-    if (name === 'crawler-export') {
-      const result = await cmd('crawler-export');
+    if (name === 'crawler-export-all' || name === 'crawler-export-selected') {
+      const ids = name === 'crawler-export-selected' ? Object.keys(c.selectedRules || {}) : [];
+      if (name === 'crawler-export-selected' && !ids.length) { ui.toast('先选中要导出的规则'); return; }
+      const result = await cmd('crawler-export', { ids: ids });
       if (!result || result.canceled) return;
-      ui.toast('已导出 ' + (result.count || 0) + ' 条规则');
+      // 单文件包 / Docker 版没有 GUI，只能把这个文件拿去服务端导入
+      ui.toast('已导出 ' + (result.count || 0) + ' 条规则。到服务端「管理 → 全网搜片」导入即可生效');
       return;
     }
     if (name === 'crawler-chat-send') { await sendChat(); return; }
@@ -1744,6 +1757,12 @@
       if (ruleAction === 'delete') deleteRule(id).catch(function (error) { ui.toast(message(error)); });
       else if (ruleAction === 'login') startSiteLogin(id).catch(function (error) { ui.toast(message(error)); });
       else if (ruleAction === 'toggle') toggleRule(id).catch(function (error) { ui.toast(message(error)); });
+      else if (ruleAction === 'select') {
+        const next = Object.assign({}, c.selectedRules || {});
+        if (next[id]) delete next[id]; else next[id] = true;
+        c.selectedRules = next;
+        renderIf();
+      }
       else {
         const rule = c.rules.find(function (item) { return item.id === id; });
         if (rule) ruleModal(rule);

@@ -410,7 +410,7 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 	case "crawler-config-save":
 		return a.crawler.saveLLM(payload)
 	case "crawler-export":
-		return a.crawler.exportRules()
+		return a.crawler.exportRules(payloadStrings(payload, "ids"))
 	case "crawler-import":
 		mode := payloadString(payload, "mode")
 		dryRun, _ := payload["dryRun"].(bool)
