@@ -18,6 +18,7 @@
     "[useWatchTogether] applySourceToVideo 失败:",
     "[useWatchTogether] previewPlay 加载失败:",
     "{{count}} 条",
+    "{{groups}} 条线路 · {{count}} 集",
     "{{length}} 部影片",
     "{{message}}，已按单 P 添加",
     "{{site}} 需要完成人机验证",
@@ -119,7 +120,6 @@
     "该影片仅允许 CLI 模式观看",
     "该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后操作",
     "该用户",
-    "该站点正片需要会员或不允许直接播放，请打开原站查看",
-    "该账户已在此房间内"
+    "该站点正片需要会员或不允许直接播放，请打开原站查看"
   ]
 }

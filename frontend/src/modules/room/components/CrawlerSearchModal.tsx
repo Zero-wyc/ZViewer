@@ -17,6 +17,7 @@ import {
   Search,
   SearchX,
   Plus,
+  ListVideo,
   ShieldCheck,
   X,
 } from 'lucide-react'
@@ -78,6 +79,9 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
   )
   const [siteErrors, setSiteErrors] = useState<Record<string, string>>({})
   const [pending, setPending] = useState<string[]>([])
+  // 分组剧集：展开哪一张结果卡、当前选中哪条线路。都是本地 UI 状态。
+  const [pickerKey, setPickerKey] = useState('')
+  const [groupChoice, setGroupChoice] = useState<Record<string, number>>({})
   const [searched, setSearched] = useState(false)
   const [adding, setAdding] = useState('')
   const [challenge, setChallenge] = useState<ActiveChallenge | null>(null)
@@ -238,17 +242,33 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
   }, [applyChallengeResult, challenge])
 
   const handleAdd = useCallback(
-    async (siteId: string, item: CrawlerSearchItem) => {
+    async (
+      siteId: string,
+      item: CrawlerSearchItem,
+      episode?: { name: string; url: string }
+    ) => {
       if (!roomId) return
-      setAdding(itemKey(siteId, item))
+      // 选集时用「集地址」作为忙碌键，避免同一影片的不同集互相覆盖状态。
+      const busyKey = episode
+        ? `${itemKey(siteId, item)}#${episode.url}`
+        : itemKey(siteId, item)
+      setAdding(busyKey)
       try {
-        let playUrl = pickPlayableUrl(item)
-        let title = item.title || ''
+        // 规则给了分组剧集时，目标地址就是这一集的地址（可能是直链也可能是播放页）。
+        const target = episode ? episode.url : item.url
+        let playUrl = episode
+          ? detectMediaFormat(target) !== 'unknown'
+            ? target
+            : ''
+          : pickPlayableUrl(item)
+        let title = episode?.name
+          ? `${item.title} · ${episode.name}`
+          : item.title || ''
         let headers: Record<string, string> | undefined
         let sourceMeta: CrawlerSourceMeta | undefined
         if (!playUrl) {
           // 详情页/播放页：交给引擎按规则解析成直链（解析逻辑全部在后端）。
-          const resolved = await resolveCrawlerPlay(roomId, item.url)
+          const resolved = await resolveCrawlerPlay(roomId, target)
           if (resolved.format === 'iframe') {
             message.info(
               resolved.note ||
@@ -272,8 +292,8 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
             qualities.length > 1 ? qualities.map((quality) => quality.name) : []
           sourceMeta = {
             kind: 'crawler',
-            sourceId: item.url,
-            pageUrl: item.url,
+            sourceId: target,
+            pageUrl: target,
             site: resolved.site,
             ruleId: resolved.ruleId,
             title: resolved.title || item.title,
@@ -576,6 +596,13 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
                         const key = itemKey(site.id, item)
                         const playable = pickPlayableUrl(item)
                         const busy = adding === key
+                        const groups = item.groups || []
+                        const hasGroups = groups.length > 0
+                        const groupIndex = Math.min(
+                          groupChoice[key] || 0,
+                          Math.max(groups.length - 1, 0)
+                        )
+                        const activeGroup = groups[groupIndex]
                         return (
                           <div
                             key={key}
@@ -603,7 +630,20 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
                               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] opacity-65">
                                 {item.author && <span>{item.author}</span>}
                                 {item.duration && <span>{item.duration}</span>}
-                                {playable ? (
+                                {hasGroups ? (
+                                  <span>
+                                    {t('{{groups}} 条线路 · {{count}} 集', {
+                                      groups: String(groups.length),
+                                      count: String(
+                                        groups.reduce(
+                                          (sum, group) =>
+                                            sum + group.episodes.length,
+                                          0
+                                        )
+                                      ),
+                                    })}
+                                  </span>
+                                ) : playable ? (
                                   <span>{t('可播放直链')}</span>
                                 ) : (
                                   <span>{t('需解析')}</span>
@@ -623,18 +663,32 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
                                   variant="primary"
                                   disabled={busy}
                                   title={
-                                    playable
-                                      ? t('加入一起看')
-                                      : t('解析播放地址后加入一起看')
+                                    hasGroups
+                                      ? t('选择集数后加入一起看')
+                                      : playable
+                                        ? t('加入一起看')
+                                        : t('解析播放地址后加入一起看')
                                   }
-                                  onClick={() => void handleAdd(site.id, item)}
+                                  onClick={() => {
+                                    if (hasGroups) {
+                                      setPickerKey((prev) =>
+                                        prev === key ? '' : key
+                                      )
+                                      return
+                                    }
+                                    void handleAdd(site.id, item)
+                                  }}
                                 >
                                   {busy ? (
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : hasGroups ? (
+                                    <ListVideo className="h-3.5 w-3.5" />
                                   ) : (
                                     <Plus className="h-3.5 w-3.5" />
                                   )}
-                                  <span className="ml-1">{t('加入')}</span>
+                                  <span className="ml-1">
+                                    {hasGroups ? t('选集') : t('加入')}
+                                  </span>
                                 </Button>
                                 <Button
                                   size="sm"
@@ -647,6 +701,60 @@ export function CrawlerSearchModal({ open, onClose }: CrawlerSearchModalProps) {
                                   <ExternalLink className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
+                              {hasGroups &&
+                                pickerKey === key &&
+                                activeGroup && (
+                                  <div className="mt-1.5 rounded-md bg-[var(--md-sys-color-surface-container-high)] p-1.5">
+                                    {groups.length > 1 && (
+                                      <div className="mb-1 flex flex-wrap gap-1">
+                                        {groups.map((group, index) => (
+                                          <button
+                                            key={`${group.name}-${index}`}
+                                            type="button"
+                                            className={cn(
+                                              'rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors',
+                                              index === groupIndex
+                                                ? 'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]'
+                                                : 'bg-[var(--glass-bg)] opacity-75'
+                                            )}
+                                            onClick={() =>
+                                              setGroupChoice((prev) => ({
+                                                ...prev,
+                                                [key]: index,
+                                              }))
+                                            }
+                                          >
+                                            {group.name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className="grid max-h-24 grid-cols-3 gap-1 overflow-auto">
+                                      {activeGroup.episodes.map((episode) => {
+                                        const episodeBusy =
+                                          adding === `${key}#${episode.url}`
+                                        return (
+                                          <button
+                                            key={episode.url}
+                                            type="button"
+                                            disabled={episodeBusy}
+                                            title={episode.name}
+                                            className="truncate rounded bg-[var(--glass-bg)] px-1.5 py-1 text-[10px] hover:bg-[var(--md-sys-color-secondary-container)] disabled:opacity-50"
+                                            onClick={() =>
+                                              void handleAdd(
+                                                site.id,
+                                                item,
+                                                episode
+                                              )
+                                            }
+                                          >
+                                            {episodeBusy ? '…' : episode.name}
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
                             </div>
                           </div>
                         )

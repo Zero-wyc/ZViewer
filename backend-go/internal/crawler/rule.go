@@ -108,28 +108,7 @@ func Normalize(rule *Rule) *Rule {
 	search.Script = normalizeScript(search.Script)
 	search.AccountID = strings.TrimSpace(search.AccountID)
 
-	parse := &rule.Parse
-	if parse.Type == "" {
-		parse.Type = "html"
-	}
-	parse.Type = strings.ToLower(strings.TrimSpace(parse.Type))
-	parse.Script = normalizeScript(parse.Script)
-	if parse.Fields == nil {
-		parse.Fields = map[string]Field{}
-	}
-	parse.Container = strings.TrimSpace(parse.Container)
-	parse.ListPath = strings.TrimSpace(parse.ListPath)
-	parse.BaseURL = strings.TrimSpace(parse.BaseURL)
-	if parse.DedupeBy == "" {
-		parse.DedupeBy = "url"
-	}
-	parse.DedupeBy = strings.TrimSpace(parse.DedupeBy)
-	if parse.Limit <= 0 {
-		parse.Limit = 30
-	}
-	if parse.Limit > 100 {
-		parse.Limit = 100
-	}
+	rule.Parse = normalizeParse(rule.Parse)
 
 	challenge := &rule.Challenge
 	if challenge.URLContains == nil {
@@ -165,6 +144,10 @@ func Normalize(rule *Rule) *Rule {
 		rule.Play.PlayURLRegex = strings.TrimSpace(rule.Play.PlayURLRegex)
 		rule.Play.EpisodeRegex = strings.TrimSpace(rule.Play.EpisodeRegex)
 		rule.Play.AccountID = strings.TrimSpace(rule.Play.AccountID)
+		if rule.Play.Episodes != nil {
+			normalized := normalizeParse(*rule.Play.Episodes)
+			rule.Play.Episodes = &normalized
+		}
 		if rule.Play.API.Headers == nil {
 			rule.Play.API.Headers = map[string]string{}
 		}
@@ -172,6 +155,34 @@ func Normalize(rule *Rule) *Rule {
 		rule.Play.API.SkipFrom = normalizeStrings(rule.Play.API.SkipFrom)
 	}
 	return rule
+}
+
+// normalizeParse 归一一个抽取段（parse 与 play.episodes 共用同一套默认值）。
+func normalizeParse(parse Parse) Parse {
+	if parse.Type == "" {
+		parse.Type = "html"
+	}
+	parse.Type = strings.ToLower(strings.TrimSpace(parse.Type))
+	parse.Script = normalizeScript(parse.Script)
+	if parse.Fields == nil {
+		parse.Fields = map[string]Field{}
+	}
+	parse.Container = strings.TrimSpace(parse.Container)
+	parse.ContainerXPath = strings.TrimSpace(parse.ContainerXPath)
+	parse.ListPath = strings.TrimSpace(parse.ListPath)
+	parse.BaseURL = strings.TrimSpace(parse.BaseURL)
+	if parse.DedupeBy == "" {
+		parse.DedupeBy = "url"
+	}
+	parse.DedupeBy = strings.TrimSpace(parse.DedupeBy)
+	if parse.Limit <= 0 {
+		parse.Limit = 30
+	}
+	if parse.Limit > 100 {
+		parse.Limit = 100
+	}
+	parse.Groups = normalizeGroupSpec(parse.Groups)
+	return parse
 }
 
 func normalizeScript(script Script) Script {
@@ -262,6 +273,25 @@ func Validate(raw *Rule) (*Rule, error) {
 	}
 
 	parse := rule.Parse
+	// groups 引用的字段是「额外字段」：它们不在标准六字段里，但必须出现在 parse.fields，
+	// 否则规则跑起来永远解析不到集数。这里一并做白名单与存在性校验。
+	groupFields := map[string]bool{}
+	if parse.Groups != nil {
+		if parse.Groups.Field == "" {
+			errors = append(errors, "parse.groups.field 不能为空（指向 parse.fields 里的字段名）")
+		} else {
+			groupFields[parse.Groups.Field] = true
+			if _, ok := parse.Fields[parse.Groups.Field]; !ok {
+				errors = append(errors, "parse.groups.field 指向的字段 "+parse.Groups.Field+" 没有在 parse.fields 里定义")
+			}
+		}
+		if parse.Groups.NamesField != "" {
+			groupFields[parse.Groups.NamesField] = true
+			if _, ok := parse.Fields[parse.Groups.NamesField]; !ok {
+				errors = append(errors, "parse.groups.names_field 指向的字段 "+parse.Groups.NamesField+" 没有在 parse.fields 里定义")
+			}
+		}
+	}
 	switch parse.Type {
 	case "script":
 		if strings.TrimSpace(parse.Script.Source) == "" {
@@ -271,23 +301,30 @@ func Validate(raw *Rule) (*Rule, error) {
 			errors = append(errors, "parse.script.runtime 目前只支持 node")
 		}
 	case "html":
-		if parse.Container == "" {
+		useXPath := parse.ContainerXPath != ""
+		if parse.Container == "" && !useXPath {
 			errors = append(errors, "parse.container 不能为空（搜索结果条目的选择器）")
-		} else if err := ValidateSelector(parse.Container); err != nil {
-			errors = append(errors, "parse.container 选择器无效: "+parse.Container)
+		} else if !useXPath {
+			if err := ValidateSelector(parse.Container); err != nil {
+				errors = append(errors, "parse.container 选择器无效: "+parse.Container)
+			}
+		} else if compileXPath(parse.ContainerXPath) == nil {
+			errors = append(errors, "parse.container_xpath 表达式无效: "+parse.ContainerXPath)
 		}
 		for name, field := range parse.Fields {
-			if name != "extra" && !containsString(ruleFieldNames, name) {
+			if name != "extra" && !containsString(ruleFieldNames, name) && !groupFields[name] {
 				errors = append(errors, "parse.fields 不支持字段 "+name)
 			}
-			if field.Selector == "" {
-				errors = append(errors, "parse.fields."+name+" 缺少 selector")
+			// title 允许留空选择器：表示「取容器自身文本」，订阅源里成组出现的
+			// 条目（<a> 包着片名）就是这种形态。
+			// 选择器留空 = 取容器自身；此时只要给了 attr 仍然能取到值
+			// （ani-subs 的「列表项本身就是链接」形态）。
+			if field.Selector == "" && field.XPath == "" && name != "title" && strings.TrimSpace(field.Attr) == "" {
+				errors = append(errors, "parse.fields."+name+" 缺少 selector 或 xpath")
 			}
 		}
-		for _, name := range []string{"title", "url"} {
-			if parse.Fields[name].Selector == "" && !hasErrorFor(errors, "parse.fields."+name) {
-				errors = append(errors, "parse.fields."+name+" 缺少 selector")
-			}
+		if field := parse.Fields["url"]; field.Selector == "" && field.XPath == "" && strings.TrimSpace(field.Attr) == "" {
+			errors = append(errors, "parse.fields.url 缺少 selector 或 xpath")
 		}
 	case "json":
 		if parse.ListPath == "" {

@@ -310,3 +310,48 @@ func TestFillTemplate(t *testing.T) {
 		t.Error("missing placeholder should fail")
 	}
 }
+
+// play.episodes 用抽取段描述详情页选集：链接放在 data-href 里，通用正则抓不到。
+func TestPlayEpisodesFromParse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body>
+			<ul class="eps">
+				<li class="ep"><a data-href="/play/9">第九集</a></li>
+				<li class="ep"><a data-href="/play/10">第十集</a></li>
+			</ul>
+			<script>var player={"url":"/media/demo.m3u8"};</script>
+		</body></html>`))
+	}))
+	defer server.Close()
+
+	rule := &Rule{
+		Name: "本站",
+		Site: HostOf(server.URL),
+		Play: &Play{
+			Episodes: &Parse{
+				Type:      "html",
+				Container: ".eps .ep",
+				Fields: map[string]Field{
+					"title": {Selector: "a"},
+					"url":   {Selector: "a", Attr: "data-href"},
+				},
+			},
+		},
+	}
+	result, err := NewPlayResolver(PlayOptions{
+		Fetcher: NewFetcher(FetcherOptions{Retries: 0, Timeout: 5 * time.Second}),
+	}).Resolve(server.URL+"/detail/1", "", "guest", rule)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	episodes, ok := result["episodes"].([]Episode)
+	if !ok || len(episodes) != 2 {
+		t.Fatalf("episodes = %#v", result["episodes"])
+	}
+	if episodes[0].Name != "第九集" {
+		t.Errorf("name = %q", episodes[0].Name)
+	}
+	if !strings.HasSuffix(episodes[0].PlayPage, "/play/9") {
+		t.Errorf("playPage = %q", episodes[0].PlayPage)
+	}
+}

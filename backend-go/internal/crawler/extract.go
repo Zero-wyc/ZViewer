@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/antchfx/htmlquery"
 )
 
 // 结果抽取。对齐 Python 的 rules.py#_extract_html / _extract_json：
@@ -33,6 +34,9 @@ func ExtractItems(rule *Rule, text, pageURL string) ([]Item, int, error) {
 
 func extractHTML(rule *Rule, text, pageURL string) ([]Item, int, error) {
 	parse := rule.Parse
+	if strings.TrimSpace(parse.ContainerXPath) != "" {
+		return extractHTMLXPath(rule, text, pageURL)
+	}
 	baseURL := parse.BaseURL
 	if baseURL == "" {
 		baseURL = pageURL
@@ -119,6 +123,65 @@ func shouldAbsolute(spec Field, fieldName string) bool {
 		return *spec.Absolute
 	}
 	return fieldName == "url" || fieldName == "cover"
+}
+
+// extractHTMLXPath 用 XPath 选条目与字段。
+//
+// 与 CSS 分支的结果形状完全一致（Item + skipped + 去重），因此上层无感知。
+func extractHTMLXPath(rule *Rule, text, pageURL string) ([]Item, int, error) {
+	parse := rule.Parse
+	baseURL := parse.BaseURL
+	if baseURL == "" {
+		baseURL = pageURL
+	}
+	doc, err := htmlquery.Parse(strings.NewReader(text))
+	if err != nil {
+		return nil, 0, RuleErrorf("HTML 解析失败: %v", err)
+	}
+	containers := xpathSelect(doc, doc, parse.ContainerXPath)
+	items := make([]Item, 0, len(containers))
+	skipped := 0
+	for _, container := range containers {
+		node := container.node
+		if node == nil {
+			continue
+		}
+		item := Item{}
+		for name, spec := range parse.Fields {
+			value := ""
+			switch {
+			case strings.TrimSpace(spec.XPath) != "":
+				if nodes := xpathSelect(doc, node, spec.XPath); len(nodes) > 0 {
+					value = xpathFieldValue(nodes[0], spec)
+				}
+			case strings.TrimSpace(spec.Selector) == "":
+				// 没写选择器/XPath 的字段取容器自身文本，与 CSS 分支同义。
+				value = CollapseSpace(collapseXPathText(node))
+			default:
+				return nil, 0, RuleErrorf("parse.fields.%s 在 XPath 规则里必须用 xpath 字段", name)
+			}
+			value = applyField(value, spec)
+			if shouldAbsolute(spec, name) && value != "" {
+				value = joinURL(baseURL, value)
+			}
+			item[name] = value
+		}
+		if item["title"] == "" || item["url"] == "" {
+			skipped++
+			continue
+		}
+		items = append(items, item)
+	}
+	return dedupeItems(items, parse.DedupeBy, parse.Limit), skipped, nil
+}
+
+// xpathFieldValue 取文本或属性（attr 为 text/innerText 时取文本）。
+func xpathFieldValue(value xpathValue, spec Field) string {
+	attr := strings.TrimSpace(spec.Attr)
+	if attr == "" || attr == "text" || attr == "innerText" {
+		return value.text()
+	}
+	return value.attrValue(attr)
 }
 
 func extractJSON(rule *Rule, text, pageURL string) ([]Item, int, error) {

@@ -130,3 +130,91 @@ func TestCrawlerLimitItems(t *testing.T) {
 		t.Fatalf("nil 应序列化成 []，实际 %s", encoded)
 	}
 }
+
+// 导入接口端到端：TVBox 配置 → 规则。dryRun 不落库，真导入落库且可重复（覆盖）。
+func TestCrawlerLibrariesImportCMS(t *testing.T) {
+	configServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sites":[{"key":"a","name":"甲站","type":1,"api":"https://a.example.com/api.php/provide/vod/"}]}`))
+	}))
+	defer configServer.Close()
+
+	// 把引擎指向临时目录：导入要写规则文件，不能动真实 crawler/data。
+	t.Setenv("ZVIEWER_CRAWLER_ROOT", t.TempDir())
+	crawlerMu.Lock()
+	crawlerResolved = false
+	crawlerBundle = nil
+	crawlerMu.Unlock()
+	defer func() {
+		crawlerMu.Lock()
+		crawlerResolved = false
+		crawlerBundle = nil
+		crawlerMu.Unlock()
+	}()
+
+	server := &Server{}
+	body := `{"kind":"cms","urls":["` + configServer.URL + `/tvbox.json"],"dryRun":true}`
+	request := httptest.NewRequest(http.MethodPost, "/api/crawler/libraries/import", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+	server.handleCrawlerLibrariesImport(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	var dry map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &dry); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if dry["saved"].(float64) != 0 {
+		t.Fatalf("dryRun 不应落库: %v", dry)
+	}
+	items, _ := dry["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items = %v", items)
+	}
+	first, _ := items[0].(map[string]any)
+	if first["rule"] == nil {
+		t.Fatalf("dryRun 应回报规则内容: %v", first)
+	}
+
+	// 真导入：写进临时规则目录。
+	body = `{"kind":"cms","urls":["` + configServer.URL + `/tvbox.json"]}`
+	request = httptest.NewRequest(http.MethodPost, "/api/crawler/libraries/import", strings.NewReader(body))
+	recorder = httptest.NewRecorder()
+	server.handleCrawlerLibrariesImport(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &saved); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if saved["saved"].(float64) != 1 {
+		t.Fatalf("saved = %v body = %s", saved["saved"], recorder.Body.String())
+	}
+	bundle := localBundle()
+	if bundle == nil {
+		t.Fatal("引擎应已初始化")
+	}
+	if len(bundle.Store.List(true)) != 1 {
+		t.Fatalf("规则数 = %d", len(bundle.Store.List(true)))
+	}
+
+	// 再导入一次：同站点同名 → 覆盖，不产生第二条。
+	request = httptest.NewRequest(http.MethodPost, "/api/crawler/libraries/import", strings.NewReader(body))
+	recorder = httptest.NewRecorder()
+	server.handleCrawlerLibrariesImport(recorder, request)
+	if len(bundle.Store.List(true)) != 1 {
+		t.Fatalf("重复导入不应新增规则，实际 %d 条", len(bundle.Store.List(true)))
+	}
+}
+
+func TestCrawlerLibrariesImportRejectsUnknownKind(t *testing.T) {
+	server := &Server{}
+	request := httptest.NewRequest(http.MethodPost, "/api/crawler/libraries/import", strings.NewReader(`{"kind":"tvbox"}`))
+	recorder := httptest.NewRecorder()
+	server.handleCrawlerLibrariesImport(recorder, request)
+	// 引擎未初始化时先报 503，这里只保证不会 200。
+	if recorder.Code == http.StatusOK {
+		t.Fatalf("未知库不应成功: %s", recorder.Body.String())
+	}
+}

@@ -298,6 +298,43 @@ func parseEpisodes(htmlText, pageURL string, playCfg *Play) []Episode {
 	return episodes
 }
 
+// episodesFromParse 用规则的 play.episodes 段从详情页抽选集。
+//
+// 复用搜索结果那套抽取器（html/json/script），因此 CMS 的 JSON 详情、
+// 番剧站的选择器列表都能描述；抽到 0 集时返回 nil，调用方保留正则结果。
+func episodesFromParse(playCfg *Play, htmlText, pageURL string) []Episode {
+	if playCfg == nil || playCfg.Episodes == nil {
+		return nil
+	}
+	spec := *playCfg.Episodes
+	items, _, err := ExtractItems(&Rule{Parse: spec}, htmlText, pageURL)
+	if err != nil || len(items) == 0 {
+		return nil
+	}
+	episodes := make([]Episode, 0, len(items))
+	for _, item := range items {
+		link := strings.TrimSpace(item["url"])
+		if link == "" {
+			continue
+		}
+		name := strings.TrimSpace(item["title"])
+		if name == "" {
+			name = "第 " + itoa(len(episodes)+1) + " 集"
+		}
+		episode := Episode{Name: name}
+		if DetectFormat(link) != "" {
+			episode.URL = link
+		} else {
+			episode.PlayPage = link
+		}
+		episodes = append(episodes, episode)
+		if len(episodes) >= maxEpisodes {
+			break
+		}
+	}
+	return episodes
+}
+
 // matchPlayVars 用 play_url_regex 从播放页地址里取命名分组（如 playFrom）。
 func matchPlayVars(target string, playCfg *Play) map[string]string {
 	if playCfg == nil || playCfg.PlayURLRegex == "" {
@@ -492,6 +529,10 @@ func (r *PlayResolver) Resolve(target, roomID, role string, rule *Rule) (map[str
 		html = page.Text
 		title = pageTitleOf(html)
 		episodes = parseEpisodes(html, pageURL, playCfg)
+		// 规则给了 play.episodes 时以它为准：选择器/路径比通用正则可靠得多。
+		if parsed := episodesFromParse(playCfg, html, pageURL); len(parsed) > 0 {
+			episodes = parsed
+		}
 	}
 	_ = fetchErr
 

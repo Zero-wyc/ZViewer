@@ -1,5 +1,10 @@
 {
   "items": [
+    "Repeat the new password",
+    "Generate rules in the GUI, export them as JSON, and import here to enable site search on this server. Changes apply immediately, no restart needed.",
+    "Online",
+    "No rooms yet",
+    "No active rooms",
     "No rooms to clean up",
     "No rooms available",
     "No users yet",

@@ -35,5 +35,15 @@
   "打开搜索": "Open search",
   "全网搜片（内置库）": "Crawl all (built-in libraries)",
   "在本机「站点规则」里搜索，选中结果后直接加入房间。": "Search local site rules and add the selected result to the room.",
-  "AniSubs 番剧源": "AniSubs anime source"
+  "AniSubs 番剧源": "AniSubs anime source",
+  "{{groups}} 条线路 · {{count}} 集": "{{groups}} sources · {{count}} episodes",
+  "选择集数后加入一起看": "Pick an episode to add to the room",
+  "选集": "Episodes",
+  "导入失败": "Import failed",
+  "没有可编译的源": "Nothing to compile",
+  "已导入 {{count}} 条规则": "Imported {{count}} rules",
+  "把该库的源编译成本地规则，导入后可在站点规则里编辑": "Compile this library into local rules you can edit under site rules",
+  "导入为本地规则": "Import as local rules",
+  "将导入为规则": "Will import as a rule",
+  "确认导入": "Confirm import"
 }

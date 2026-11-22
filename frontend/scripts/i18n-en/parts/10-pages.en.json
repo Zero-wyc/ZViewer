@@ -1,5 +1,9 @@
 {
   "items": [
+    "Failed to delete the user",
+    "Failed to upload the update",
+    "Upload avatar",
+    "Upload a custom avatar image",
     "With “all signed-in users”, regular users can create rooms too; guests never can.",
     "Review",
     "Review failed",
@@ -82,6 +86,7 @@
     "Bilibili account linked",
     "NetEase Cloud Music account linked",
     "Saved",
+    "",
     "Closed rooms",
     "{{username}} is now {{role}}",
     "Direct sharing ended",
@@ -114,11 +119,6 @@
     "Remote version:",
     "Allow the CLI to resolve direct links with the host's Bilibili identity",
     "Who may create rooms",
-    "Allow one user to join the same room from several pages",
-    "Repeat the new password",
-    "Generate rules in the GUI, export them as JSON, and import here to enable site search on this server. Changes apply immediately, no restart needed.",
-    "Online",
-    "No rooms yet",
-    "No active rooms"
+    "Allow one user to join the same room from several pages"
   ]
 }

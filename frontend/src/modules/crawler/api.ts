@@ -27,6 +27,12 @@ export interface CrawlerSite {
   }
 }
 
+export interface CrawlerPlayGroup {
+  name: string
+  /** 集地址可能是媒体直链，也可能是需要二次解析的播放页。 */
+  episodes: { name: string; url: string }[]
+}
+
 export interface CrawlerSearchItem {
   title: string
   url: string
@@ -35,6 +41,8 @@ export interface CrawlerSearchItem {
   duration?: string
   author?: string
   extra?: Record<string, unknown>
+  /** 规则声明了 parse.groups 时带线路与选集（CMS/TVBox 形态）。 */
+  groups?: CrawlerPlayGroup[]
 }
 
 export interface CrawlerChallenge {

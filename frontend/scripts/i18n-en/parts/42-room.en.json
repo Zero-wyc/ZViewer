@@ -17,6 +17,7 @@
     "[useWatchTogether] applySourceToVideo failed:",
     "[useWatchTogether] previewPlay failed to load:",
     "{{count}} items",
+    "",
     "{{length}} movies",
     "{{message}}; added as a single part",
     "{{site}} requires human verification",
@@ -30,7 +31,7 @@
     "This session · HTTP",
     "Local Cookie (lower latency; quality follows your own account)",
     "Failed to load the local proxy",
-    "",
+    "Local rules",
     "No local CLI detected; falling back to the server relay. It will switch automatically once the ZViewer CLI starts",
     "Bilibili login QR code",
     "Encoder CPU limited",
@@ -54,7 +55,7 @@
     "Failed to create the room",
     "Search anime from ani-subs subscriptions and pick an episode to play.",
     "Search anime from Kazumi XPath rule sources and pick an episode to play.",
-    "",
+    "Open search",
     "Open original site",
     "Premium member",
     "A premium account can resolve 4K and high-bitrate 1080P",
@@ -118,7 +119,6 @@
     "This movie can only be watched in CLI mode",
     "This movie uses “CLI only”: install and connect ZViewer CLI first",
     "This user",
-    "The main feature on this site requires membership or cannot be played directly; open the original site to watch",
-    "That account is already in this room"
+    "The main feature on this site requires membership or cannot be played directly; open the original site to watch"
   ]
 }

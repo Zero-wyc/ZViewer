@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Database, RefreshCw, Save } from 'lucide-react'
+import { Database, Download, RefreshCw, Save } from 'lucide-react'
 import { AniSubsGithubBrowser } from '@/modules/admin/components/AniSubsGithubBrowser'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -33,6 +33,22 @@ interface CrawlerLibrary {
   note?: string
 }
 
+/** 导入结果：每条源要么编译成一条规则，要么给出跳过原因。 */
+interface ImportItem {
+  name: string
+  ruleId?: string
+  warnings?: string[]
+  skipped?: string
+}
+
+interface ImportResponse {
+  success?: boolean
+  count?: number
+  saved?: number
+  items?: ImportItem[]
+  message?: string
+}
+
 interface LibraryListResponse {
   success?: boolean
   libraries?: CrawlerLibrary[]
@@ -55,6 +71,11 @@ export function CrawlerLibrariesCard() {
   const [savingId, setSavingId] = useState('')
   const [inspectUrl, setInspectUrl] = useState('')
   const [inspecting, setInspecting] = useState(false)
+  // 导入是两段式：先试着编译一份预告，确认后再落库。
+  const [importingId, setImportingId] = useState('')
+  const [previews, setPreviews] = useState<
+    Record<string, ImportResponse | undefined>
+  >({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -178,6 +199,45 @@ export function CrawlerLibrariesCard() {
     }
   }, [inspectUrl, libraries, load, saveUrls])
 
+  const runImport = useCallback(
+    async (library: CrawlerLibrary, dryRun: boolean) => {
+      const urls = (drafts[library.id] ?? '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+      setImportingId(library.id)
+      try {
+        const res = await apiFetch('/api/crawler/libraries/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: library.id, urls, dryRun }),
+        })
+        const data = (await res.json()) as ImportResponse
+        if (!res.ok || !data.success) {
+          message.error(data.message ?? t('导入失败'))
+          return
+        }
+        if (dryRun) {
+          setPreviews((prev) => ({ ...prev, [library.id]: data }))
+          if ((data.saved ?? 0) === 0 && (data.items ?? []).length === 0) {
+            message.info(t('没有可编译的源'))
+          }
+          return
+        }
+        setPreviews((prev) => ({ ...prev, [library.id]: undefined }))
+        message.success(
+          t('已导入 {{count}} 条规则', { count: data.saved ?? 0 })
+        )
+        await load()
+      } catch {
+        message.error(t('导入失败'))
+      } finally {
+        setImportingId('')
+      }
+    },
+    [drafts, load]
+  )
+
   const sourceTags = useCallback((library: CrawlerLibrary) => {
     const sources = library.sources ?? []
     const shown = sources.slice(0, 8)
@@ -212,6 +272,21 @@ export function CrawlerLibrariesCard() {
               {t('{{count}} 个源', { count: library.count })}
             </Text>
             <div className="ml-auto flex items-center gap-2">
+              {library.editable ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Download className="h-4 w-4" />}
+                  loading={importingId === library.id}
+                  disabled={importingId === library.id}
+                  title={t(
+                    '把该库的源编译成本地规则，导入后可在站点规则里编辑'
+                  )}
+                  onClick={() => void runImport(library, true)}
+                >
+                  {t('导入为本地规则')}
+                </Button>
+              ) : null}
               {library.editable ? (
                 <Button
                   size="sm"
@@ -254,6 +329,61 @@ export function CrawlerLibrariesCard() {
                 {configHint(library)}
               </p>
             </>
+          ) : null}
+          {previews[library.id] ? (
+            <div className="mt-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)] p-2">
+              {(previews[library.id]?.items ?? []).map((item, index) => (
+                <div
+                  key={`${item.name}-${index}`}
+                  className="flex flex-wrap items-baseline gap-x-2 py-0.5 text-xs"
+                >
+                  <Text className="font-medium">{item.name}</Text>
+                  {item.skipped ? (
+                    <Text
+                      type="secondary"
+                      className="text-[11px]"
+                      style={{ color: 'var(--md-sys-color-error)' }}
+                    >
+                      {item.skipped}
+                    </Text>
+                  ) : (
+                    <Text type="secondary" className="text-[11px]">
+                      {t('将导入为规则')}
+                    </Text>
+                  )}
+                  {(item.warnings ?? []).map((warning) => (
+                    <Text
+                      key={warning}
+                      type="secondary"
+                      className="text-[11px] opacity-75"
+                    >
+                      {warning}
+                    </Text>
+                  ))}
+                </div>
+              ))}
+              <div className="mt-1 flex items-center gap-2">
+                <Button
+                  size="sm"
+                  loading={importingId === library.id}
+                  onClick={() => void runImport(library, false)}
+                >
+                  {t('确认导入')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    setPreviews((prev) => ({
+                      ...prev,
+                      [library.id]: undefined,
+                    }))
+                  }
+                >
+                  {t('取消')}
+                </Button>
+              </div>
+            </div>
           ) : null}
           {library.id === 'kazumi' ? (
             <div className="mt-2">
@@ -320,6 +450,9 @@ export function CrawlerLibrariesCard() {
       inspecting,
       handleSave,
       handleInspect,
+      runImport,
+      importingId,
+      previews,
       sourceTags,
     ]
   )

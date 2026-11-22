@@ -1,5 +1,7 @@
 {
   "items": [
+    "Admin: {{username}}",
+    "Admin accounts can create shared rooms",
     "Rules",
     "Rule directory: {{root}}",
     "Rule content is not valid JSON",
@@ -20,6 +22,7 @@
     "Check for updates",
     "Update check failed",
     "Checking for updates...",
+    "",
     "Get updates for the latest builds",
     "Parse and generate a response code",
     "CLI only (media is not relayed by the server)",
@@ -49,6 +52,7 @@
     "Browse and join the rooms available now",
     "Browser",
     "Empty uses built-in subscriptions; one URL per line",
+    "",
     "No accounts available to appoint",
     "No matching accounts",
     "No CMS source found",
@@ -115,10 +119,6 @@
     "Failed to remove the avatar",
     "Delete selected ({{size}})",
     "Delete {{size}} selected rooms",
-    "Delete user",
-    "Failed to delete the user",
-    "Failed to upload the update",
-    "Upload avatar",
-    "Upload a custom avatar image"
+    "Delete user"
   ]
 }

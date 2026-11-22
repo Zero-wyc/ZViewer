@@ -62,25 +62,32 @@ type Search struct {
 // Field 是一个字段的抽取规格。
 type Field struct {
 	Selector string `json:"selector,omitempty"`
-	Path     string `json:"path,omitempty"`
-	Attr     string `json:"attr,omitempty"`
-	Regex    string `json:"regex,omitempty"`
-	Group    int    `json:"group,omitempty"`
-	Prefix   string `json:"prefix,omitempty"`
+	// XPath 是 CSS 选择器的替代（Kazumi 等外站规则只有 XPath）。
+	// 容器声明了 container_xpath 时，字段表达式相对容器节点求值。
+	XPath  string `json:"xpath,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Attr   string `json:"attr,omitempty"`
+	Regex  string `json:"regex,omitempty"`
+	Group  int    `json:"group,omitempty"`
+	Prefix string `json:"prefix,omitempty"`
 	// Absolute 三态：nil 表示按字段名默认（url/cover 为 true）。
 	Absolute *bool `json:"absolute,omitempty"`
 }
 
 // Parse 是解析段。
 type Parse struct {
-	Type      string           `json:"type"`
-	Container string           `json:"container,omitempty"`
-	ListPath  string           `json:"list_path,omitempty"`
-	Fields    map[string]Field `json:"fields"`
-	Script    Script           `json:"script"`
-	BaseURL   string           `json:"base_url"`
-	DedupeBy  string           `json:"dedupe_by"`
-	Limit     int              `json:"limit"`
+	Type      string `json:"type"`
+	Container string `json:"container,omitempty"`
+	// ContainerXPath 非空时改用 XPath 选条目（Container 忽略）。
+	ContainerXPath string           `json:"container_xpath,omitempty"`
+	ListPath       string           `json:"list_path,omitempty"`
+	Fields         map[string]Field `json:"fields"`
+	Script         Script           `json:"script"`
+	BaseURL        string           `json:"base_url"`
+	DedupeBy       string           `json:"dedupe_by"`
+	Limit          int              `json:"limit"`
+	// Groups 把某个已抽取字段拆成「线路 + 集数」（CMS/TVBox 的 vod_play_url 形态）。
+	Groups *GroupSpec `json:"groups,omitempty"`
 }
 
 // Challenge 是人机验证识别段。
@@ -112,6 +119,9 @@ type Play struct {
 	PlayURLRegex string            `json:"play_url_regex"`
 	EpisodeRegex string            `json:"episode_regex"`
 	AccountID    string            `json:"account_id"`
+	// Episodes 用解析段描述详情页选集（容器 + title/url 字段）。
+	// 有了它，选集就不必依赖 episode_regex 去猜页面结构。
+	Episodes *Parse `json:"episodes,omitempty"`
 }
 
 // Rule 是一条站点规则。
@@ -322,6 +332,7 @@ func parseField(raw json.RawMessage, kind string) Field {
 	}
 	field := Field{
 		Selector: object.str("selector"),
+		XPath:    object.str("xpath"),
 		Path:     object.str("path"),
 		Attr:     object.str("attr"),
 		Regex:    object.str("regex"),
@@ -413,16 +424,7 @@ func (r *Rule) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if parse := object.object("parse"); parse != nil {
-		r.Parse.Type = parse.str("type")
-		r.Parse.Container = parse.str("container", "item_selector", "itemSelector")
-		r.Parse.ListPath = parse.str("list_path", "listPath")
-		r.Parse.BaseURL = parse.str("base_url", "baseUrl")
-		r.Parse.DedupeBy = parse.str("dedupe_by", "dedupeBy")
-		r.Parse.Script = parseScript(rawOrNil(parse, "script"))
-		r.Parse.Fields = parseFields(rawOrNil(parse, "fields"), r.Parse.Type)
-		if value, ok := parse.pick("limit"); ok {
-			r.Parse.Limit = looseInt(value)
-		}
+		r.Parse = parseParseObject(parse)
 	}
 	if challenge := object.object("challenge"); challenge != nil {
 		if value, ok := challenge.pick("enabled"); ok {
@@ -461,9 +463,41 @@ func (r *Rule) UnmarshalJSON(data []byte) error {
 				play.API.Headers = looseStringMap(rawOrNil(api, "headers"))
 				play.API.SkipFrom = looseStringList(rawOrNil(api, "skipFrom", "skip_from"))
 			}
+			if episodes := object.object("episodes"); episodes != nil {
+				parsed := parseParseObject(episodes)
+				play.Episodes = &parsed
+			}
 		}
 	}
 	return nil
+}
+
+// parseParseObject 解析一个「抽取段」（parse 与 play.episodes 共用）。
+func parseParseObject(object rawObject) Parse {
+	out := Parse{
+		Type:           object.str("type"),
+		Container:      object.str("container", "item_selector", "itemSelector"),
+		ContainerXPath: object.str("container_xpath", "containerXPath"),
+		ListPath:       object.str("list_path", "listPath"),
+		BaseURL:        object.str("base_url", "baseUrl"),
+		DedupeBy:       object.str("dedupe_by", "dedupeBy"),
+		Script:         parseScript(rawOrNil(object, "script")),
+	}
+	out.Fields = parseFields(rawOrNil(object, "fields"), out.Type)
+	if value, ok := object.pick("limit"); ok {
+		out.Limit = looseInt(value)
+	}
+	if groups := object.object("groups"); groups != nil {
+		out.Groups = &GroupSpec{
+			Field:       groups.str("field"),
+			NamesField:  groups.str("names_field", "namesField"),
+			GroupSep:    groups.str("group_sep", "groupSep"),
+			EpisodeSep:  groups.str("episode_sep", "episodeSep"),
+			NameSep:     groups.str("name_sep", "nameSep"),
+			URLTemplate: groups.str("url_template", "urlTemplate"),
+		}
+	}
+	return out
 }
 
 func rawOrNil(object rawObject, keys ...string) json.RawMessage {

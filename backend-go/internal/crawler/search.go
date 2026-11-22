@@ -476,6 +476,18 @@ func cleanItems(rawItems []any, rule *Rule) ([]map[string]any, int, error) {
 		if extra, ok := object["extra"].(map[string]any); ok {
 			item["extra"] = extra
 		}
+		// 分组字段（如 play_url / play_from）是脚本产出的额外字段，标准六字段之外
+		// 单独搬运，否则下面 attachGroups 永远拿不到值。
+		if groups := rule.Parse.Groups; groups != nil {
+			for _, name := range []string{groups.Field, groups.NamesField} {
+				if name == "" {
+					continue
+				}
+				if value := object[name]; value != nil {
+					item[name] = fmt.Sprint(value)
+				}
+			}
+		}
 		if item["title"] == "" || item["url"] == "" {
 			skipped++
 			continue
@@ -665,6 +677,8 @@ func (s *SearchService) Search(site, keyword, roomID, role string, limit int, ex
 	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
+	// 分组剧集在抽取之后统一挂上：html/json/script 三条路径的产物形状一致。
+	attachGroups(items, rule.Parse.Groups)
 	warnings := make([]string, 0, 3)
 	if skipped > 0 {
 		warnings = append(warnings, itoa(skipped)+" 条结果缺少标题或链接，已跳过")
@@ -761,6 +775,7 @@ func (s *SearchService) TestRule(raw *Rule, keyword string, limit int) map[strin
 	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
+	attachGroups(items, rule.Parse.Groups)
 	s.record(rule, keyword, "", "root", started, page, len(items), skipped, "", nil, "test")
 	preview := items
 	if len(preview) > 10 {

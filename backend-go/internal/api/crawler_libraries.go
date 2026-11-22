@@ -76,6 +76,7 @@ func (s *Server) registerCrawlerLibraryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/crawler/libraries", admin(s.handleCrawlerLibraries))
 	mux.HandleFunc("GET /api/crawler/libraries/{id}/config", admin(s.handleCrawlerLibraryConfigGet))
 	mux.HandleFunc("PUT /api/crawler/libraries/{id}/config", admin(s.handleCrawlerLibraryConfigPut))
+	mux.HandleFunc("POST /api/crawler/libraries/import", admin(s.handleCrawlerLibrariesImport))
 }
 
 // handleCrawlerLibraries 一次返回四个库的状态。

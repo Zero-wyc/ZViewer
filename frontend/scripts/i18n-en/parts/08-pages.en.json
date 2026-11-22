@@ -8,6 +8,7 @@
     "3. Copy the cookies (MUSIC_U at minimum); the session is validated on submit",
     "3. Copy all cookies (SESSDATA at minimum)",
     "Search accounts by username",
+    "",
     "Version update",
     "Show the announcement automatically after an update",
     "Updates are managed by the desktop app",
@@ -47,6 +48,7 @@
     "Imported rules take effect immediately; disabled rules are skipped",
     "Import result",
     "Import complete",
+    "",
     "Sign in to ZViewer",
     "Sign in to keep your history and identity; new accounts need admin approval",
     "Sign in to create rooms",
@@ -117,8 +119,6 @@
     "Manage this room's moderators",
     "Admin console",
     "Manage your ZViewer account, mount settings and NetEase Cloud Music / Bilibili links",
-    "Manage user accounts, running rooms and basic server settings",
-    "Admin: {{username}}",
-    "Admin accounts can create shared rooms"
+    "Manage user accounts, running rooms and basic server settings"
   ]
 }

@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2945 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2953 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2140,7 +2140,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（497 条） =====
+  // ===== modules/room（502 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
@@ -2171,6 +2171,7 @@ const enUS: Record<string, string> = {
   '本次会话 · HTTP': 'This session · HTTP',
   '本地 Cookie（延迟更低，画质由你的账号决定）': 'Local Cookie (lower latency; quality follows your own account)',
   '本地代理加载失败': 'Failed to load the local proxy',
+  '本地规则': 'Local rules',
   '本机未检测到 CLI，将退回服务器中转；启动 ZViewer CLI 后自动生效': 'No local CLI detected; falling back to the server relay. It will switch automatically once the ZViewer CLI starts',
   '哔哩哔哩登录二维码': 'Bilibili login QR code',
   '编码 CPU 受限': 'Encoder CPU limited',
@@ -2194,6 +2195,7 @@ const enUS: Record<string, string> = {
   '创建房间失败': 'Failed to create the room',
   '从 ani-subs 订阅源搜索番剧并选择集数播放。': 'Search anime from ani-subs subscriptions and pick an episode to play.',
   '从 Kazumi XPath 规则源搜索番剧并选择集数播放。': 'Search anime from Kazumi XPath rule sources and pick an episode to play.',
+  '打开搜索': 'Open search',
   '打开原站': 'Open original site',
   '大会员': 'Premium member',
   '大会员账号，可解析 4K / 1080P 高码率等专属画质': 'A premium account can resolve 4K and high-bitrate 1080P',
@@ -2385,6 +2387,7 @@ const enUS: Record<string, string> = {
   '全部站点': 'All sites',
   '全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导': 'Every member (including the host) must connect ZViewer CLI to watch; the stream is not relayed by the server. Viewers without the CLI see a setup guide.',
   '全网搜片': 'Search all sites',
+  '全网搜片（内置库）': 'Crawl all (built-in libraries)',
   '权限说明': 'Permissions',
   '确定要将房主转交给 <highlight>{{name}}</highlight> 吗？转交后您将变为观众身份，无法再管理房间。': 'Transfer the host role to <highlight>{{name}}</highlight>? You will become a viewer and lose room management.',
   '确认清空？': 'Clear everything?',
@@ -2547,6 +2550,7 @@ const enUS: Record<string, string> = {
   '远程共享模式下不可删除': 'Cannot delete in remote sharing mode',
   '允许': 'Allow',
   '允许该成员添加影片': 'Allow this member to add movies',
+  '在本机「站点规则」里搜索，选中结果后直接加入房间。': 'Search local site rules and add the selected result to the room.',
   '在线 ({{length}})': 'Online ({{length}})',
   '在线观众（{{length}}）': 'Online viewers ({{length}})',
   '在线用户': 'Online users',
@@ -2615,6 +2619,7 @@ const enUS: Record<string, string> = {
   '自动通过：关': 'Auto-approve: off',
   '自动通过：开': 'Auto-approve: on',
   '自动重载已达上限，视频仍无法播放，请手动重载、切换清晰度或更换影片': 'Auto-reload hit its limit and the video still will not play; reload manually, change the quality or pick another movie',
+  'AniSubs 番剧源': 'AniSubs anime source',
   'B站 登录状态': 'Bilibili sign-in status',
   'B站 URL 已过期，请重新解析视频': 'The Bilibili URL expired, resolve the video again',
   'B站解析设置': 'Bilibili resolution settings',
@@ -3020,17 +3025,20 @@ const enUS: Record<string, string> = {
   '解析 {{label}} 文件失败': 'Failed to resolve {{label}} files',
   '浏览 WebDAV 目录': 'Browse the WebDAV directory',
 
-  // ===== extra（10 条，见 overrides.json） =====
+  // ===== extra（13 条，见 overrides.json） =====
   '」': '”',
   '{{count}} 集_one': '{{count}} episode',
   '找到 {{count}} 条字幕_one': 'Found {{count}} subtitle track',
   '已清理 {{count}} 个无人使用的房间_one': 'Removed {{count}} unused room',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one': 'Delete the <strong>{{count}}</strong> selected room? This cannot be undone.',
-  '本地规则': 'Local rules',
-  '打开搜索': 'Open search',
-  '全网搜片（内置库）': 'Crawl all (built-in libraries)',
-  '在本机「站点规则」里搜索，选中结果后直接加入房间。': 'Search local site rules and add the selected result to the room.',
-  'AniSubs 番剧源': 'AniSubs anime source',
+  '{{groups}} 条线路 · {{count}} 集': '{{groups}} sources · {{count}} episodes',
+  '选择集数后加入一起看': 'Pick an episode to add to the room',
+  '选集': 'Episodes',
+  '没有可编译的源': 'Nothing to compile',
+  '已导入 {{count}} 条规则': 'Imported {{count}} rules',
+  '把该库的源编译成本地规则，导入后可在站点规则里编辑': 'Compile this library into local rules you can edit under site rules',
+  '导入为本地规则': 'Import as local rules',
+  '将导入为规则': 'Will import as a rule',
 }
 
 export default enUS
