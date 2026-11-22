@@ -406,22 +406,6 @@ export function CrawlerTab() {
         }}
       />
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <StatTile label={t('规则')} value={String(rules.length)} />
-        <StatTile label={t('账号')} value={String(status?.accounts ?? 0)} />
-        <StatTile
-          label={t('浏览器')}
-          value={status?.browser.available ? t('可用') : t('不可用')}
-          hint={
-            status?.browser.available ? undefined : t('依赖浏览器的规则会失败')
-          }
-        />
-        <StatTile
-          label={t('大模型')}
-          value={status?.llmConfigured ? t('已配置') : t('未配置')}
-        />
-      </div>
-
       {status?.root && (
         <Text type="secondary" className="break-all text-xs">
           {t('规则目录：{{root}}', { root: status.root })}
@@ -856,36 +840,6 @@ export function CrawlerTab() {
           })}
         </Text>
       </Modal>
-    </div>
-  )
-}
-
-function StatTile({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string
-  hint?: string
-}) {
-  return (
-    <div
-      className="rounded-[var(--md-sys-shape-corner)] border px-3 py-2"
-      style={{
-        borderColor: 'var(--md-sys-color-outline-variant)',
-        backgroundColor: 'var(--glass-bg)',
-      }}
-    >
-      <div className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-        {label}
-      </div>
-      <div className="mt-0.5 text-sm font-medium">{value}</div>
-      {hint && (
-        <div className="mt-0.5 text-[11px] text-[var(--md-sys-color-on-surface-variant)]">
-          {hint}
-        </div>
-      )}
     </div>
   )
 }

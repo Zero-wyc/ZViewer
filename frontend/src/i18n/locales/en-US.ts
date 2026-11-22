@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2963 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2955 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -350,8 +350,9 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（433 条） =====
+  // ===== pages（432 条） =====
   '{{count}} 个源': '{{count}} sources',
+  '{{count}} 条规则删除失败': '{{count}} rules could not be deleted',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
   '1. 在浏览器中登录 music.163.com': '1. Sign in to music.163.com in your browser',
@@ -367,7 +368,6 @@ const enUS: Record<string, string> = {
   '本地规则与三个内置库的配置入口；点片时按库搜索': 'Local rules plus three built-in libraries; search by library when adding a movie',
   '编辑信息': 'Edit info',
   '编辑账号信息': 'Edit account info',
-  '不可用': 'Unavailable',
   '部分规则未能导入，请看下方报告': 'Some rules could not be imported, see the report below',
   '查看当前房间列表': 'View the current room list',
   '查看发布': 'View release',
@@ -381,7 +381,6 @@ const enUS: Record<string, string> = {
   '创建于 {{value}}': 'Created {{value}}',
   '从 GitCode 产物仓库（ZviewerRelease）读取清单与安装包，国内可直连；关闭则走 GitHub Release。镜像不可用时直接报错，不自动换源。': 'Read the manifest and installers from the GitCode release repository (ZviewerRelease), which is reachable from mainland China; turn this off to use GitHub Releases. If the mirror is unavailable it reports an error instead of switching sources.',
   '从 KazumiRules 仓库选择规则': 'Pick a rule set from the KazumiRules repository',
-  '大模型': 'LLM',
   '待审核': 'Pending review',
   '当前版本：': 'Current version:',
   '当前房管': 'Current moderators',
@@ -472,7 +471,6 @@ const enUS: Record<string, string> = {
   '管理用户账号、房间运行与服务器基础设置': 'Manage user accounts, running rooms and basic server settings',
   '管理员：{{username}}': 'Admin: {{username}}',
   '管理员账号可创建共享房间': 'Admin accounts can create shared rooms',
-  '规则': 'Rules',
   '规则目录：{{root}}': 'Rule directory: {{root}}',
   '规则内容不是有效 JSON': 'Rule content is not valid JSON',
   '规则文件不能超过 8 MB': 'Rule file must not exceed 8 MB',
@@ -520,7 +518,6 @@ const enUS: Record<string, string> = {
   '连接断开': 'Disconnected',
   '两次输入的新密码不一致': 'The new passwords do not match',
   '浏览并加入当前可用的房间': 'Browse and join the rooms available now',
-  '浏览器': 'Browser',
   '留空使用内置订阅；每行一个订阅地址': 'Empty uses built-in subscriptions; one URL per line',
   '没有可编译的源': 'Nothing to compile',
   '没有可任命的账号': 'No accounts available to appoint',
@@ -534,8 +531,10 @@ const enUS: Record<string, string> = {
   '默认 https://gh-proxy.com，可换成自建代理。': 'Defaults to https://gh-proxy.com; you can point it at your own proxy.',
   '内置库来源': 'Built-in library sources',
   '配置地址必须是 http(s) URL': 'The configuration URL must be an http(s) URL',
+  '批量删除': 'Delete selected',
   '批量删除房间': 'Delete rooms in bulk',
   '批量删除房间失败': 'Failed to delete rooms in bulk',
+  '批量删除规则': 'Delete selected rules',
   '批量删除失败': 'Bulk delete failed',
   '平铺': 'Tiles',
   '平铺视图': 'Tile view',
@@ -571,6 +570,7 @@ const enUS: Record<string, string> = {
   '确定要强制关闭房间 <strong>{{room}}</strong> 吗？所有连接将断开。': 'Force close room <strong>{{room}}</strong>? All connections will drop.',
   '确定要删除当前头像并恢复默认头像吗？': 'Remove the current avatar and restore the default?',
   '确定要删除所有房间吗？此操作不可撤销，所有房间数据将被清除。': 'Delete all rooms? This cannot be undone and every room\'s data will be erased.',
+  '确定要删除选中的 {{count}} 条规则吗？此操作不可撤销。': 'Delete the {{count}} selected rules? This cannot be undone.',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。': 'Delete the <strong>{{count}}</strong> selected rooms? This cannot be undone.',
   '确定要删除用户 <strong>{{name}}</strong> 吗？此操作不可撤销。': 'Delete user <strong>{{name}}</strong>? This cannot be undone.',
   '确定要移除所有无人的房间（含已关闭的房间）吗？此操作不可撤销。': 'Remove every empty room (including closed ones)? This cannot be undone.',
@@ -589,6 +589,7 @@ const enUS: Record<string, string> = {
   '删除所有房间失败': 'Failed to delete all rooms',
   '删除头像': 'Remove avatar',
   '删除头像失败': 'Failed to remove the avatar',
+  '删除选中的规则': 'Delete selected rules',
   '删除已选 ({{size}})': 'Delete selected ({{size}})',
   '删除已选 {{size}} 个房间': 'Delete {{size}} selected rooms',
   '删除用户': 'Delete user',
@@ -646,7 +647,6 @@ const enUS: Record<string, string> = {
   '未获取到 Cookie，请重新登录 B站': 'No cookies found, sign in to Bilibili again',
   '未获取到 Cookie，请重新登录网易云音乐': 'No cookies found, sign in to NetEase Cloud Music again',
   '未命名规则': 'Unnamed rule',
-  '未配置': 'Not configured',
   '无法进入全屏模式': 'Cannot enter fullscreen',
   '无密码': 'No password',
   '无效的应答码': 'Invalid response code',
@@ -668,11 +668,11 @@ const enUS: Record<string, string> = {
   '修改用户名失败': 'Failed to change the username',
   '需确认': 'Needs confirmation',
   '选择 JSON 文件': 'Choose JSON file',
+  '选择该规则': 'Select this rule',
   '选择压缩包': 'Choose an archive',
   '验证中...': 'Verifying...',
   '一键更新': 'Update now',
   '一起听默认音量': 'Default Listen Together volume',
-  '依赖浏览器的规则会失败': 'Rules that need a browser will fail',
   '移除 / 切换影片': 'Remove / switch movie',
   '移除无人的房间': 'Remove empty rooms',
   '已绑定 B站 账号': 'Bilibili account linked',
@@ -684,8 +684,8 @@ const enUS: Record<string, string> = {
   '已将 {{username}} 设为 {{role}}': '{{username}} is now {{role}}',
   '已结束直连共享': 'Direct sharing ended',
   '已经开始共享': 'Sharing has started',
-  '已配置': 'Configured',
   '已清理 {{count}} 个无人使用的房间': 'Removed {{count}} unused rooms',
+  '已删除 {{count}} 条规则': 'Deleted {{count}} rules',
   '已删除 {{value}} 个房间': 'Deleted {{value}} rooms',
   '已删除规则': 'Rule deleted',
   '已删除用户': 'User deleted',
@@ -725,7 +725,6 @@ const enUS: Record<string, string> = {
   '粘贴分享端提供的直连码，生成应答码并回传即可建立 P2P 连接。': 'Paste the direct-link code from the sharer, generate a response code and send it back to establish the P2P connection.',
   '粘贴网易云 Cookie，如：MUSIC_U=xxx; __csrf=xxx': 'Paste NetEase Cloud Music cookies, e.g. MUSIC_U=xxx; __csrf=xxx',
   '站点规则': 'Site rules',
-  '账号': 'Accounts',
   '账号绑定': 'Linked accounts',
   '这些条目在各自的库里执行；导入后编译成本地规则，可以在这里编辑': 'These entries run inside their own libraries; import one to compile it into a local rule you can edit here',
   '正常': 'Normal',
@@ -3035,20 +3034,13 @@ const enUS: Record<string, string> = {
   '解析 {{label}} 文件失败': 'Failed to resolve {{label}} files',
   '浏览 WebDAV 目录': 'Browse the WebDAV directory',
 
-  // ===== extra（13 条，见 overrides.json） =====
+  // ===== extra（6 条，见 overrides.json） =====
   '」': '”',
   '{{count}} 集_one': '{{count}} episode',
   '找到 {{count}} 条字幕_one': 'Found {{count}} subtitle track',
   '已清理 {{count}} 个无人使用的房间_one': 'Removed {{count}} unused room',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one': 'Delete the <strong>{{count}}</strong> selected room? This cannot be undone.',
   '等 {{count}} 个': 'and {{count}} more',
-  '{{count}} 条规则删除失败': '{{count}} rules could not be deleted',
-  '批量删除': 'Delete selected',
-  '批量删除规则': 'Delete selected rules',
-  '确定要删除选中的 {{count}} 条规则吗？此操作不可撤销。': 'Delete the {{count}} selected rules? This cannot be undone.',
-  '删除选中的规则': 'Delete selected rules',
-  '选择该规则': 'Select this rule',
-  '已删除 {{count}} 条规则': 'Deleted {{count}} rules',
 }
 
 export default enUS

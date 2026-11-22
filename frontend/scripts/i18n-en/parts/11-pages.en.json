@@ -1,12 +1,5 @@
 {
   "items": [
-    "Password set",
-    "Pre-release",
-    "Dry run",
-    "Dry run result",
-    "Current password",
-    "Remote version:",
-    "Allow the CLI to resolve direct links with the host's Bilibili identity",
     "Who may create rooms",
     "Allow one user to join the same room from several pages",
     "Repeat the new password",
@@ -21,7 +14,6 @@
     "Paste the direct-link code from the sharer, generate a response code and send it back to establish the P2P connection.",
     "Paste NetEase Cloud Music cookies, e.g. MUSIC_U=xxx; __csrf=xxx",
     "Site rules",
-    "Accounts",
     "Linked accounts",
     "These entries run inside their own libraries; import one to compile it into a local rule you can edit here",
     "Normal",

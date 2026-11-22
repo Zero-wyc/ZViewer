@@ -1,9 +1,5 @@
 {
   "items": [
-    "Remove avatar",
-    "Failed to remove the avatar",
-    "",
-    "Delete selected ({{size}})",
     "Delete {{size}} selected rooms",
     "Delete user",
     "Failed to delete the user",
@@ -60,7 +56,6 @@
     "No cookies found, sign in to Bilibili again",
     "No cookies found, sign in to NetEase Cloud Music again",
     "Unnamed rule",
-    "Not configured",
     "Cannot enter fullscreen",
     "No password",
     "Invalid response code",
@@ -82,12 +77,11 @@
     "Failed to change the username",
     "Needs confirmation",
     "Choose JSON file",
-    "",
+    "Select this rule",
     "Choose an archive",
     "Verifying...",
     "Update now",
     "Default Listen Together volume",
-    "Rules that need a browser will fail",
     "Remove / switch movie",
     "Remove empty rooms",
     "Bilibili account linked",
@@ -99,9 +93,8 @@
     "{{username}} is now {{role}}",
     "Direct sharing ended",
     "Sharing has started",
-    "Configured",
     "Removed {{count}} unused rooms",
-    "",
+    "Deleted {{count}} rules",
     "Deleted {{value}} rooms",
     "Rule deleted",
     "User deleted",
@@ -119,6 +112,13 @@
     "Users",
     "Username changed",
     "Registration settings",
-    "Guests cannot set an avatar"
+    "Guests cannot set an avatar",
+    "Password set",
+    "Pre-release",
+    "Dry run",
+    "Dry run result",
+    "Current password",
+    "Remote version:",
+    "Allow the CLI to resolve direct links with the host's Bilibili identity"
   ]
 }
