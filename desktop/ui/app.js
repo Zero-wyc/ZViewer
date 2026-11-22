@@ -32,6 +32,7 @@
     refresh: '<path fill="currentColor" stroke="none" d="M3.1 10.75A9 9 0 0 1 18.9 6.2l1.9-1.9v6.45h-6.45l2.7-2.7A6.5 6.5 0 0 0 5.62 10.75Z"/><path fill="currentColor" stroke="none" transform="rotate(180 12 12)" d="M3.1 10.75A9 9 0 0 1 18.9 6.2l1.9-1.9v6.45h-6.45l2.7-2.7A6.5 6.5 0 0 0 5.62 10.75Z"/>',
     pause: '<path d="M8 4v16M16 4v16"/>',
     folder: '<path d="M3 6h7l2 3h9v12H3Zm0 0V3h7l2 3h9v3"/>',
+    trash: '<path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v6m4-6v6"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2"/>'
   };
   const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.info}</svg>`;

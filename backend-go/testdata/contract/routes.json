@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。2026-11-01 语音改自建 SFU，删除 /api/voice/token、/mute、/kick（能力改由 voice 事件承担）。2026-11-06 追加管理端房管三条（186 条历史 + 3 条 Go 侧新增 = 189），登记进清单是为了让这三条也进入回归探测。2026-11-14 追加房间 Live2D 模型库三条（上传/列表/删除，房主专属写权限），契约 192 条。2026-11-15 Live2D 模型库从「房间私有」改为「服务端公共」：三条端点由 /api/rooms/:roomId/live2d/models 移到 /api/live2d/models（模型不再随房间删除，契约仍 192 条）。 2026-11-22 手动补齐 Node 退场后 Go 侧新增的 48 条端点（全网搜片 /api/crawler/* 公开段与管理段、/api/desktop/* 桌面能力、/api/rooms/:roomId/movie-permission 点片权限、/api/stream-push/watch/:roomId 推流票据、/api/stream/resolve-bilibili-live、/api/voice/status、/api/live2d/models/import、/api/share/piik/session、/api/voice/piik/session），契约 241 条。这些端点都由 Auth.Require / RequireDesktopOrAdmin 先行拦截，行为探测只拿到 401/403，不会触发真实副作用。2026-11-22 追加 GET /api/crawler/tools（MCP / Agent 共用的工具清单，桌面端「MCP 工具」弹窗读取），契约 242 条。2026-11-22 追加来源库三条（GET /api/crawler/libraries、GET|PUT /api/crawler/libraries/:id/config，把 ani-subs / Kazumi / TVBox 与本地规则放在同一处并复用 /api/crawler/search 的 library 分派），契约 246 条；同日追加 POST /api/crawler/libraries/import（把 ani-subs / Kazumi / CMS 源编译成本地规则，支持 dryRun）。注：HEAD /api/server-files/proxy 由 ServeMux 的 \"GET\" 模式自动覆盖（Go 1.22 语义），不单列。",
+  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。2026-11-01 语音改自建 SFU，删除 /api/voice/token、/mute、/kick（能力改由 voice 事件承担）。2026-11-06 追加管理端房管三条（186 条历史 + 3 条 Go 侧新增 = 189），登记进清单是为了让这三条也进入回归探测。2026-11-14 追加房间 Live2D 模型库三条（上传/列表/删除，房主专属写权限），契约 192 条。2026-11-15 Live2D 模型库从「房间私有」改为「服务端公共」：三条端点由 /api/rooms/:roomId/live2d/models 移到 /api/live2d/models（模型不再随房间删除，契约仍 192 条）。 2026-11-22 手动补齐 Node 退场后 Go 侧新增的 48 条端点（全网搜片 /api/crawler/* 公开段与管理段、/api/desktop/* 桌面能力、/api/rooms/:roomId/movie-permission 点片权限、/api/stream-push/watch/:roomId 推流票据、/api/stream/resolve-bilibili-live、/api/voice/status、/api/live2d/models/import、/api/share/piik/session、/api/voice/piik/session），契约 241 条。这些端点都由 Auth.Require / RequireDesktopOrAdmin 先行拦截，行为探测只拿到 401/403，不会触发真实副作用。2026-11-22 追加 GET /api/crawler/tools（MCP / Agent 共用的工具清单，桌面端「MCP 工具」弹窗读取），契约 242 条。2026-11-22 追加来源库三条（GET /api/crawler/libraries、GET|PUT /api/crawler/libraries/:id/config，把 ani-subs / Kazumi / TVBox 与本地规则放在同一处并复用 /api/crawler/search 的 library 分派），契约 247 条；同日追加 POST /api/crawler/rules/batch-delete（站点规则批量删除）；同日追加 POST /api/crawler/libraries/import（把 ani-subs / Kazumi / CMS 源编译成本地规则，支持 dryRun）。注：HEAD /api/server-files/proxy 由 ServeMux 的 \"GET\" 模式自动覆盖（Go 1.22 语义），不单列。",
   "generatedAt": "2026-10-25T05:47:58.398Z",
-  "total": 246,
+  "total": 247,
   "routes": [
     {
       "method": "GET",
@@ -267,6 +267,10 @@
     {
       "method": "POST",
       "path": "/api/crawler/rules/import"
+    },
+    {
+      "method": "POST",
+      "path": "/api/crawler/rules/batch-delete"
     },
     {
       "method": "POST",

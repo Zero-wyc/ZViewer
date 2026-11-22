@@ -91,6 +91,12 @@ export function CrawlerTab() {
   const [report, setReport] = useState<ImportReport | null>(null)
   const [replaceConfirm, setReplaceConfirm] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<CrawlerRuleRow | null>(null)
+  // 批量删除：选中集合按 id 存，刷新列表时把已消失的 id 剔掉。
+  const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(
+    () => new Set()
+  )
+  const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
+  const [batchDeleting, setBatchDeleting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchRules = useCallback(async () => {
@@ -102,6 +108,12 @@ export function CrawlerTab() {
     }
     if (data.success && data.rules) {
       setRules(data.rules)
+      const alive = new Set(data.rules.map((item) => item.id))
+      setSelectedRuleIds((prev) => {
+        if (prev.size === 0) return prev
+        const next = new Set([...prev].filter((id) => alive.has(id)))
+        return next.size === prev.size ? prev : next
+      })
     }
   }, [])
 
@@ -307,6 +319,43 @@ export function CrawlerTab() {
     message.error(t('删除规则失败'))
   }
 
+  const handleBatchDelete = async () => {
+    if (selectedRuleIds.size === 0) return
+    setBatchDeleting(true)
+    try {
+      const res = await apiFetch('/api/crawler/rules/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedRuleIds] }),
+      })
+      const data = (await res.json()) as {
+        success?: boolean
+        deleted?: number
+        failed?: Record<string, string>
+        message?: string
+      }
+      if (!res.ok || !data.success) {
+        message.error(data.message ?? t('批量删除失败'))
+        return
+      }
+      const deleted = data.deleted ?? 0
+      const failed = Object.keys(data.failed ?? {}).length
+      if (deleted > 0) {
+        message.success(t('已删除 {{count}} 条规则', { count: deleted }))
+      }
+      if (failed > 0) {
+        message.error(t('{{count}} 条规则删除失败', { count: failed }))
+      }
+      setSelectedRuleIds(new Set())
+      setBatchDeleteConfirm(false)
+      await loadAll()
+    } catch {
+      message.error(t('批量删除失败'))
+    } finally {
+      setBatchDeleting(false)
+    }
+  }
+
   const handleExport = async () => {
     const res = await apiFetch('/api/crawler/rules/export')
     if (!res.ok) {
@@ -507,6 +556,16 @@ export function CrawlerTab() {
               </Button>
               <Button
                 size="sm"
+                variant="danger"
+                icon={<Trash2 className="h-4 w-4" />}
+                onClick={() => setBatchDeleteConfirm(true)}
+                disabled={selectedRuleIds.size === 0}
+                title={t('删除选中的规则')}
+              >
+                {t('批量删除')}
+              </Button>
+              <Button
+                size="sm"
                 icon={<RefreshCw className="h-4 w-4" />}
                 onClick={() => void loadAll()}
                 title={t('刷新')}
@@ -514,6 +573,38 @@ export function CrawlerTab() {
             </div>
           }
         />
+
+        {rules.length > 0 && (
+          <div
+            className="mt-3 flex items-center gap-3 rounded-[var(--md-sys-shape-corner)] border px-3 py-2"
+            style={{
+              borderColor: 'var(--md-sys-color-outline)',
+              backgroundColor: 'var(--glass-bg)',
+            }}
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--md-sys-color-primary)]"
+              checked={
+                rules.length > 0 &&
+                rules.every((rule) => selectedRuleIds.has(rule.id))
+              }
+              onChange={(event) =>
+                setSelectedRuleIds(
+                  event.target.checked
+                    ? new Set(rules.map((rule) => rule.id))
+                    : new Set()
+                )
+              }
+            />
+            <Text type="secondary" className="text-sm">
+              {t('全选 ({{size}} / {{length}})', {
+                size: selectedRuleIds.size,
+                length: rules.length,
+              })}
+            </Text>
+          </div>
+        )}
 
         <div className="mt-3 flex flex-col gap-2">
           {rules.length === 0 ? (
@@ -526,9 +617,32 @@ export function CrawlerTab() {
               <div
                 key={rule.id}
                 data-rule-id={rule.id}
-                className="flex flex-wrap items-center gap-3 rounded-[var(--md-sys-shape-corner)] border p-3"
-                style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
+                className={cn(
+                  'flex flex-wrap items-center gap-3 rounded-[var(--md-sys-shape-corner)] border p-3',
+                  selectedRuleIds.has(rule.id) &&
+                    'bg-[var(--md-sys-color-primary-container)]'
+                )}
+                style={{
+                  borderColor: selectedRuleIds.has(rule.id)
+                    ? 'var(--md-sys-color-primary)'
+                    : 'var(--md-sys-color-outline-variant)',
+                }}
               >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--md-sys-color-primary)]"
+                  aria-label={t('选择该规则')}
+                  checked={selectedRuleIds.has(rule.id)}
+                  onChange={(event) => {
+                    const next = new Set(selectedRuleIds)
+                    if (event.target.checked) {
+                      next.add(rule.id)
+                    } else {
+                      next.delete(rule.id)
+                    }
+                    setSelectedRuleIds(next)
+                  }}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <Title level={5} className="m-0 truncate text-sm">
@@ -708,6 +822,37 @@ export function CrawlerTab() {
         <Text>
           {t('确定删除「{{name}}」？删除后该站点将不再参与全网搜片。', {
             name: deleteTarget?.name ?? '',
+          })}
+        </Text>
+      </Modal>
+
+      <Modal
+        open={batchDeleteConfirm}
+        onClose={() => setBatchDeleteConfirm(false)}
+        title={t('批量删除规则')}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setBatchDeleteConfirm(false)}
+              disabled={batchDeleting}
+            >
+              {t('取消')}
+            </Button>
+            <Button
+              variant="danger"
+              loading={batchDeleting}
+              disabled={batchDeleting}
+              onClick={() => void handleBatchDelete()}
+            >
+              {t('删除')}
+            </Button>
+          </>
+        }
+      >
+        <Text>
+          {t('确定要删除选中的 {{count}} 条规则吗？此操作不可撤销。', {
+            count: selectedRuleIds.size,
           })}
         </Text>
       </Modal>

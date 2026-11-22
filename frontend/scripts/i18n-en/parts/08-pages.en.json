@@ -1,6 +1,7 @@
 {
   "items": [
     "{{count}} sources",
+    "",
     "{{length}} active",
     "1. Sign in to bilibili.com in your browser",
     "1. Sign in to music.163.com in your browser",
@@ -118,7 +119,6 @@
     "Manage this room's moderators",
     "Admin console",
     "Manage your ZViewer account, mount settings and NetEase Cloud Music / Bilibili links",
-    "Manage user accounts, running rooms and basic server settings",
-    "Admin: {{username}}"
+    "Manage user accounts, running rooms and basic server settings"
   ]
 }

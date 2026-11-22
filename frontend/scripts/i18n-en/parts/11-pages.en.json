@@ -1,5 +1,12 @@
 {
   "items": [
+    "Password set",
+    "Pre-release",
+    "Dry run",
+    "Dry run result",
+    "Current password",
+    "Remote version:",
+    "Allow the CLI to resolve direct links with the host's Bilibili identity",
     "Who may create rooms",
     "Allow one user to join the same room from several pages",
     "Repeat the new password",

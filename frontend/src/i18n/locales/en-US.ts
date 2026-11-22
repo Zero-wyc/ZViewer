@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2956 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2963 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -3035,13 +3035,20 @@ const enUS: Record<string, string> = {
   '解析 {{label}} 文件失败': 'Failed to resolve {{label}} files',
   '浏览 WebDAV 目录': 'Browse the WebDAV directory',
 
-  // ===== extra（6 条，见 overrides.json） =====
+  // ===== extra（13 条，见 overrides.json） =====
   '」': '”',
   '{{count}} 集_one': '{{count}} episode',
   '找到 {{count}} 条字幕_one': 'Found {{count}} subtitle track',
   '已清理 {{count}} 个无人使用的房间_one': 'Removed {{count}} unused room',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one': 'Delete the <strong>{{count}}</strong> selected room? This cannot be undone.',
   '等 {{count}} 个': 'and {{count}} more',
+  '{{count}} 条规则删除失败': '{{count}} rules could not be deleted',
+  '批量删除': 'Delete selected',
+  '批量删除规则': 'Delete selected rules',
+  '确定要删除选中的 {{count}} 条规则吗？此操作不可撤销。': 'Delete the {{count}} selected rules? This cannot be undone.',
+  '删除选中的规则': 'Delete selected rules',
+  '选择该规则': 'Select this rule',
+  '已删除 {{count}} 条规则': 'Deleted {{count}} rules',
 }
 
 export default enUS

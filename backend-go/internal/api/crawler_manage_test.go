@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"zviewer/backend/internal/crawler"
@@ -221,5 +222,52 @@ func TestCrawlerConfigViewHidesKey(t *testing.T) {
 	}
 	if view["llmConfigured"] != true {
 		t.Error("llmConfigured should be true")
+	}
+}
+
+// 批量删除：一次多条、重复 id 只算一次、缺失 id 不算失败。
+func TestManageRulesBatchDelete(t *testing.T) {
+	server, _ := newManageEnv(t)
+
+	ids := make([]string, 0, 3)
+	for index := 0; index < 3; index++ {
+		body := sampleRuleBody("https://example.com/s")
+		rule := body["rule"].(map[string]any)
+		rule["name"] = "站" + strconv.Itoa(index)
+		rule["site"] = "s" + strconv.Itoa(index) + ".example.com"
+		status, saved := doJSON(t, server.handleCrawlerRuleSave, "POST", "/api/crawler/rules", body)
+		if status != 200 {
+			t.Fatalf("save = %d %+v", status, saved)
+		}
+		ids = append(ids, saved["rule"].(map[string]any)["id"].(string))
+	}
+
+	status, resp := doJSON(t, server.handleCrawlerRulesBatchDelete, "POST", "/api/crawler/rules/batch-delete",
+		map[string]any{"ids": []string{ids[0], ids[1], ids[1], "not-exist"}})
+	if status != 200 || resp["success"] != true {
+		t.Fatalf("batch delete = %d %+v", status, resp)
+	}
+	if got := resp["deleted"].(float64); got != 2 {
+		t.Errorf("deleted = %v", got)
+	}
+	missing, _ := resp["missing"].([]any)
+	if len(missing) != 1 || missing[0] != "not-exist" {
+		t.Errorf("missing = %+v", resp["missing"])
+	}
+
+	_, listed := doJSON(t, server.handleCrawlerRulesList, "GET", "/api/crawler/rules", nil)
+	if listed["count"].(float64) != 1 {
+		t.Fatalf("剩余规则数 = %v", listed["count"])
+	}
+	left := listed["rules"].([]any)[0].(map[string]any)
+	if left["id"] != ids[2] {
+		t.Errorf("剩下的不是第三条: %+v", left["id"])
+	}
+
+	// 空列表直接拒绝，避免「什么都没删也回 200」被脚本当成成功。
+	status, _ = doJSON(t, server.handleCrawlerRulesBatchDelete, "POST", "/api/crawler/rules/batch-delete",
+		map[string]any{"ids": []string{}})
+	if status != http.StatusBadRequest {
+		t.Errorf("空 ids = %d", status)
 	}
 }

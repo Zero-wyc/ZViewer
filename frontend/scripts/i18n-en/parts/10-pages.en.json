@@ -1,5 +1,10 @@
 {
   "items": [
+    "Remove avatar",
+    "Failed to remove the avatar",
+    "",
+    "Delete selected ({{size}})",
+    "Delete {{size}} selected rooms",
     "Delete user",
     "Failed to delete the user",
     "Failed to upload the update",
@@ -77,6 +82,7 @@
     "Failed to change the username",
     "Needs confirmation",
     "Choose JSON file",
+    "",
     "Choose an archive",
     "Verifying...",
     "Update now",
@@ -95,6 +101,7 @@
     "Sharing has started",
     "Configured",
     "Removed {{count}} unused rooms",
+    "",
     "Deleted {{value}} rooms",
     "Rule deleted",
     "User deleted",
@@ -112,13 +119,6 @@
     "Users",
     "Username changed",
     "Registration settings",
-    "Guests cannot set an avatar",
-    "Password set",
-    "Pre-release",
-    "Dry run",
-    "Dry run result",
-    "Current password",
-    "Remote version:",
-    "Allow the CLI to resolve direct links with the host's Bilibili identity"
+    "Guests cannot set an avatar"
   ]
 }

@@ -28,6 +28,7 @@ func (s *Server) registerCrawlerManageRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/crawler/rules/{id}", admin(s.handleCrawlerRuleGet))
 	mux.HandleFunc("PUT /api/crawler/rules/{id}", admin(s.handleCrawlerRuleUpdate))
 	mux.HandleFunc("DELETE /api/crawler/rules/{id}", admin(s.handleCrawlerRuleDelete))
+	mux.HandleFunc("POST /api/crawler/rules/batch-delete", admin(s.handleCrawlerRulesBatchDelete))
 	mux.HandleFunc("GET /api/crawler/rules/export", admin(s.handleCrawlerRulesExport))
 	mux.HandleFunc("POST /api/crawler/rules/import", admin(s.handleCrawlerRulesImport))
 	mux.HandleFunc("GET /api/crawler/browser/status", admin(s.handleCrawlerBrowserStatus))
@@ -233,6 +234,65 @@ func (s *Server) handleCrawlerRuleDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	httpx.OK(w, map[string]any{"success": true, "deleted": true, "ruleId": ruleID})
+}
+
+// handleCrawlerRulesBatchDelete 批量删除规则。
+//
+// 逐条走 Store.Delete 而不是整目录重写：删哪条由调用方给定，存不存在都无害
+// （界面手里的列表可能已经过期）；只有真正的 IO 错误才记进 failed。
+func (s *Server) handleCrawlerRulesBatchDelete(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 30*time.Second)
+		return
+	}
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpx.BadRequest(w, "请求体不是合法 JSON")
+		return
+	}
+	if len(body.IDs) == 0 {
+		httpx.BadRequest(w, "缺少要删除的规则 id")
+		return
+	}
+	// 上限定在 500：正常规则库到不了这个量级，超了更可能是调用方拼错了。
+	if len(body.IDs) > 500 {
+		httpx.BadRequest(w, "一次最多删除 500 条规则")
+		return
+	}
+	seen := make(map[string]struct{}, len(body.IDs))
+	deleted := make([]string, 0, len(body.IDs))
+	missing := make([]string, 0)
+	failed := make(map[string]string)
+	for _, raw := range body.IDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		ok, err := bundle.Store.Delete(id)
+		if err != nil {
+			failed[id] = err.Error()
+			continue
+		}
+		if !ok {
+			missing = append(missing, id)
+			continue
+		}
+		deleted = append(deleted, id)
+	}
+	httpx.OK(w, map[string]any{
+		"success": true,
+		"deleted": len(deleted),
+		"ids":     deleted,
+		"missing": missing,
+		"failed":  failed,
+	})
 }
 
 // ---------------------------------------------------------------- 账号

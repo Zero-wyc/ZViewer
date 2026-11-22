@@ -49,5 +49,12 @@
   "已导入": "Imported",
   "这些条目在各自的库里执行；导入后编译成本地规则，可以在这里编辑": "These entries run inside their own libraries; import one to compile it into a local rule you can edit here",
   "导入": "Import",
-  "识别到 {{length}} 个采集源，已加入地址": "Found {{length}} sources and filled them in"
+  "识别到 {{length}} 个采集源，已加入地址": "Found {{length}} sources and filled them in",
+  "{{count}} 条规则删除失败": "{{count}} rules could not be deleted",
+  "批量删除": "Delete selected",
+  "批量删除规则": "Delete selected rules",
+  "确定要删除选中的 {{count}} 条规则吗？此操作不可撤销。": "Delete the {{count}} selected rules? This cannot be undone.",
+  "删除选中的规则": "Delete selected rules",
+  "选择该规则": "Select this rule",
+  "已删除 {{count}} 条规则": "Deleted {{count}} rules"
 }

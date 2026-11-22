@@ -1,5 +1,6 @@
 {
   "items": [
+    "Admin: {{username}}",
     "Admin accounts can create shared rooms",
     "Rules",
     "Rule directory: {{root}}",
@@ -63,8 +64,10 @@
     "Defaults to https://gh-proxy.com; you can point it at your own proxy.",
     "Built-in library sources",
     "The configuration URL must be an http(s) URL",
+    "",
     "Delete rooms in bulk",
     "Failed to delete rooms in bulk",
+    "",
     "Bulk delete failed",
     "Tiles",
     "Tile view",
@@ -100,6 +103,7 @@
     "Force close room <strong>{{room}}</strong>? All connections will drop.",
     "Remove the current avatar and restore the default?",
     "Delete all rooms? This cannot be undone and every room's data will be erased.",
+    "",
     "Delete the <strong>{{count}}</strong> selected rooms? This cannot be undone.",
     "Delete user <strong>{{name}}</strong>? This cannot be undone.",
     "Remove every empty room (including closed ones)? This cannot be undone.",
@@ -115,10 +119,6 @@
     "Delete rule",
     "Failed to delete rule",
     "Delete all rooms",
-    "Failed to delete all rooms",
-    "Remove avatar",
-    "Failed to remove the avatar",
-    "Delete selected ({{size}})",
-    "Delete {{size}} selected rooms"
+    "Failed to delete all rooms"
   ]
 }

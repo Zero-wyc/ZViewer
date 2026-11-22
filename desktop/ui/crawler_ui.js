@@ -232,7 +232,7 @@
   function rulesPanel(c) {
     const rows = c.rules.length ? c.rules.map(ruleRow).join('') : '<div class="empty">暂无规则。可在 Agent 对话生成，也可手动新建或导入。</div>';
     const local = c.ruleSource === 'local' ? '<p class="field-note">引擎未运行，当前显示本地规则文件；启动后可测试和保存。</p>' : '';
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('server') + '</span><h2>站点规则</h2></div><small>' + c.rules.length + ' 条</small></div><div class="live-toolbar">' + button('新建规则', 'crawler-rule-new', 'check') + button('规则文档', 'crawler-doc', 'book') + button('导入', 'crawler-import', 'download') + button('导出全部', 'crawler-export-all', 'folder') + (selectedCount(c) ? button('导出选中 (' + selectedCount(c) + ')', 'crawler-export-selected', 'check') : '') + '</div>' + local + '<div class="crawler-rules">' + rows + '</div></section>';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('server') + '</span><h2>站点规则</h2></div><small>' + c.rules.length + ' 条</small></div><div class="live-toolbar">' + button('新建规则', 'crawler-rule-new', 'check') + button('规则文档', 'crawler-doc', 'book') + button('导入', 'crawler-import', 'download') + button('导出全部', 'crawler-export-all', 'folder') + (selectedCount(c) ? button('导出选中 (' + selectedCount(c) + ')', 'crawler-export-selected', 'check') : '') + (selectedCount(c) ? button('删除选中 (' + selectedCount(c) + ')', 'crawler-delete-selected', 'trash', 'danger') : '') + '</div>' + local + '<div class="crawler-rules">' + rows + '</div></section>';
   }
   const TOOL_LABELS = {
     fetch_page: '打开页面', inspect_html: '检查页面', test_rule: '试跑规则',
@@ -1163,6 +1163,19 @@
     await loadRules();
     ui.toast('规则已删除');
   }
+  // 批量删除：一次请求，服务端逐条删；返回里 missing 是已经不在的（不算错）。
+  async function deleteSelectedRules() {
+    const ids = Object.keys(cs().selectedRules || {});
+    if (!ids.length) { ui.toast('选择要删除的规则'); return; }
+    if (!window.confirm('确定删除选中的 ' + ids.length + ' 条规则？此操作不可撤销。')) return;
+    const data = await api('POST', '/api/crawler/rules/batch-delete', { ids: ids });
+    cs().selectedRules = {};
+    await loadRules();
+    const deleted = (data && data.deleted) || 0;
+    const failed = Object.keys((data && data.failed) || {}).length;
+    ui.toast(failed ? ('已删除 ' + deleted + ' 条，' + failed + ' 条失败') : ('已删除 ' + deleted + ' 条规则'));
+    renderIf();
+  }
   function scrollChat() {
     const box = $('#crawler-chat');
     if (box) box.scrollTop = box.scrollHeight;
@@ -1718,6 +1731,7 @@
       ui.toast('导入完成：新增 ' + (report.imported || 0) + '，更新 ' + (report.updated || 0) + '，失败 ' + (report.failed || 0));
       return;
     }
+    if (name === 'crawler-delete-selected') { await deleteSelectedRules(); return; }
     if (name === 'crawler-export-all' || name === 'crawler-export-selected') {
       const ids = name === 'crawler-export-selected' ? Object.keys(c.selectedRules || {}) : [];
       if (name === 'crawler-export-selected' && !ids.length) { ui.toast('选择要导出的规则'); return; }
