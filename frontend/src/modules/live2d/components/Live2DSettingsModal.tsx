@@ -127,12 +127,19 @@ export interface Live2DSettingsModalProps {
   onSelect: (kind: Live2DModelKind, modelId: string) => void
   onScale: (scale: number) => void
   /**
-   * 把角色放回默认站位（清掉本机记住的所有站位）。
+   * 把我的角色放回默认站位（清掉本机记住的站位）。
    *
    * 位置不再同步，所以这是角色被拖到画面外之后**唯一**的找回入口：
    * 那时候右键已经命不中它，右下角这个入口必须一直在。
    */
   onResetPosition: () => void
+  /**
+   * 把所有角色（含别人的）放回默认站位。
+   *
+   * 别人的角色也能拖之后，「把他拖出画面」同样会让右键失效；自己的角色
+   * 万幸也被拖走了，至少还有这一个按钮能把整幅画面恢复原样。
+   */
+  onResetAllPositions: () => void
   onExpression: (index: number) => void
   onMotion: (group: string, index: number) => void
   onToggleFaceTracking: () => void
@@ -192,6 +199,7 @@ export function Live2DSettingsModal({
   onSelect,
   onScale,
   onResetPosition,
+  onResetAllPositions,
   onExpression,
   onMotion,
   onToggleFaceTracking,
@@ -409,9 +417,10 @@ export function Live2DSettingsModal({
 
               {/* 位置也是本机的。这里必须有一个「放回去」的出口：角色可以
                   被拖到完全看不见的地方（位置不同步，各端互不影响），那时
-                  右键命不中它，右下角这个入口就是唯一的路。 */}
+                  右键命不中它，右下角这个入口就是唯一的路。别人的角色现在
+                  也能拖，所以另给一个「全部」的按钮兜底。 */}
               <Section label={t('位置')}>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-0 flex-1 text-[10px] leading-snug opacity-50">
                     {t('位置和大小只保存在本机，不会同步给别人')}
                   </span>
@@ -423,6 +432,16 @@ export function Live2DSettingsModal({
                     onClick={onResetPosition}
                   >
                     {t('重置模型位置')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disableAnimation
+                    icon={<RotateCcw size={13} />}
+                    onClick={onResetAllPositions}
+                    title={t('所有角色回到默认站位')}
+                  >
+                    {t('重置所有角色位置')}
                   </Button>
                 </div>
               </Section>

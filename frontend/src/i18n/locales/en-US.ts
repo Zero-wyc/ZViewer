@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2885 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2887 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -980,7 +980,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（149 条） =====
+  // ===== modules/live2d（151 条） =====
   '，下次开启动捕时生效': ', takes effect the next time motion capture is enabled',
   '[live2d] 动捕配置切换失败（沿用原检测器）': '[live2d] Failed to switch motion-capture config (keeping the current detector)',
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
@@ -1092,6 +1092,7 @@ const enUS: Record<string, string> = {
   '摄像头动捕启动失败': 'Couldn\'t start camera tracking',
   '摄像头动捕需要在本机或 HTTPS 下使用': 'Camera tracking needs localhost or HTTPS',
   '摄像头权限被拒绝': 'Camera permission denied',
+  '所有角色回到默认站位': 'Put all characters back in their default spot',
   '所有人都会看到': 'Everyone will see it',
   '填 zip 直链，服务端下载后加入模型库': 'Paste a direct zip link; the server downloads it into the model library',
   '瞳孔跟着你转；有的模型眼球位移很夸张，可以关掉': 'Pupils follow you; some models exaggerate eye displacement, so you can turn it off',
@@ -1124,6 +1125,7 @@ const enUS: Record<string, string> = {
   '重新选一个模型之后动捕才有作用': 'Face tracking only works once you pick a model again',
   '重新选一个模型之后口型才有作用': 'Pick a model again for lip sync to have something to move',
   '重置模型位置': 'Reset model position',
+  '重置所有角色位置': 'Reset every character position',
   '自定义模型地址': 'Custom model URL',
   '嘴': 'Mouth',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',

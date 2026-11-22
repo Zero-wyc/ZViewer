@@ -22,7 +22,12 @@ import {
   uploadLibraryModel,
   type Live2DLibraryEntry,
 } from '../core/model-library'
-import { clearAllDragPrefs, saveDragPref } from '../core/drag-prefs'
+import {
+  clearAllDragPrefs,
+  clearDragPref,
+  legacyDragKey,
+  saveDragPref,
+} from '../core/drag-prefs'
 import { peerScaleOf, setPeerScale } from '../core/peer-scale'
 import { getEntry, listEntries, moveDragTo, slotX } from '../core/scene'
 import { pickVisiblePeers, resolveEffectiveModel } from '../core/visibility'
@@ -35,7 +40,7 @@ import {
   emitLive2DPolicy,
   useLive2DSync,
 } from '../hooks/useLive2DSync'
-import { useDragPref } from '../hooks/useDragPref'
+import { useDragPrefs } from '../hooks/useDragPrefs'
 import { useFaceTracker } from '../hooks/useFaceTracker'
 import { useLive2DEngine } from '../hooks/useLive2DEngine'
 import { useSpeakingSids } from '../hooks/useSpeakingSids'
@@ -329,9 +334,16 @@ export function RoomLive2DHost({
      * 右键命中的是**别人的**角色时记下它：菜单切成「对他」的形态。
      * 为空 = 右键在空白处或自己身上，菜单是「我的角色」。
      *
-     * scale 是**本机**给他设的大小（没调过就是 1），不是名册值。
+     * scale 是**本机**给他设的大小（没调过就是 1），不是名册值；
+     * offset 同理，是我把他挪到了哪儿（只决定「回到原位」要不要出现）。
      */
-    peer: { sid: string; name: string; scale: number } | null
+    peer: {
+      sid: string
+      name: string
+      scale: number
+      offsetX: number
+      offsetY: number
+    } | null
   }>({
     open: false,
     x: 0,
@@ -359,10 +371,15 @@ export function RoomLive2DHost({
         root: fs instanceof HTMLElement ? fs : null,
         offsetX: entry?.targetDragX ?? 0,
         offsetY: entry?.targetDragY ?? 0,
-        // 别人的大小读本机偏好：菜单里的滑杆必须从「我现在看到的比例」起步，
-        // 否则一动滑杆就会跳到我上次设的档位。
+        // 别人的大小/位置读本机偏好：菜单里的滑杆必须从「我现在看到的比例」
+        // 起步，否则一动滑杆就会跳到我上次设的档位。
         peer: peer
-          ? { ...peer, scale: peerScaleOf(peer.name, peer.sid) ?? 1 }
+          ? {
+              ...peer,
+              scale: peerScaleOf(peer.name, peer.sid) ?? 1,
+              offsetX: getEntry(peer.sid)?.targetDragX ?? 0,
+              offsetY: getEntry(peer.sid)?.targetDragY ?? 0,
+            }
           : null,
       })
     },
@@ -757,45 +774,89 @@ export function RoomLive2DHost({
   // 偏移只在场景里流转（拖动时 10Hz 级别，不进 React），这里只负责两件事：
   // 开关模式，以及松手时把位置记进本机偏好。
   //
-  // 位置不再上行：以前这里按 60ms 节流发 live2d-drag、服务端再转发给全房间，
-  // 现在每个人只看自己的摆法，网络那一端整个去掉了。
+  // 位置按「人」记账（不是模型）：我拖了别人的角色，偏的就是他那个人；
+  // 换成按模型记，同款模型会互相搬家。位置不上行——以前这里按 60ms 节流发
+  // live2d-drag、服务端再转发给全房间，现在每个人只看自己的摆法。
+  const nameOf = useCallback(
+    (sid: string) => peers.find((item) => item.sid === sid)?.name ?? '',
+    [peers]
+  )
+
   const handleDrag = useCallback(
-    (x: number, y: number, final: boolean) => {
+    (sid: string, x: number, y: number, final: boolean) => {
       // 拖动中不写：每帧一次 localStorage 写太重，而且中间值没有意义。
-      if (!final || !effModelId) return
-      saveDragPref(effKind, effModelId, x, y)
+      if (!final || !sid) return
+      saveDragPref(
+        nameOf(sid),
+        sid,
+        x,
+        y,
+        // 老版本只有本人按模型记过位置：顺手把老记录清掉，免得「回到原位」
+        // 之后它又被迁移逻辑复活。
+        sid === mySid ? legacyDragKey(effKind, effModelId) : ''
+      )
     },
-    [effKind, effModelId]
+    [nameOf, mySid, effKind, effModelId]
+  )
+
+  /** 把某一个角色放回默认站位（我自己的、别人的都走这条）。 */
+  const handleResetOne = useCallback(
+    (sid: string) => {
+      if (!sid) return
+      moveDragTo(sid, 0, 0)
+      clearDragPref(
+        nameOf(sid),
+        sid,
+        sid === mySid ? legacyDragKey(effKind, effModelId) : ''
+      )
+    },
+    [nameOf, mySid, effKind, effModelId]
   )
 
   /**
-   * 回到默认站位。
+   * 把画面上所有角色放回默认站位。
+   *
+   * 位置既然每个角色都能拖，单清自己那一份会让人以为按钮没生效；而「回到
+   * 默认」本来就是「把画面恢复原样」的意思。
+   */
+  const handleResetAll = useCallback(() => {
+    for (const peer of peers) moveDragTo(peer.sid, 0, 0)
+    clearAllDragPrefs()
+  }, [peers])
+
+  /**
+   * 回到默认站位（自己的角色）。
    *
    * 两件事必须一起做，少一件都表现为「按钮没生效」：
    *   1. 场景里的偏移归零（平滑过去，不要瞬移）；
-   *   2. 本机记的站位全部清掉（只清当前模型的话，切一次模型就撞回旧值）。
+   *   2. 本机记的站位清掉。
    *
    * 位置是纯本机状态，所以这里不需要网络；角色被拖到画面外时，这条路径是
    * **唯一**能把它找回来的入口（右键已经打不中它了）。
    */
   const handleResetPosition = useCallback(() => {
-    if (mySid) moveDragTo(mySid, 0, 0)
-    clearAllDragPrefs()
+    handleResetOne(mySid)
     closeMenu()
-  }, [mySid, closeMenu])
+  }, [handleResetOne, mySid, closeMenu])
 
-  // ---- 8e. 进房 / 换模型后应用本机的拖拽偏好 ----
+  // 「别人的角色 → 回到原位」：只动我这台设备上他的偏移，他本人看不到变化。
+  // 必须能在这里做——角色被我拖出画面后右键就打不中它了。
+  const handleResetPeer = useCallback(() => {
+    const target = menu.peer?.sid
+    if (!target) return
+    handleResetOne(target)
+    closeMenu()
+  }, [menu.peer, handleResetOne, closeMenu])
+
+  // ---- 8e. 进房 / 有人加入后套回本机记住的位置 ----
   //
-  // 触发点是「我出现在名册里」，不是固定延时（判据在 hooks/useDragPref）。
-  const myInRoster = useMemo(
-    () => Boolean(mySid) && peers.some((item) => item.sid === mySid),
-    [peers, mySid]
-  )
-  useDragPref({
+  // 每个角色一份（别人也有），触发点是「他在名册里」而不是固定延时；
+  // 判据与去重都在 hooks/useDragPrefs。
+  useDragPrefs({
+    peers,
     sid: mySid,
     kind: effKind,
     modelId: effModelId,
-    inRoster: myInRoster,
   })
 
   const exitDragMode = useCallback(() => setDragMode(false), [])
@@ -806,11 +867,12 @@ export function RoomLive2DHost({
       setDragMode(false)
       return
     }
-    if (!effModelId) return
+    // 只要有角色可拖就能进：自己的删掉了，也还能摆别人的
+    if (peers.length === 0) return
     setDragMode(true)
     // 菜单会挡住角色，进模式就关掉
     closeMenu()
-  }, [dragMode, effModelId, closeMenu])
+  }, [dragMode, peers.length, closeMenu])
 
   // ---- 8e. 名字标签跟随拖拽偏移 ----
   //
@@ -1120,10 +1182,8 @@ export function RoomLive2DHost({
     const map = peerStates.room === roomId ? peerStates.map : null
     return (map && map[sid]) || EMPTY_PEER_STATE
   }
-  // 拖拽模式的两个前提：有自己的模型，且模型当前真的在画面上。房主统一角色
-  // 时模型是房间定的，但位置仍然是每个成员自己的，所以照拖不误。
-  const dragActive =
-    canShowLayer && dragMode && Boolean(effModelId) && Boolean(mySid)
+  // 拖拽模式：只要画面上有角色就能进（自己的删掉了也能摆别人的）。
+  const dragActive = canShowLayer && dragMode && visible.length > 0
   // 入口**常驻**，不再「有模型就收起来」：
   //   - 模型加载失败时画面上只剩占位小方块，`renderer.pick` 打不中，右键就没
   //     任何反应——这正是用户最需要打开设置（换/删模型）的时候，收起来等于
@@ -1252,7 +1312,7 @@ export function RoomLive2DHost({
               'left-4 bottom-[112px] items-start max-md:bottom-[calc(94px+env(safe-area-inset-bottom))]'
             : 'right-6 bottom-[84px] items-end'
         )}
-        style={{ pointerEvents: 'none' }}
+        style={{ pointerEvents: 'none', zIndex: 20 }}
       >
         {/* 入口常驻（含房主关掉「对观众显示角色」时）：那是唯一能换/删模型、
             能知道"为什么看不到角色"的地方，见上面那段说明。 */}
@@ -1309,16 +1369,16 @@ export function RoomLive2DHost({
         )}
       </div>
 
-      {/* 拖拽模式：套在自己角色身上的抓取层 + 底部提示条。
+      {/* 拖拽模式：给画面上每个角色套一个抓取层 + 顶部提示条。
           提示条的门禁交给它自己：模型还没加载出来时框是隐藏的，但「完成 /
-          回到原位」仍然可点，用户不会被卡在模式里出不来。 */}
+          回到默认」仍然可点，用户不会被卡在模式里出不来。 */}
       {dragActive && (
         <Live2DDragLayer
           renderer={renderer}
-          sid={mySid}
+          sids={visible.map((peer) => peer.sid)}
           container={menu.root}
           onDrag={handleDrag}
-          onReset={handleResetPosition}
+          onReset={handleResetAll}
           onExit={exitDragMode}
         />
       )}
@@ -1338,7 +1398,7 @@ export function RoomLive2DHost({
         faceTracking={face}
         allowFace={policy.allowFace}
         unified={unifiedActive}
-        canDrag={Boolean(effModelId)}
+        canDrag={visible.length > 0}
         dragMode={dragMode}
         canResetPosition={
           Math.abs(menu.offsetX) > 0.005 || Math.abs(menu.offsetY) > 0.005
@@ -1356,8 +1416,14 @@ export function RoomLive2DHost({
             ? {
                 name: menu.peer.name,
                 scale: menu.peer.scale,
+                canReset:
+                  Math.abs(menu.peer.offsetX) > 0.005 ||
+                  Math.abs(menu.peer.offsetY) > 0.005,
+                dragMode,
                 onPoke: handlePoke,
                 onScale: handlePeerScale,
+                onToggleDrag: toggleDragMode,
+                onReset: handleResetPeer,
               }
             : null
         }
@@ -1402,6 +1468,7 @@ export function RoomLive2DHost({
         onSelect={handleSelect}
         onScale={handleScale}
         onResetPosition={handleResetPosition}
+        onResetAllPositions={handleResetAll}
         onExpression={handleExpression}
         onMotion={handleMotion}
         onToggleFaceTracking={toggleFaceTracking}

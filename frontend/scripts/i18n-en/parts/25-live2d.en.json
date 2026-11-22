@@ -111,6 +111,7 @@
     "Couldn't start camera tracking",
     "Camera tracking needs localhost or HTTPS",
     "Camera permission denied",
+    "Put all characters back in their default spot",
     "Everyone will see it",
     "Paste a direct zip link; the server downloads it into the model library",
     "Pupils follow you; some models exaggerate eye displacement, so you can turn it off",

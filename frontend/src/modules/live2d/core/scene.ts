@@ -176,8 +176,8 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
     currentVoiceMouth: 0,
     targetVoiceMouth: 0,
     voiceAt: 0,
-    // 新条目站在默认槽位；本人的记忆位置由 useDragPref 在「我出现在名册里」
-    // 那一刻套上去，别人的位置本来就没有可记的东西。
+    // 新条目先站在默认槽位；记忆里的位置由 hooks/useDragPrefs 在「这个人出现
+    // 在名册里」那一刻套上去（自己的、别人的都有）。
     targetDragX: 0,
     targetDragY: 0,
     currentDragX: 0,
@@ -426,8 +426,8 @@ function clamp01(v: number): number {
  *
  * 必须跟手——拖动时如果也走平滑，模型会像被橡皮筋拽着，手感立刻变差。
  *
- * 只给本人的角色用：位置不再同步，别人的站位由槽位算，没有「我要把他的角色
- * 挪个地方」这回事（大小倒是可以各端自己调，见 core/peer-scale）。
+ * **任何角色都能拖**（2026-11-22）：槽位只是基准，摆在哪由我这台设备决定。
+ * 位置不同步给任何人，所以「我把 A 的角色挪开了」不会影响 A 自己的画面。
  */
 export function setLocalDrag(sid: string, x: number, y: number): void {
   const entry = entries.get(sid)

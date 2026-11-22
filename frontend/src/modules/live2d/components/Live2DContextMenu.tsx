@@ -92,24 +92,33 @@ export interface Live2DContextMenuProps {
   /**
    * 右键的是**别人的**角色。
    *
-   * 菜单随之切成「对他」的形态：戳一下，以及**本机**给他调大小。
+   * 菜单随之切成「对他」的形态：戳一下，以及**本机**给他调大小与位置。
    * 以前不管点到谁都是「我的角色」——在别人的角色上右键，却看到自己的
-   * 模型名和自己的大小滑杆。大小也只写本机偏好：各端看同一个人可以不一样大。
+   * 模型名和自己的大小滑杆。位置与大小都只写本机偏好：各端看同一个人可以
+   * 摆得不一样，也不会影响对方的画面。
    */
   peer?: {
     name: string
     /** 我这台设备上他的显示比例（没调过就是 1） */
     scale: number
+    /** 我已经把这个角色挪过位置（决定「回到原位」要不要出现） */
+    canReset: boolean
+    /** 拖拽模式是否正在进行（入口文案随它切换） */
+    dragMode: boolean
     onPoke: () => void
     onScale: (scale: number) => void
+    /** 进入/退出拖拽模式（模式是全局的：开着时画面上的角色都能拖） */
+    onToggleDrag: () => void
+    /** 把这个角色放回默认站位 */
+    onReset: () => void
   } | null
 }
 
 const MENU_WIDTH = 264
 /** 估算高度只用于「别超出视口下沿」；实际高度由内容决定并可滚动。 */
 const MENU_HEIGHT_GUESS = 440
-/** 「别人的角色」菜单：标题 + 大小滑杆 + 一个互动动作，高度单独估一个小值。 */
-const PEER_MENU_HEIGHT_GUESS = 200
+/** 「别人的角色」菜单：标题 + 大小滑杆 + 位置那一排 + 一个互动动作。 */
+const PEER_MENU_HEIGHT_GUESS = 290
 
 export function Live2DContextMenu({
   open,
@@ -230,11 +239,38 @@ export function Live2DContextMenu({
 
         <Divider />
 
+        {/* 位置：和自己的角色走同一套本机偏移。拖拽模式是全球的（开着时画面
+            上每个角色都能拖），所以这里只是"进入模式"的另一个入口——用户是
+            在别人身上右键的，直接从这里进去最顺手。 */}
+        <p className="mb-1 text-[10px] uppercase tracking-wide opacity-55">
+          {t('位置')}
+        </p>
+        <div className="flex items-center gap-1">
+          <MenuAction
+            onClick={peer.onToggleDrag}
+            icon={<Move size={13} />}
+            title={t('开启后可直接拖动角色调整位置')}
+          >
+            {peer.dragMode ? t('退出拖拽模式') : t('拖拽模式')}
+          </MenuAction>
+          {peer.canReset && (
+            <MenuAction
+              onClick={peer.onReset}
+              icon={<RotateCcw size={13} />}
+              title={t('回到默认站位')}
+            >
+              {t('回到原位')}
+            </MenuAction>
+          )}
+        </div>
+
+        <Divider />
+
         <MenuAction onClick={peer.onPoke} icon={<Hand size={13} />}>
           {t('戳一下')}
         </MenuAction>
         <p className="mt-1.5 text-[10px] leading-snug opacity-50">
-          {t('大小只影响你的画面')}
+          {t('位置和大小只保存在本机，不会同步给别人')}
         </p>
       </div>,
       container ?? document.body
