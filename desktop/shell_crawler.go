@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -228,6 +229,47 @@ func (a *App) crawlerRoot() string {
 		return ""
 	}
 	return a.crawler.root
+}
+
+// mcpInfo 给 GUI 的「MCP 工具」弹窗：客户端要填的命令、参数、目录与工具清单。
+//
+// 客户端其实只需要两样：可执行文件路径与 --mcp。目录与清单一并给出，
+// 省得用户去翻安装目录；工具清单从后端注册表取，和客户端 tools/list 同一份。
+func (a *App) mcpInfo() (any, error) {
+	if a.crawler == nil {
+		return map[string]any{"available": false, "reason": "桌面桥接未初始化"}, nil
+	}
+	// MCP 客户端拉起的是运行包里的后端本体：它在 runtime/ 下，自动能探测到 runtime/crawler。
+	command := filepath.Join(a.root, "zviewer-backend.exe")
+	ready, reason := a.crawler.available()
+	tools := []any{}
+	toolsError := ""
+	if ready {
+		result, err := a.crawler.do("GET", "/api/crawler/tools", nil)
+		if err != nil {
+			toolsError = err.Error()
+		} else if status, _ := result["status"].(int); status != http.StatusOK {
+			toolsError = "读取工具清单失败（HTTP " + strconv.Itoa(status) + "）"
+		} else if body, ok := result["body"].(map[string]any); ok {
+			if list, ok := body["tools"].([]any); ok {
+				tools = list
+			}
+		}
+	} else {
+		toolsError = reason
+	}
+	return map[string]any{
+		"available":     true,
+		"engineReady":   ready,
+		"reason":        reason,
+		"command":       command,
+		"commandExists": fileExists(command),
+		"args":          []string{"--mcp"},
+		"root":          a.crawler.root,
+		"count":         len(tools),
+		"tools":         tools,
+		"toolsError":    toolsError,
+	}, nil
 }
 
 // info 给界面用的快照。

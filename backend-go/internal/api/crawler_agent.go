@@ -253,7 +253,7 @@ func localAgentPair() (*crawler.RuleAgent, *crawler.AgentRunManager, error) {
 	if bundle == nil {
 		return nil, nil, nil
 	}
-	return bundle.localAgent()
+	return bundle.Agent()
 }
 
 // proxyCrawlerRequest 把请求原样转发给 3789 上的 Python 引擎（老安装回退）。

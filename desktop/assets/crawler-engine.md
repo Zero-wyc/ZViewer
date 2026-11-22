@@ -366,9 +366,35 @@ curl -s -X POST "$BASE/api/crawler/rules/import" \
   --data '{"bundle": <bundle-json>, "mode": "merge", "dryRun": true}'
 ```
 
-## 6. 工具集（MCP 暂未提供）
+## 6. 工具集（MCP）
 
-Go 版没有 MCP stdio 入口。同样的工具在引擎内部以注册表形式存在，Agent 对话与「生成规则」都通过它调用：
+同一份工具注册表（`internal/crawler/tools.go`）供三个调用方使用：Agent 对话、`/api/crawler/tools`、以及 MCP 客户端。MCP 入口就是后端可执行文件本身：
+
+```bash
+zviewer-backend --mcp            # stdio，JSON-RPC 2.0，一行一条报文
+zviewer-backend --mcp --root D:\crawler   # 显式指定数据目录
+```
+
+这个模式**不读 .env、不连数据库、不开任何端口**：只把 stdin 的 JSON-RPC 交给引擎，把结果写回 stdout；诊断日志一律走 stderr（stdout 混进别的字符，客户端会直接判定协议错误）。目录优先级：`--root` → `CRAWLER_ROOT` → `ZVIEWER_CRAWLER_ROOT` → exe 同级的 `crawler/` 或 `runtime/crawler/`。
+
+客户端配置（Claude Desktop 的 `claude_desktop_config.json`、Cursor 的 `.cursor/mcp.json` 都是这个形状）：
+
+```json
+{
+  "mcpServers": {
+    "zviewer-crawler": {
+      "command": "C:\\Program Files\\ZViewer\\runtime\\zviewer-backend.exe",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+VS Code 的 `.vscode/mcp.json` 把 `mcpServers` 换成 `servers`，并加 `"type": "stdio"`。桌面控制台的「爬虫引擎 → MCP 工具」按钮会按当前安装路径生成这三份配置，可直接复制。
+
+协议：支持 `2024-11-05` / `2025-03-26` / `2025-06-18`，按客户端请求协商，不认识的版本回最新；方法有 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`、`resources/list`、`prompts/list`（后两个返回空列表，部分客户端会先探一下）。
+
+工具（26 个）：
 
 - 抓取/检查：`fetch_page`、`inspect_html`、`inspect_challenge`、`detect_challenge_html`
 - 规则：`test_rule`、`save_rule`、`list_rules`、`get_rule`、`update_rule`、`delete_rule`、`generate_rule`
@@ -376,7 +402,10 @@ Go 版没有 MCP stdio 入口。同样的工具在引擎内部以注册表形式
 - 搜索：`search_site`、`list_sites`、`search_logs`
 - 账号：`list_accounts`、`save_account`、`delete_account`、`bind_account`
 - 浏览器：`browser_status`、`browser_open`、`browser_text`、`browser_html`、`browser_eval`、`browser_click`、`browser_cookies`
-- 会话：`task_complete`、`ask_user`、`rename_session`
+
+`tools/call` 把工具结果序列化成 JSON 放进 `content[0].text`；工具返回 `success:false` 时 `isError` 为 `true`，模型据此决定是否重试。`task_complete`、`ask_user`、`rename_session` 由 Agent 的 run 循环直接处理（依赖会话上下文），**不作为 MCP 工具暴露**。
+
+没有 `config.json`（或里面没有 `api_key`）时 `generate_rule` 仍会注册，调用时才报「未配置模型」——这样客户端的工具表始终是完整的。
 
 ## 7. Agent 对话
 
@@ -415,13 +444,14 @@ Agent 可以在任务开始时调用 `rename_session` 工具把当前会话改�
 
 ```bash
 cd backend-go
-GOPROXY=https://goproxy.cn,direct go test ./internal/crawler/ ./internal/api/
+GOPROXY=https://goproxy.cn,direct go test ./internal/crawler/ ./internal/mcp/ ./internal/api/
 ```
 
-覆盖 DOM/选择器、HTML/JSON/脚本搜索、播放解析（六路兜底 + 清晰度排序）、账号 Cookie 注入与掩码、验证会话与同源反代、CDP 浏览器嗅探、LLM 流式与工具调用、Agent 生成/修复/对话与 run 管理、导出导入往返与 dry-run/replace。
+覆盖 DOM/选择器、HTML/JSON/脚本搜索、播放解析（六路兜底 + 清晰度排序）、账号 Cookie 注入与掩码、验证会话与同源反代、CDP 浏览器嗅探、LLM 流式与工具调用、Agent 生成/修复/对话与 run 管理、导出导入往返与 dry-run/replace，以及 MCP 报文层（版本协商、tools/list、tools/call 的 isError 映射、通知不回包、错误码、行协议拆分）。
 
 ## 9. 已知边界
 
-1. **MCP stdio 入口未提供**：工具注册表已就绪，但还没有对外暴露 MCP 协议层。
-2. **成员提交站点已移除**：网页端只保留 agent 直接建规则；GUI 的提交页会显示为空。
-3. **可见登录窗口**依赖本机 Edge/Chrome；没有浏览器时只能在规则里写死 Cookie 或改用脚本规则。
+1. **MCP 与桌面端共用 `data/`**：stdio 进程与桌面后端各自持有一套引擎实例。规则文件是「写临时文件再改名」，并发安全；但 `data/search-log.json`、`data/accounts.json` 是整文件重写，两边同时写会丢更新。同一时间只在一个客户端里高频调用即可避免。`data/browser-profile` 被桌面端占用时，MCP 里的 `browser_*` 会报启动失败，关掉桌面端的浏览器会话即可。
+2. **只提供 stdio 传输**：没有 HTTP 端点，远程/多客户端场景需要自行加一层转发（例如 `mcp-proxy`），不要把它暴露到公网。
+3. **成员提交站点已移除**：网页端只保留 agent 直接建规则；GUI 的提交页会显示为空。
+4. **可见登录窗口**依赖本机 Edge/Chrome；没有浏览器时只能在规则里写死 Cookie 或改用脚本规则。

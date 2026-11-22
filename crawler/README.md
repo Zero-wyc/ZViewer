@@ -54,10 +54,11 @@ crawler/
 ## 文档与测试
 
 - 使用手册：[`docs/engine.md`](docs/engine.md)
-- 测试：`cd backend-go && go test ./internal/crawler/ ./internal/api/`
+- 测试：`cd backend-go && go test ./internal/crawler/ ./internal/mcp/ ./internal/api/`
 
 ## 边界
 
 - 只抓公开页面，不处理付费墙 / DRM；需要登录的站点由用户在本机浏览器窗口里人工完成。
 - 纯元数据站（豆瓣等）不编造播放地址；解析不到就明确报「不可播放」。
-- MCP stdio 入口暂未提供（工具注册表已就绪，Agent 与生成规则都在用）。
+- MCP 客户端可直接调用全部工具：`zviewer-backend --mcp`（stdio），配置见使用手册第 6 节。
+- MCP 与桌面端共用 `data/`，不要两边同时高频写搜索日志 / 账号库。

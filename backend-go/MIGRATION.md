@@ -2011,7 +2011,7 @@ soak 34s
 
 | 快照 | 内容 | 生成方式 |
 |---|---|---|
-| `backend-go/testdata/contract/routes.json` | **241** 条 `/api/*` + `/health`（含方法）= 193 条 Node 冻结 + 48 条 Go 侧后补（见下「2026-11-22 手动补齐」） | `node backend-go/scripts/route-audit.js --snapshot ...`（仅 Node 还在时可用，之后手改并同步本节） |
+| `backend-go/testdata/contract/routes.json` | **242** 条 `/api/*` + `/health`（含方法）= 193 条 Node 冻结 + 49 条 Go 侧后补（见下「2026-11-22 手动补齐」） | `node backend-go/scripts/route-audit.js --snapshot ...`（仅 Node 还在时可用，之后手改并同步本节） |
 | `backend-go/testdata/contract/events.json` | **69** 个上行 Socket 业务事件 + `lifecycle:[disconnect]` + 19 个 handler 名单 = 60 条 Node 冻结 + 9 条后补 | `node backend-go/scripts/event-audit.js --snapshot ...`（同上） |
 
 两个脚本都支持 `--fixture`：**只读快照、不 require ts-node、不碰 `backend/`**。
@@ -2041,7 +2041,8 @@ soak 34s
 ——覆盖度是静默缩水的。
 
 补进来的 48 条端点（全部 `Auth.Require` / `RequireDesktopOrAdmin` 先行拦截，探测只会拿到
-401/403，不会触发真实副作用）：
+401/403，不会触发真实副作用）。之后又加了一条 `GET /api/crawler/tools`（MCP 与 Agent 共用的
+工具清单，桌面端「MCP 工具」弹窗读取），契约 242 条：
 
 | 来源 | 端点 |
 |---|---|
@@ -2069,7 +2070,7 @@ soak 34s
 
 ```
 bash backend-go/scripts/events-parity.sh      # 69 / 69 精确相等
-bash backend-go/scripts/route-parity.sh --fixture   # 241 条全部命中，探测期间无 panic
+bash backend-go/scripts/route-parity.sh --fixture   # 242 条全部命中，探测期间无 panic
 ```
 
 ### 删除 `backend/` 的影响面（删之前必须处理的引用点）

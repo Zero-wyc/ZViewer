@@ -202,7 +202,14 @@
     const url = URL.createObjectURL(new Blob([text], { type: mime }));
     const link = document.createElement('a'); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
-  function modal(content) { $('#modal-content').innerHTML = content; $('#modal').showModal(); }
+  // modal 默认 548px（与其余弹窗一致）；需要放配置/清单的弹窗传 { wide: true } 加到 720px。
+  // 类挂在 dialog 上而不是内容上：宽度是 dialog 的属性，内容撑不开。
+  function modal(content, options) {
+    $('#modal-content').innerHTML = content;
+    const dialog = $('#modal');
+    dialog.classList.toggle('modal-wide', Boolean(options && options.wide));
+    dialog.showModal();
+  }
   // ---------- 软件更新 ----------
   // 检查与下载都在主进程完成；界面只读快照里的 update 状态，下载期间不退出程序。
   const updateLabels = { idle: '未检查', checking: '检查中', latest: '已是最新', available: '有新版', downloading: '下载中', ready: '待安装', error: '失败' };

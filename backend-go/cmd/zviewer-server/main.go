@@ -55,6 +55,12 @@ func main() {
 	log.SetFlags(log.LstdFlags)
 	log.SetPrefix("")
 
+	// `--mcp` 是独立的 MCP stdio 入口（Claude Desktop / Cursor / VS Code 之类客户端用）。
+	// 必须放在 config.Load 之前：MCP 不读 .env、不连库、不起服务，缺 JWT 密钥也不该拦它。
+	if args := os.Args[1:]; hasFlag(args, "--mcp") {
+		os.Exit(runMCP(args))
+	}
+
 	// 先定位项目根再读 .env：dotenv 里可能就写着 PROJECT_ROOT / CONFIG_DIR
 	root := config.DetectProjectRoot()
 	config.LoadDotEnv(root)

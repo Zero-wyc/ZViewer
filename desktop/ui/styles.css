@@ -1018,6 +1018,8 @@ dialog {
   box-shadow: var(--shadow-dialog);
 }
 dialog::backdrop { background: var(--smoke); }
+/* 配置/清单类弹窗：默认 548px 放不下一份 JSON 路径，单独放宽。 */
+dialog.modal-wide { width: min(720px, calc(100vw - 48px)); }
 dialog h2 { font-size: var(--text-subtitle); line-height: var(--line-subtitle); font-weight: 600; }
 dialog p { margin-top: 8px; color: var(--text-secondary); font-size: 12px; line-height: 18px; }
 
@@ -1244,6 +1246,16 @@ dialog p { margin-top: 8px; color: var(--text-secondary); font-size: 12px; line-
 }
 @keyframes crawler-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 .crawler-json { min-height: 320px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+/* MCP 弹窗：配置框不用那么高，工具清单单独滚动。 */
+#crawler-mcp-text { min-height: 216px; }
+.crawler-fact.wide { grid-column: 1 / -1; }
+#crawler-mcp-text:read-only { opacity: .92; }
+.mcp-tools-title { margin: 20px 0 8px; font-size: 14px; }
+.mcp-tools { max-height: 200px; margin: 0; padding: 6px 10px; overflow: auto; list-style: none; border: 1px solid var(--card-stroke); border-radius: var(--radius-card); background: var(--subtle-hover); font-size: 12px; }
+.mcp-tools li { display: flex; gap: 10px; padding: 5px 2px; border-bottom: 1px solid var(--divider); }
+.mcp-tools li:last-child { border-bottom: none; }
+.mcp-tools code { flex: none; min-width: 132px; font-family: var(--font-mono); font-size: 12px; }
+.mcp-tools span { opacity: .75; line-height: 1.5; }
 .crawler-doc { max-height: 60vh; overflow: auto; padding: 4px 14px 8px; border: 1px solid var(--card-stroke); border-radius: var(--radius-card); background: var(--subtle-hover); font-size: 13px; line-height: 1.65; }
 .crawler-doc h2, .crawler-doc h3, .crawler-doc h4 { margin: 18px 0 8px; }
 .crawler-doc h2 { font-size: 17px; }

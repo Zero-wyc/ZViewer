@@ -159,9 +159,10 @@
       fact('API Key', config.apiKeyConfigured ? ('已配置 ' + (config.apiKeyMasked || '')) : '尚未配置'),
       fact('最后错误', info.lastError || c.error || '')
     ].join('');
-    const controls = running
+    const controls = (running
       ? button('停止引擎', 'crawler-stop', 'stop') + button('刷新', 'crawler-refresh', 'refresh')
-      : button('启动引擎', 'crawler-start', 'play', 'primary') + button('刷新', 'crawler-refresh', 'refresh');
+      : button('启动引擎', 'crawler-start', 'play', 'primary') + button('刷新', 'crawler-refresh', 'refresh')) +
+      '<button class="btn" data-crawler-mcp-open="1">' + icon('terminal') + 'MCP 工具</button>';
     return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>引擎状态</h2></div>' + enginePill(c) + '</div><div class="crawler-facts">' + facts + '</div><div class="live-toolbar">' + controls + '</div><p class="field-note">引擎随后端进程一起运行，没有独立进程需要启动；日志见左侧「运行日志」。</p></section>';
   }
   function tabs(c) {
@@ -738,6 +739,90 @@
   async function openDocs() {
     const doc = await cmd('crawler-doc');
     ui.modal('<h2>爬虫规则文档</h2><p class="field-note">' + esc(doc.path || '') + '</p><div class="crawler-doc">' + renderMarkdown(doc.content) + '</div><div class="modal-actions">' + button('关闭', 'close-modal') + '</div>');
+  }
+
+  // ----------------------------------------------------------- MCP 工具
+
+  // 当前弹窗里选中的客户端。只影响文本框与路径提示，不参与渲染状态机。
+  let mcpClient = 'claude';
+  // 弹窗打开时缓存的命令与参数：切客户端标签时不用再问一次后端。
+  let mcpView = { command: '', args: [] };
+
+  /** 三份客户端配置。Claude Desktop 与 Cursor 都是 mcpServers，VS Code 用 servers + type。 */
+  function mcpSnippets(command, args) {
+    const entry = { command: command, args: args };
+    return {
+      claude: JSON.stringify({ mcpServers: { 'zviewer-crawler': entry } }, null, 2),
+      cursor: JSON.stringify({ mcpServers: { 'zviewer-crawler': entry } }, null, 2),
+      vscode: JSON.stringify({ servers: { 'zviewer-crawler': Object.assign({ type: 'stdio' }, entry) } }, null, 2)
+    };
+  }
+
+  function mcpHints() {
+    return {
+      claude: '配置文件：%APPDATA%\\Claude\\claude_desktop_config.json（没有就新建）。改完完全退出并重启 Claude。',
+      cursor: '配置文件：用户级 ~/.cursor/mcp.json，或项目下 .cursor/mcp.json。保存后在 MCP 面板点一下刷新。',
+      vscode: '配置文件：项目下 .vscode/mcp.json（GitHub Copilot 需在设置里启用 MCP）。保存后从面板启动服务。'
+    };
+  }
+
+  function renderMcpConfig() {
+    const textarea = $('#crawler-mcp-text');
+    const hint = $('#crawler-mcp-path');
+    const snippets = mcpSnippets(mcpView.command, mcpView.args);
+    if (textarea) textarea.value = snippets[mcpClient] || '';
+    if (hint) hint.textContent = mcpHints()[mcpClient] || '';
+    document.querySelectorAll('[data-mcp-client]').forEach(function (tab) {
+      tab.classList.toggle('active', tab.dataset.mcpClient === mcpClient);
+    });
+  }
+
+  async function openMcp() {
+    let info;
+    try {
+      info = await cmd('mcp-info');
+    } catch (error) {
+      ui.toast(message(error));
+      return;
+    }
+    if (!info || info.available === false) {
+      ui.toast((info && info.reason) || 'MCP 不可用');
+      return;
+    }
+    mcpView = { command: info.command || '', args: info.args || ['--mcp'] };
+    const tools = info.tools || [];
+    const toolCount = tools.length
+      ? tools.length + ' 个'
+      : (info.engineReady ? '0 个' : '待服务启动');
+    const list = tools.length
+      ? '<ul class="mcp-tools">' + tools.map(function (tool) {
+          return '<li><code>' + esc(tool.name || '') + '</code><span>' + esc(tool.description || '') + '</span></li>';
+        }).join('') + '</ul>'
+      : '<p class="field-note">' + esc(info.toolsError || '启动服务后即可读取工具清单。') + '</p>';
+    ui.modal(
+      '<h2>MCP 工具</h2>' +
+      '<p class="field-note">把配置粘到客户端的 MCP 配置文件里，就能在对话中直接调用爬虫工具（生成、测试、管理站点规则）。工具走本机后端，桌面端没在运行也能用。</p>' +
+      '<div class="crawler-facts">' +
+        '<div class="crawler-fact wide"><span>命令</span><code>' + esc(info.command || '') + '</code></div>' +
+        fact('参数', (info.args || []).join(' ')) +
+        fact('工具', toolCount) +
+        '<div class="crawler-fact wide"><span>数据目录</span><code>' + esc(info.root || '') + '</code></div>' +
+      '</div>' +
+      (info.commandExists ? '' : notice('运行包里没有找到 zviewer-backend.exe，请先构建或重新安装。', true)) +
+      '<div class="tabs crawler-tabs" id="crawler-mcp-tabs">' +
+        '<button data-mcp-client="claude" class="active">Claude Desktop</button>' +
+        '<button data-mcp-client="cursor">Cursor</button>' +
+        '<button data-mcp-client="vscode">VS Code</button>' +
+      '</div>' +
+      '<p class="field-note" id="crawler-mcp-path"></p>' +
+      '<textarea class="codebox config-editor crawler-json" id="crawler-mcp-text" readonly spellcheck="false"></textarea>' +
+      '<div class="modal-actions">' + button('关闭', 'close-modal') +
+        '<button class="btn primary" data-crawler-mcp-copy="1">' + icon('copy') + '复制配置</button>' +
+      '</div>' +
+      '<h3 class="mcp-tools-title">工具清单' + (tools.length ? '（' + tools.length + '）' : '') + '</h3>' + list,
+      { wide: true }
+    );
+    renderMcpConfig();
   }
 
   // ----------------------------------------------------------- manual submission
@@ -1619,6 +1704,29 @@
       event.stopImmediatePropagation();
       cs().tab = tab.dataset.crawlerTab;
       renderIf();
+      return;
+    }
+    const mcpOpen = event.target.closest('[data-crawler-mcp-open]');
+    if (mcpOpen) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      openMcp();
+      return;
+    }
+    const mcpTab = event.target.closest('[data-mcp-client]');
+    if (mcpTab) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      mcpClient = mcpTab.dataset.mcpClient;
+      renderMcpConfig();
+      return;
+    }
+    const mcpCopy = event.target.closest('[data-crawler-mcp-copy]');
+    if (mcpCopy) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const textarea = $('#crawler-mcp-text');
+      copyText(textarea ? textarea.value : '');
       return;
     }
     const ruleButton = event.target.closest('[data-crawler-rule]');

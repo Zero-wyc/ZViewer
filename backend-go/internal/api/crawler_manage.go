@@ -22,6 +22,7 @@ import (
 func (s *Server) registerCrawlerManageRoutes(mux *http.ServeMux) {
 	admin := s.Auth.RequireDesktopOrAdmin
 	mux.HandleFunc("GET /api/crawler/status", admin(s.handleCrawlerStatus))
+	mux.HandleFunc("GET /api/crawler/tools", admin(s.handleCrawlerToolsGet))
 	mux.HandleFunc("GET /api/crawler/rules", admin(s.handleCrawlerRulesList))
 	mux.HandleFunc("POST /api/crawler/rules", admin(s.handleCrawlerRuleSave))
 	mux.HandleFunc("GET /api/crawler/rules/{id}", admin(s.handleCrawlerRuleGet))
@@ -55,14 +56,14 @@ func (s *Server) handleCrawlerStatus(w http.ResponseWriter, r *http.Request) {
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
-	rules := bundle.store.List(true)
+	rules := bundle.Store.List(true)
 	scriptRules := 0
 	for _, rule := range rules {
 		if rule.Search.Mode == "script" || rule.Parse.Type == "script" {
 			scriptRules++
 		}
 	}
-	config, _ := crawler.LoadEngineConfig(bundle.root)
+	config, _ := crawler.LoadEngineConfig(bundle.Root)
 	model := ""
 	llmConfigured := false
 	repairEnabled := true
@@ -76,34 +77,57 @@ func (s *Server) handleCrawlerStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	accounts := 0
-	if bundle.accounts != nil {
-		accounts = len(bundle.accounts.List(true))
+	if bundle.Accounts != nil {
+		accounts = len(bundle.Accounts.List(true))
 	}
 	httpx.OK(w, map[string]any{
 		"success":        true,
 		"engine":         "go",
-		"version":        "0.2.0",
-		"root":           bundle.root,
+		"version":        crawler.Version,
+		"root":           bundle.Root,
 		"rules":          len(rules),
 		"scriptRules":    scriptRules,
 		"accounts":       accounts,
 		"llmConfigured":  llmConfigured,
 		"model":          model,
-		"searchLogCount": 0,
+		"searchLogCount": bundle.SearchLog.Count(),
 		"repairEnabled":  repairEnabled,
-		"browser":        bundle.browser.Status(),
+		"browser":        bundle.Browser.Status(),
+	})
+}
+
+// handleCrawlerToolsGet 列出工具集（名称/说明/入参 Schema）。
+//
+// 数据源就是 Agent 与 MCP 共用的那份注册表：桌面端的「MCP 工具」弹窗拿它
+// 显示清单，客户端 tools/list 拿到的也是同一批——两边不会说两套话。
+func (s *Server) handleCrawlerToolsGet(w http.ResponseWriter, r *http.Request) {
+	bundle := localBundle()
+	if bundle == nil {
+		s.proxyCrawlerRequest(w, r, 15*time.Second)
+		return
+	}
+	registry, err := bundle.Registry()
+	if err != nil {
+		httpx.Fail(w, http.StatusInternalServerError, "工具集不可用："+err.Error())
+		return
+	}
+	tools := registry.MCPTools()
+	httpx.OK(w, map[string]any{
+		"success": true,
+		"version": crawler.Version,
+		"count":   len(tools),
+		"tools":   tools,
 	})
 }
 
 // ---------------------------------------------------------------- 规则
-
 func (s *Server) handleCrawlerRulesList(w http.ResponseWriter, r *http.Request) {
 	bundle := localBundle()
 	if bundle == nil {
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
-	rules := bundle.store.List(true)
+	rules := bundle.Store.List(true)
 	views := make([]map[string]any, 0, len(rules))
 	for _, rule := range rules {
 		views = append(views, crawler.PublicView(rule, true))
@@ -117,7 +141,7 @@ func (s *Server) handleCrawlerRuleGet(w http.ResponseWriter, r *http.Request) {
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
-	rule, err := bundle.store.Get(r.PathValue("id"))
+	rule, err := bundle.Store.Get(r.PathValue("id"))
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -156,7 +180,7 @@ func (s *Server) handleCrawlerRuleSave(w http.ResponseWriter, r *http.Request) {
 		httpx.BadRequest(w, "规则不是合法 JSON")
 		return
 	}
-	saved, err := bundle.store.Save(&rule, rule.ID)
+	saved, err := bundle.Store.Save(&rule, rule.ID)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -184,7 +208,7 @@ func (s *Server) handleCrawlerRuleUpdate(w http.ResponseWriter, r *http.Request)
 			patch = direct
 		}
 	}
-	rule, err := bundle.store.Update(r.PathValue("id"), patch)
+	rule, err := bundle.Store.Update(r.PathValue("id"), patch)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -199,7 +223,7 @@ func (s *Server) handleCrawlerRuleDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	ruleID := r.PathValue("id")
-	deleted, err := bundle.store.Delete(ruleID)
+	deleted, err := bundle.Store.Delete(ruleID)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -215,21 +239,21 @@ func (s *Server) handleCrawlerRuleDelete(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleCrawlerAccountsList(w http.ResponseWriter, r *http.Request) {
 	bundle := localBundle()
-	if bundle == nil || bundle.accounts == nil {
+	if bundle == nil || bundle.Accounts == nil {
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
-	items := bundle.accounts.List(true)
+	items := bundle.Accounts.List(true)
 	httpx.OK(w, map[string]any{"success": true, "accounts": items, "count": len(items)})
 }
 
 func (s *Server) handleCrawlerAccountGet(w http.ResponseWriter, r *http.Request) {
 	bundle := localBundle()
-	if bundle == nil || bundle.accounts == nil {
+	if bundle == nil || bundle.Accounts == nil {
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
-	account, err := bundle.accounts.Require(r.PathValue("id"))
+	account, err := bundle.Accounts.Require(r.PathValue("id"))
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -239,7 +263,7 @@ func (s *Server) handleCrawlerAccountGet(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleCrawlerAccountSave(w http.ResponseWriter, r *http.Request) {
 	bundle := localBundle()
-	if bundle == nil || bundle.accounts == nil {
+	if bundle == nil || bundle.Accounts == nil {
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
@@ -261,7 +285,7 @@ func (s *Server) handleCrawlerAccountSave(w http.ResponseWriter, r *http.Request
 		httpx.BadRequest(w, "缺少账号对象")
 		return
 	}
-	saved, err := bundle.accounts.Save(raw)
+	saved, err := bundle.Accounts.Save(raw)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -271,12 +295,12 @@ func (s *Server) handleCrawlerAccountSave(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleCrawlerAccountDelete(w http.ResponseWriter, r *http.Request) {
 	bundle := localBundle()
-	if bundle == nil || bundle.accounts == nil {
+	if bundle == nil || bundle.Accounts == nil {
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
 	accountID := r.PathValue("id")
-	if !bundle.accounts.Delete(accountID) {
+	if !bundle.Accounts.Delete(accountID) {
 		httpx.Fail(w, http.StatusNotFound, "账号不存在: "+accountID)
 		return
 	}
@@ -292,7 +316,7 @@ func (s *Server) handleCrawlerChallenges(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	includeCompleted := r.URL.Query().Get("all")
-	items := bundle.challenge.List(includeCompleted == "1" || includeCompleted == "true" || includeCompleted == "yes")
+	items := bundle.Challenges.List(includeCompleted == "1" || includeCompleted == "true" || includeCompleted == "yes")
 	httpx.OK(w, map[string]any{"success": true, "challenges": items, "count": len(items)})
 }
 
@@ -302,7 +326,7 @@ func (s *Server) handleCrawlerChallengeClear(w http.ResponseWriter, r *http.Requ
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
-	cleared := bundle.challenge.Clear()
+	cleared := bundle.Challenges.Clear()
 	httpx.OK(w, map[string]any{"success": true, "cleared": cleared})
 }
 
@@ -334,7 +358,7 @@ func (s *Server) handleCrawlerConfigGet(w http.ResponseWriter, r *http.Request) 
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
-	config, err := crawler.LoadEngineConfig(bundle.root)
+	config, err := crawler.LoadEngineConfig(bundle.Root)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -357,7 +381,7 @@ func (s *Server) handleCrawlerConfigPut(w http.ResponseWriter, r *http.Request) 
 	if nested, ok := body["config"].(map[string]any); ok {
 		patch = nested
 	}
-	config, err := crawler.LoadEngineConfig(bundle.root)
+	config, err := crawler.LoadEngineConfig(bundle.Root)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -374,7 +398,7 @@ func (s *Server) handleCrawlerConfigPut(w http.ResponseWriter, r *http.Request) 
 	config.Raw = merged
 	config.ApplyRaw(merged)
 	// agent 段由 AgentConfig 决定，写回时统一从结构体生成。
-	if err := config.Save(bundle.root); err != nil {
+	if err := config.Save(bundle.Root); err != nil {
 		writeCrawlerError(w, err)
 		return
 	}
@@ -413,7 +437,7 @@ func (s *Server) crawlerModels(w http.ResponseWriter, ctx context.Context, apiKe
 		httpx.Fail(w, http.StatusServiceUnavailable, "爬虫引擎未运行")
 		return
 	}
-	config, err := crawler.LoadEngineConfig(bundle.root)
+	config, err := crawler.LoadEngineConfig(bundle.Root)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -449,7 +473,7 @@ func (s *Server) handleCrawlerRulesExport(w http.ResponseWriter, r *http.Request
 	if raw := r.URL.Query().Get("ids"); raw != "" {
 		ids = strings.Split(raw, ",")
 	}
-	payload := bundle.store.ExportBundle(ids)
+	payload := bundle.Store.ExportBundle(ids)
 	httpx.OK(w, payload)
 }
 
@@ -477,7 +501,7 @@ func (s *Server) handleCrawlerRulesImport(w http.ResponseWriter, r *http.Request
 		dryRun, _ = body["dry_run"].(bool)
 	}
 	mode, _ := body["mode"].(string)
-	report, err := bundle.store.ImportBundle(payload, mode, dryRun)
+	report, err := bundle.Store.ImportBundle(payload, mode, dryRun)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -493,7 +517,7 @@ func (s *Server) handleCrawlerBrowserStatus(w http.ResponseWriter, r *http.Reque
 		s.proxyCrawlerRequest(w, r, 15*time.Second)
 		return
 	}
-	httpx.OK(w, map[string]any{"success": true, "browser": bundle.browser.Status()})
+	httpx.OK(w, map[string]any{"success": true, "browser": bundle.Browser.Status()})
 }
 
 func (s *Server) handleCrawlerBrowserOpenLogin(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +530,7 @@ func (s *Server) handleCrawlerBrowserOpenLogin(w http.ResponseWriter, r *http.Re
 		URL string `json:"url"`
 	}
 	_ = httpx.DecodeJSON(r, &body)
-	result, err := bundle.browser.OpenLogin(r.Context(), body.URL)
+	result, err := bundle.Browser.OpenLogin(r.Context(), body.URL)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -525,7 +549,7 @@ func (s *Server) handleCrawlerBrowserSaveLogin(w http.ResponseWriter, r *http.Re
 		Name string `json:"name"`
 	}
 	_ = httpx.DecodeJSON(r, &body)
-	result, err := bundle.browser.SaveLogin(r.Context(), body.Site, body.Name, bundle.accounts)
+	result, err := bundle.Browser.SaveLogin(r.Context(), body.Site, body.Name, bundle.Accounts)
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -539,7 +563,7 @@ func (s *Server) handleCrawlerBrowserClose(w http.ResponseWriter, r *http.Reques
 		s.proxyCrawlerRequest(w, r, 30*time.Second)
 		return
 	}
-	result, err := bundle.browser.CloseBrowser(r.Context())
+	result, err := bundle.Browser.CloseBrowser(r.Context())
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
@@ -553,12 +577,12 @@ func (s *Server) handleCrawlerBrowserClearProfile(w http.ResponseWriter, r *http
 		s.proxyCrawlerRequest(w, r, 30*time.Second)
 		return
 	}
-	result, err := bundle.browser.ClearProfile()
+	result, err := bundle.Browser.ClearProfile()
 	if err != nil {
 		writeCrawlerError(w, err)
 		return
 	}
-	httpx.OK(w, map[string]any{"success": true, "browser": bundle.browser.Status(), "cleared": result["cleared"]})
+	httpx.OK(w, map[string]any{"success": true, "browser": bundle.Browser.Status(), "cleared": result["cleared"]})
 }
 
 // handleCrawlerSubmissions 返回空列表。
