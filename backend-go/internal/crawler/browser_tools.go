@@ -17,21 +17,27 @@ import (
 
 // Status 返回浏览器当前状态（供 browser_status 工具与 GUI）。
 func (b *Browser) Status() map[string]any {
+	// 注意：不能持着 b.mu 调用 evaluateURL —— 那条路径会再次锁 b.mu（不可重入），
+	// 会把自己锁死，随后所有浏览器工具都跟着卡住。
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	client := b.client
+	port := b.port
+	headless := b.opts.Headless
+	b.mu.Unlock()
+
 	bin, binErr := FindBrowserBinary(b.opts.Bin)
 	status := map[string]any{
 		"available": binErr == nil,
-		"running":   b.client != nil,
-		"port":      b.port,
-		"headless":  b.opts.Headless,
+		"running":   client != nil,
+		"port":      port,
+		"headless":  headless,
 	}
 	if binErr == nil {
 		status["binary"] = bin
 	} else {
 		status["error"] = binErr.Error()
 	}
-	if b.client != nil {
+	if client != nil {
 		if url, err := b.evaluateURL(); err == nil {
 			status["pageUrl"] = url
 		}

@@ -79,10 +79,13 @@ func (s *Server) proxyChallengePage(w http.ResponseWriter, r *http.Request, stor
 	base := store.ProxyBase(session)
 
 	// 只打开反代根路径时，回到触发验证的那个地址（而不是站点首页）。
-	if len(rest) == 0 || (len(rest) == 1 && rest[0] == "") {
+	// 注意只处理「没有子路径」的情况：跳转到 base+"/" 后由下面的分支真正取页面，
+	// 否则 PageURL 恰好是站点根（如 https://example.com）时 Location 就是自己，
+	// 浏览器会原地重定向死循环。
+	if len(rest) == 0 {
 		location := "/"
-		if strings.HasPrefix(session.PageURL, session.Origin) {
-			location = session.PageURL[len(session.Origin):]
+		if suffix := strings.TrimPrefix(session.PageURL, session.Origin); suffix != "" && strings.HasPrefix(session.PageURL, session.Origin) {
+			location = suffix
 		}
 		w.Header().Set("Location", base+location)
 		w.Header().Set("Cache-Control", "no-store")

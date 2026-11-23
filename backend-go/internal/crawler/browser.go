@@ -30,6 +30,15 @@ import (
 const (
 	defaultCDPPort = 9333
 	cdpStartWaits  = 40
+	// cdpProbeTimeout 是一次健康探测的上限：让页面回一句 1+1 就算活着。
+	cdpProbeTimeout = 6 * time.Second
+	// cdpCallTimeout 是单条 CDP 命令的上限。原来 30s，一次 browser_open 要
+	// 串 4~6 条命令，卡住时整个 Agent 会静默两分钟，界面只能干等。
+	cdpCallTimeout = 12 * time.Second
+	// browserLaunchWaits 是等调试端口就绪的次数（每次 250ms）。
+	browserLaunchWaits = 24
+	// cdpPortTries 是「端口被死实例占着」时向后试探的端口数。
+	cdpPortTries = 6
 )
 
 // BrowserOptions 控制浏览器进程。
@@ -120,7 +129,12 @@ func (b *Browser) Available() bool {
 	return true
 }
 
-// Start 复用已有调试端口或拉起新进程，并连上第一个 page target。
+// Start 复用已有调试端口或拉起新进程，并连上可用的 page target。
+//
+// 复用之前必须探活：渲染进程崩掉后调试端口照样在听，页面级命令却一条都不回，
+// Agent 的 browser_open 会静默卡到超时（界面上就是「对话一直转圈，最后报错」）。
+// 所以这里改成：探活通过才复用，否则换端口自己拉起；第一次用常规参数，失败再补
+// --no-sandbox 重来（受限环境里渲染进程起不来）。
 func (b *Browser) Start(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -128,11 +142,37 @@ func (b *Browser) Start(ctx context.Context) error {
 		return nil
 	}
 
-	versionURL := fmt.Sprintf("http://127.0.0.1:%d/json/version", b.port)
-	if wsURL := fetchWebSocketURL(ctx, versionURL); wsURL != "" {
-		return b.attachPage(ctx, wsURL)
+	if wsURL := fetchWebSocketURL(ctx, b.versionURL()); wsURL != "" {
+		if err := b.attachPage(ctx, wsURL); err == nil && b.probeLocked(ctx) {
+			return nil
+		}
+		// 端口被死实例占着：断开连接，换端口自己起一个干净的。
+		b.resetClientLocked()
+		b.port = nextFreePort(b.port)
 	}
 
+	firstErr := b.launchLocked(ctx, nil)
+	if firstErr == nil {
+		return nil
+	}
+	b.killLocked()
+	b.port = nextFreePort(b.port)
+	if secondErr := b.launchLocked(ctx, []string{"--no-sandbox", "--disable-dev-shm-usage"}); secondErr == nil {
+		return nil
+	}
+	b.killLocked()
+	return newError("browser_error", "启动离屏浏览器失败: "+firstErr.Error(), nil)
+}
+
+func (b *Browser) versionURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d/json/version", b.port)
+}
+
+// launchLocked 拉起浏览器进程，等调试端口就绪后连上第一个 page target。
+//
+// extra 非空表示这是「常规参数起不来」的重试：此时换一份 profile，避免新进程
+// 注入到那个已经卡死的实例里（同 profile 的第二次启动只会开个标签页就退出）。
+func (b *Browser) launchLocked(ctx context.Context, extra []string) error {
 	binary, err := FindBrowserBinary(b.opts.Bin)
 	if err != nil {
 		return err
@@ -148,9 +188,15 @@ func (b *Browser) Start(ctx context.Context) error {
 	if b.opts.Headless {
 		args = append(args, "--headless=new", "--disable-gpu")
 	}
-	if b.opts.ProfileDir != "" {
-		args = append(args, "--user-data-dir="+b.opts.ProfileDir)
+	profile := b.opts.ProfileDir
+	if profile != "" {
+		if len(extra) > 0 {
+			profile += "-recovery"
+			_ = os.MkdirAll(profile, 0o755)
+		}
+		args = append(args, "--user-data-dir="+profile)
 	}
+	args = append(args, extra...)
 	args = append(args, "about:blank")
 
 	command := exec.Command(binary, args...)
@@ -159,13 +205,17 @@ func (b *Browser) Start(ctx context.Context) error {
 		return newError("browser_error", "启动浏览器失败: "+err.Error(), nil)
 	}
 	b.cmd = command
-	// 进程自己会 fork 出真正的浏览器进程，父进程退出不影响子进程。
-	_ = command.Process.Release()
 
-	deadline := time.Now().Add(time.Duration(cdpStartWaits) * 250 * time.Millisecond)
+	deadline := time.Now().Add(time.Duration(browserLaunchWaits) * 250 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if wsURL := fetchWebSocketURL(ctx, versionURL); wsURL != "" {
-			return b.attachPage(ctx, wsURL)
+		if wsURL := fetchWebSocketURL(ctx, b.versionURL()); wsURL != "" {
+			if err := b.attachPage(ctx, wsURL); err != nil {
+				return err
+			}
+			if b.probeLocked(ctx) {
+				return nil
+			}
+			return newError("browser_error", "浏览器已启动但页面不响应（渲染进程未就绪）", nil)
 		}
 		select {
 		case <-ctx.Done():
@@ -174,6 +224,61 @@ func (b *Browser) Start(ctx context.Context) error {
 		}
 	}
 	return newError("browser_error", "浏览器调试端口没有就绪", nil)
+}
+
+// probeLocked 用一条最短的 Runtime.evaluate 探页面是否还能执行脚本。
+func (b *Browser) probeLocked(ctx context.Context) bool {
+	if b.client == nil {
+		return false
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, cdpProbeTimeout)
+	defer cancel()
+	var result struct {
+		Result struct {
+			Value any `json:"value"`
+		} `json:"result"`
+	}
+	if err := b.client.Call(probeCtx, "Runtime.evaluate", map[string]any{
+		"expression":    "1+1",
+		"returnByValue": true,
+	}, &result); err != nil {
+		return false
+	}
+	return result.Result.Value != nil
+}
+
+// dropClient 断开当前 CDP 连接；下一次工具调用会重新探活或拉起浏览器。
+func (b *Browser) dropClient() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.resetClientLocked()
+}
+
+func (b *Browser) resetClientLocked() {
+	if b.client != nil {
+		b.client.Close()
+		b.client = nil
+	}
+}
+
+// killLocked 结束自己拉起的浏览器进程；复用别人的实例时只断开连接。
+func (b *Browser) killLocked() {
+	b.resetClientLocked()
+	if b.cmd != nil && b.cmd.Process != nil {
+		_ = b.cmd.Process.Kill()
+		b.cmd = nil
+	}
+}
+
+// nextFreePort 从当前端口往后找一个没人听的端口。
+func nextFreePort(from int) int {
+	for offset := 1; offset <= cdpPortTries; offset++ {
+		candidate := from + offset
+		if !portListening(candidate) {
+			return candidate
+		}
+	}
+	return from + cdpPortTries + 1
 }
 
 // attachPage 连到 page target。
@@ -309,6 +414,8 @@ func (b *Browser) Navigate(ctx context.Context, target string) error {
 		FrameID string `json:"frameId"`
 	}
 	if err := client.Call(ctx, "Page.navigate", params, &result); err != nil {
+		// 连接层面的失败基本都意味着这一轮会话已经废了：断开，下一次调用重新拉起。
+		b.dropClient()
 		return err
 	}
 	// 等渲染完成：轮询 readyState，避免依赖事件订阅的时序。
@@ -352,6 +459,7 @@ func (b *Browser) Evaluate(ctx context.Context, expression string) (any, error) 
 		"returnByValue": true,
 		"awaitPromise":  true,
 	}, &result); err != nil {
+		b.dropClient()
 		return nil, err
 	}
 	if len(result.ExceptionDetails) > 0 && string(result.ExceptionDetails) != "null" {
@@ -538,13 +646,13 @@ func (c *cdpClient) Call(ctx context.Context, method string, params any, out any
 	if err != nil {
 		return err
 	}
-	writeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	writeCtx, cancel := context.WithTimeout(ctx, cdpCallTimeout)
 	defer cancel()
 	if err := c.conn.Write(writeCtx, websocket.MessageText, payload); err != nil {
 		return newError("browser_error", "CDP 发送失败: "+err.Error(), nil)
 	}
 	for {
-		readCtx, readCancel := context.WithTimeout(ctx, 30*time.Second)
+		readCtx, readCancel := context.WithTimeout(ctx, cdpCallTimeout)
 		_, raw, err := c.conn.Read(readCtx)
 		readCancel()
 		if err != nil {

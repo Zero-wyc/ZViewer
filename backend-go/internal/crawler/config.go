@@ -87,11 +87,23 @@ func DeepMerge(base, patch map[string]any) map[string]any {
 	return merged
 }
 
+// normalizeModelName 过滤界面误存的占位值（undefined / null / 空）。
+func normalizeModelName(value string) string {
+	name := strings.TrimSpace(value)
+	switch strings.ToLower(name) {
+	case "", "undefined", "null", "nil", "none":
+		return "deepseek-chat"
+	}
+	return name
+}
+
 func (c *EngineConfig) apply(decoded map[string]any) {
 	if llm, ok := decoded["llm"].(map[string]any); ok {
 		c.LLM.BaseURL = textOf(llm["base_url"], "https://api.deepseek.com/v1")
 		c.LLM.APIKey = textOf(llm["api_key"], "")
-		c.LLM.Model = textOf(llm["model"], "deepseek-chat")
+		c.LLM.Model = normalizeModelName(textOf(llm["model"], "deepseek-chat"))
+		// 老版本界面在模型列表为空时把 "undefined" 写进了配置，这里顺手纠偏。
+		llm["model"] = c.LLM.Model
 		if value, ok := llm["temperature"].(float64); ok {
 			c.LLM.Temperature = value
 		} else {

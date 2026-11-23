@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -148,6 +149,60 @@ func (s *ChallengeStore) Create(rule *Rule, keyword, roomID, role string, page *
 }
 
 // Get 取会话，过期或不存在时报错。
+// CreateLogin 建立一次「网页内登录」会话：不需要规则，只记住要登录的站点和
+// 起始页面。页面同样走同源反代，所以桌面壳与网页端都能在内嵌弹窗里完成登录 /
+// 人机验证，不依赖本机的 Edge/Chrome。
+func (s *ChallengeStore) CreateLogin(site, target string) (*ChallengeSession, error) {
+	pageURL := strings.TrimSpace(target)
+	siteName := strings.ToLower(strings.TrimSpace(site))
+	if pageURL == "" {
+		if siteName == "" {
+			return nil, RuleError("请填写要登录的站点地址", nil)
+		}
+		pageURL = "https://" + siteName
+	}
+	if !strings.Contains(pageURL, "://") {
+		pageURL = "https://" + strings.TrimLeft(pageURL, "/")
+	}
+	origin := originOf(pageURL)
+	if origin == "" {
+		return nil, RuleError("登录地址无效，需要 http(s) 站点地址", nil)
+	}
+	if siteName == "" {
+		parsed, err := url.Parse(pageURL)
+		if err == nil {
+			siteName = parsed.Hostname()
+		}
+	}
+	siteName = strings.TrimPrefix(strings.TrimSpace(siteName), "www.")
+	now := time.Now().Unix()
+	session := &ChallengeSession{
+		ID:        randomToken(12),
+		Site:      siteName,
+		Name:      firstNonEmpty(siteName, origin),
+		PageURL:   pageURL,
+		Origin:    origin,
+		Reason:    "login",
+		Note:      "网页内登录",
+		Cookies:   map[string]string{},
+		CreatedAt: now,
+		UpdatedAt: now,
+		ExpiresAt: now + int64(s.ttl.Seconds()),
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pruneLocked(now)
+	s.sessions[session.ID] = session
+	for len(s.sessions) > s.maxItems {
+		oldest := s.oldestLocked()
+		if oldest == "" {
+			break
+		}
+		delete(s.sessions, oldest)
+	}
+	return session, nil
+}
+
 func (s *ChallengeStore) Get(sessionID string) (*ChallengeSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -168,6 +223,10 @@ func (s *ChallengeStore) List(includeCompleted bool) []map[string]any {
 	s.pruneLocked(now)
 	items := make([]map[string]any, 0, len(s.sessions))
 	for _, session := range s.sessions {
+		// 网页内登录会话由 /api/crawler/login 单独管理，不混进人机验证列表。
+		if session.Reason == "login" {
+			continue
+		}
 		if session.Completed && !includeCompleted {
 			continue
 		}
@@ -225,6 +284,25 @@ func (s *ChallengeStore) Clear() int {
 	count := len(s.sessions)
 	s.sessions = map[string]*ChallengeSession{}
 	return count
+}
+
+// CookiePairs 返回会话里已收集的 Cookie（按名字排序），用于把登录态存成账号。
+func (s *ChallengeStore) CookiePairs(session *ChallengeSession) [][2]string {
+	if session == nil {
+		return nil
+	}
+	s.cookieMu.Lock()
+	defer s.cookieMu.Unlock()
+	names := make([]string, 0, len(session.Cookies))
+	for name := range session.Cookies {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	pairs := make([][2]string, 0, len(names))
+	for _, name := range names {
+		pairs = append(pairs, [2]string{name, session.Cookies[name]})
+	}
+	return pairs
 }
 
 // CookieCount 返回会话已收集的 Cookie 数量。
