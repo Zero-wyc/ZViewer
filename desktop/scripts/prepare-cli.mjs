@@ -4,27 +4,28 @@ import https from 'node:https';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {applyCliPatch,patchInfo} from '../patches/cli-settings-origin.cjs';
 
 const desktop = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const directory = path.join(desktop, '.runtime', 'tools', 'zviewer-cli');
 const source = path.join(directory, 'source');
 const repository = 'https://github.com/Zero-wyc/ZViewerCLI';
-const commit = 'b6a52e97b77a6aa5da91c2c53be3dde8a40c7c4a';
+const commit = '22a120dcd0c184252125dee5729115a282e4367d';
 const toolchain = 'go1.26.9';
 const executable = 'zviewer-cli-windows-amd64.exe';
-const binarySha256 = '8dc1cfcf3f5cad5e2ce17b8f1352b5836514ad887bd8b2edeab7558debb39113';
-if (patchInfo().sha256 !== '9e5bba199baca8f84b8d0e88855e528abdbf937bf50ff301fe33c50d9effc92b') throw new Error('Local CLI patch checksum mismatch');
-// 按 tag v5.3.0 构建受管 CLI（本地 CDN 探测、/proxy 换节点、/candidates 候选登记）。
+const binarySha256 = '367695f888a96a97aa78841b8bc39c320ea4b15db384e3704fa8b09842e74f6f';
+// 按 tag v5.4.0 构建受管 CLI。
+// 凭证接口的来源校验与桌面主题已并入上游（v5.4.0），这里不再打任何补丁：
+// 受管构建与 GitHub Release 的源码完全一致，差别只剩未压缩与构建工具链固定。
 // 与 GitHub Release 的 UPX 产物不同，这里是未压缩的受管构建，供网页下载与桌面端随包。
 const sources = {
   'bilibili.go':'5b48735196e6eed996dee0142543540385ce85d3',
   'config.go':'70101a75ffc273653c94cebc90e2ce44725aaa93',
   'main.go':'b1591697c777299f42e73a223d477cc237d911fc',
   'mp4box.go':'b4bbebac15d8cc36d54a0f677627b719c3afcf9c',
-  'page.go':'d854f908b727bf63276591c97a7df04072c6aa28',
+  'page.go':'3b35e57172a568c9b582bc237558177f8f75eeb5',
   'resolver.go':'72d229e4e0efb3a10cf3501390c1fabb79726cd0',
-  'server.go':'fa49bc4d6efd34665c5bc71604cd60491a521b51',
+  'server.go':'4d067e84b39b5d43d3620e6ee4835596085dcc33',
+  'settings_origin.go':'bc2593de12bd441580e0c43c597115de6cb7df0d',
   'socket.go':'194eff3402e9526782bdd177e327a19cd466a09e',
   'speedlog.go':'75132ec2e56768802dd0a27d7a59ab89ce5f9786',
   'state.go':'3e45d5808e4ca08505835db46e4fb4f282f1d28e',
@@ -73,12 +74,10 @@ if(fs.existsSync(target)) {
   if(hash(fs.readFileSync(target)) !== binarySha256) throw new Error('Cached CLI checksum mismatch: '+target);
 } else {
   for(const name of Object.keys(sources)) await verifiedSource(name);
-  const buildSource = path.join(directory,'patched-source');
-  applyCliPatch(source,buildSource);
   const env = {...process.env,GOTOOLCHAIN:toolchain,GOOS:'windows',GOARCH:'amd64',CGO_ENABLED:'0',GOFLAGS:'',GOAMD64:'v1',GOEXPERIMENT:''};
   const actual = execFileSync('go',['version'],{env,encoding:'utf8',windowsHide:true}).trim();
   if(!actual.includes(' '+toolchain+' ')) throw new Error('CLI build requires '+toolchain+'; got '+actual);
-  execFileSync('go',['build','-mod=readonly','-trimpath','-buildvcs=false','-ldflags=-s -w -buildid=','-o',target,'.'],{cwd:buildSource,env,stdio:'inherit',windowsHide:true});
+  execFileSync('go',['build','-mod=readonly','-trimpath','-buildvcs=false','-ldflags=-s -w -buildid=','-o',target,'.'],{cwd:source,env,stdio:'inherit',windowsHide:true});
   if(hash(fs.readFileSync(target)) !== binarySha256) throw new Error('Built CLI checksum mismatch: '+target);
 }
 const license = path.join(directory,'LICENSE');
@@ -94,11 +93,11 @@ for(let i=0;i<licenses.length;i++) {
   notices.push(entry.name+'\n'+'='.repeat(entry.name.length)+'\n'+bytes.toString('utf8'));
 }
 fs.writeFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt'),notices.join('\n\n'));
-fs.writeFileSync(path.join(directory,'provenance.json'),JSON.stringify({repository,commit,version:'5.3.0',toolchain,platform:'windows-amd64',source:'Built from pinned upstream source with local settings security and optional desktop embedded theme patches',patch:patchInfo(),files:[{file:executable,sha256:binarySha256},{file:'LICENSE',sha256:hash(fs.readFileSync(license))},{file:'THIRD-PARTY-NOTICES.txt',sha256:hash(fs.readFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt')))}],sourceBlobs:sources},null,2)+'\n');
-console.log('Source-built ZViewerCLI v5.2.1 verified ('+commit+', '+toolchain+')');
+fs.writeFileSync(path.join(directory,'provenance.json'),JSON.stringify({repository,commit,version:'5.4.0',toolchain,platform:'windows-amd64',source:'Built from pinned upstream source; no local patches (settings hardening and desktop theme are upstream as of v5.4.0)',files:[{file:executable,sha256:binarySha256},{file:'LICENSE',sha256:hash(fs.readFileSync(license))},{file:'THIRD-PARTY-NOTICES.txt',sha256:hash(fs.readFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt')))}],sourceBlobs:sources},null,2)+'\n');
+console.log('Source-built ZViewerCLI v5.4.0 verified ('+commit+', '+toolchain+')');
 // --publish：把受管构建同步到 frontend/public，作为全项目唯一事实源（网页下载、
-// 单文件运行包与桌面端 runtime/ 都取这一份）。不同步的话桌面包用的是网页里那份
-// 官方 release 二进制，不含桌面嵌入式主题与本地配置接口的来源保护。
+// 单文件运行包与桌面端 runtime/ 都取这一份）。与 GitHub Release 的差别只有两点：
+// 未做 UPX 压缩（避免杀软误报），以及固定 go1.26.9 工具链保证可复现。
 if(process.argv.includes('--publish')) {
   const publicCli = path.join(path.dirname(desktop),'frontend','public',executable);
   fs.mkdirSync(path.dirname(publicCli),{recursive:true});
