@@ -22,6 +22,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	windowsopts "github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	uiapp "zviewer/desktop/ui"
 )
 
 // CommentsWindow 是绑定给 comments-window.html 的对象（window.go.main.CommentsWindow）。
@@ -84,7 +86,7 @@ func runCommentsWindow(stateDir, pageURL string) {
 		AlwaysOnTop:      true,
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
 		AssetServer: &assetserver.Options{
-			Assets:     uiFS(),
+			Assets:     uiapp.FS(),
 			Middleware: commentsWindowAssets,
 		},
 		Bind: []interface{}{window},

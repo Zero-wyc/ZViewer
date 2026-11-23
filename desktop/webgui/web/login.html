@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- 与 Go 端响应头 CSP 等价：不给自己留内联脚本/样式，避免两套策略不一致 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'" />
+<title>登录 · ZViewer 网页控制台</title>
+<link rel="stylesheet" href="/tokens.css" />
+<link rel="stylesheet" href="/web/web.css" />
+</head>
+<body data-page="login">
+<main class="auth-shell">
+  <section class="auth-card">
+    <div class="auth-topbar">
+      <div class="auth-brand">
+        <img class="auth-logo" src="/app-icon.png" alt="" width="36" height="36" />
+        <div><h1>ZViewer</h1><p class="auth-kicker">网页控制台</p></div>
+      </div>
+      <button type="button" class="auth-theme" id="theme-toggle" aria-label="切换深色/浅色主题" title="切换主题">◐</button>
+    </div>
+    <h2 class="auth-title">登录</h2>
+    <p class="auth-sub">请输入访问密码后继续使用控制台。</p>
+    <form class="auth-form" id="login-form" novalidate>
+      <div class="auth-field">
+        <label for="password">访问密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      </div>
+      <p class="auth-error" id="auth-error" role="alert" hidden></p>
+      <p class="auth-note" id="auth-note" role="status" hidden></p>
+      <button type="submit" class="auth-primary">登录</button>
+    </form>
+  </section>
+</main>
+<script src="/web/web.js" defer></script>
+</body>
+</html>

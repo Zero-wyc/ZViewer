@@ -14,6 +14,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	windowsopts "github.com/wailsapp/wails/v2/pkg/options/windows"
+
+	"zviewer/desktop/console"
+	"zviewer/desktop/controller"
+	uiapp "zviewer/desktop/ui"
 )
 
 // appVersion 由构建脚本用 -ldflags "-X main.appVersion=..." 覆盖。
@@ -176,22 +180,29 @@ func main() {
 	}
 
 	root := resolveRuntimeRoot(exeDir)
-	app := &App{
-		exeDir:   exeDir,
-		stateDir: stateDir,
-		version:  appVersion,
-		helper:   helper,
-		root:     root,
-		frpc:     companion(root, exeDir, "frpc.exe", []string{"frp_0.71.1_windows_amd64", "frpc.exe"}),
-		cli:      companion(root, exeDir, "zviewer-cli-windows-amd64.exe", []string{"zviewer-cli", "zviewer-cli-windows-amd64.exe"}),
-		hostExe:  resolveHostExe(exeDir, root),
-		packaged: packagedInstall(exeDir),
-	}
-	app.crawler = newCrawlerBridge(exeDir, root, app)
-	if err := app.bootstrap(); err != nil {
+	// 控制台核心不依赖 Wails：命令行网页端（cmd/zviewer-webgui）用同一份实现。
+	// 宿主（系统对话框/托盘/更新脚本）由 App 实现，这里先把 App 交给控制台，
+	// 等构造完再把 core 挂回 App。
+	app := &App{}
+	core, err := console.New(console.Options{
+		ExeDir:        exeDir,
+		StateDir:      stateDir,
+		Root:          root,
+		Helper:        helper,
+		Frpc:          companion(root, exeDir, "frpc.exe", []string{"frp_0.71.1_windows_amd64", "frpc.exe"}),
+		CliExecutable: companion(root, exeDir, "zviewer-cli-windows-amd64.exe", []string{"zviewer-cli", "zviewer-cli-windows-amd64.exe"}),
+		HostExe:       resolveHostExe(exeDir, root),
+		Version:       appVersion,
+		ShellExeName:  shellExeName,
+		Packaged:      packagedInstall(exeDir),
+		Cipher:        controller.Dpapi{},
+		Host:          app,
+	})
+	if err != nil {
 		fatalDialog("ZViewer 配置读取失败", err.Error()+"\n配置目录："+stateDir)
 		return
 	}
+	app.core = core
 
 	// Windows N 无重定向位图的窗口无法被 GDI 截屏，调试时用该开关切成不透明。
 	opaque := os.Getenv("ZVIEWER_SHELL_OPAQUE") == "1"
@@ -219,7 +230,7 @@ func main() {
 		MinHeight:        740,
 		Frameless:        true,
 		BackgroundColour: background,
-		AssetServer:      &assetserver.Options{Assets: uiFS()},
+		AssetServer:      &assetserver.Options{Assets: uiapp.FS(), Middleware: app.assetMiddleware},
 		Bind:             []interface{}{app},
 		OnStartup:        app.startup,
 		OnBeforeClose:    app.beforeClose,

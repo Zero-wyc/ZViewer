@@ -410,7 +410,7 @@ func (c *Controller) Snapshot() Snapshot {
 		Root:            c.root,
 		FrpcAvailable:   fileExists(c.frpcPath()),
 		Runtime: RuntimeFiles{
-			Backend: fileExists(filepath.Join(c.root, "zviewer-backend.exe")),
+			Backend: fileExists(filepath.Join(c.root, backendExecutableName())),
 			Cert:    true,
 			Web:     fileExists(filepath.Join(c.root, "frontend", "dist", "index.html")),
 		},
@@ -657,7 +657,7 @@ func (c *Controller) startBackend() (any, error) {
 		return c.Snapshot(), nil
 	}
 	config := c.store.Value
-	exe := filepath.Join(c.root, "zviewer-backend.exe")
+	exe := filepath.Join(c.root, backendExecutableName())
 	if !fileExists(exe) || !fileExists(filepath.Join(c.root, "frontend", "dist", "index.html")) {
 		return nil, errors.New("缺少后端或网页运行文件")
 	}
@@ -817,7 +817,7 @@ func (c *Controller) stopBackend() error {
 	c.emit()
 	target := c.hostExe
 	if !isWindows() {
-		target = filepath.Join(c.root, "zviewer-backend.exe")
+		target = filepath.Join(c.root, backendExecutableName())
 	}
 	if err := c.kill(proc, target); err != nil {
 		return err

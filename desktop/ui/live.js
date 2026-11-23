@@ -131,12 +131,50 @@
       livekitTcpPort: $('#livekit-tcp-port').value
     };
   }
+  // 网页端访问卡片：显示局域网访问地址、监听地址与密码状态。
+  // 桌面模式没有这张卡片（渲染入口处按 state.info.web 分支），因此不会影响现有布局。
+  function webAccessPanel() {
+    const web = state.info?.web === true;
+    const gui = state.info?.webgui || {};
+    const urls = Array.isArray(gui.urls) ? gui.urls.filter(Boolean) : [];
+    const port = gui.port || '';
+    // 服务端给的 bind 已经是 "host:port"（net.JoinHostPort），不要再拼端口。
+    const bind = gui.bind || '';
+    const isLoopbackURL = url => /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])([:\/]|$)/i.test(url);
+    // 每条地址后面带「复制链接」：桌面端可以把网页版 GUI 地址拷到别的浏览器。
+    const rows = urls.map(url => '<div class="web-access-row"><a class="web-access-url" href="' + esc(url) + '" data-external="' + esc(url) + '"><span>' + esc(url) + '</span><span class="web-access-tag">' + (isLoopbackURL(url) ? '本机' : '局域网') + '</span></a><button class="text-button" data-copy="' + esc(url) + '">' + icon('copy') + '复制</button></div>').join('');
+    const list = urls.length
+      ? '<div class="web-access-list">' + rows + '</div>'
+      : '<span class="field-note">' + (gui.error ? '网页版 GUI 未启动：' + esc(gui.error) : '还没有可访问地址：请把下方「网页与信令监听范围」改为局域网或所有地址并重启服务。') + '</span>';
+    const localOnly = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(bind);
+    const password = gui.passwordSet
+      ? '<span class="pill green"><i></i>已设置</span>'
+      : '<span class="pill"><i></i>未设置</span>';
+    const title = web ? '网页端访问' : '网页版 GUI';
+    const authURL = urls[0] ? urls[0].replace(/\/+$/, '') + '/web/auth.html' : '';
+    const authButton = web
+      ? '<a class="btn" href="/web/auth.html" target="_blank" rel="noopener">' + icon('lock') + (gui.passwordSet ? '修改访问密码' : '设置访问密码') + '</a>'
+      : (authURL ? '<button class="btn" data-external="' + esc(authURL) + '">' + icon('lock') + (gui.passwordSet ? '修改访问密码' : '设置访问密码') + '</button>' : '');
+    const note = web
+      ? ''
+      : '<p class="field-note">复制上面的链接和访问密码，就能在其它设备上登录控制本机。</p>' +
+        (gui.passwordSet && !gui.password ? '<p class="field-note">密码是旧版本设置的，没有记录明文；在网页端「应用设置 → 网页端访问」里改一次密码即可重新显示。</p>' : '');
+    return `<div class="panel web-access"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">${icon('globe')}</span><h2>${title}</h2></div><span class="pill">端口 ${esc(port)}</span></div>
+      ${list}
+      <div class="meta-list"><div class="meta-line"><span>监听地址</span><span>${esc(bind || '—')}</span></div><div class="meta-line"><span>访问密码</span>${password}</div></div>
+      ${!web && gui.password ? '<div class="web-access-row web-access-cred"><span class="web-access-url"><span>访问密码</span><code>' + esc(gui.password) + '</code></span><button class="text-button" data-copy="' + esc(gui.password) + '">' + icon('copy') + '复制密码</button></div>' : ''}
+      ${note}
+      ${localOnly ? '<p class="field-note">当前仅本机可访问；如需局域网打开，请把监听范围改为「局域网 IPv4」或「所有地址」。</p>' : ''}
+      <div class="live-toolbar">${authButton}</div></div>`;
+  }
   function settings() {
     const c = { ...state.config, ...serviceDraft };
     function field(id, label, value) { return `<label class="field"><span>${label}</span><input id="${id}" type="number" min="1" max="65535" value="${esc(value)}"></label>`; }
     function toggle(key, label, help) { return `<div class="switch-row"><div><strong>${label}</strong>${help ? `<p>${help}</p>` : ''}</div><button class="switch" role="switch" aria-label="${label}" aria-checked="${state.config[key]}" data-live-pref="${key}"></button></div>`; }
-    return heading('应用设置','监听端口、托盘与启动行为。') +
-      `<div class="settings-grid"><section><div class="panel network-settings"><div class="panel-heading"><h2>监听端口与网络</h2><span class="pill">保存后下次启动生效</span></div>
+    // 网页端没有托盘/原生窗口，相关开关与文案都要收敛（见下方 web 分支）。
+    const web = state.info?.web === true;
+    return heading('应用设置', web ? '监听端口、访问密码与启动行为。' : '监听端口、托盘与启动行为。') +
+      `<div class="settings-grid">${webAccessPanel()}<section><div class="panel network-settings"><div class="panel-heading"><h2>监听端口与网络</h2><span class="pill">保存后下次启动生效</span></div>
         <div class="settings-form">
           <div class="form-row triple">${field('service-port','网页 / 管理页面',c.port)}${field('rtmp-port','RTMP 推流',c.rtmpPort)}${field('flv-port','HTTP-FLV',c.flvPort)}</div>
           <label class="field"><span>网页与信令监听范围</span><select id="bind-host"><option value="127.0.0.1" ${c.bindHost === '127.0.0.1' ? 'selected' : ''}>仅本机 · 127.0.0.1</option><option value="0.0.0.0" ${c.bindHost === '0.0.0.0' ? 'selected' : ''}>局域网 IPv4 · 0.0.0.0</option><option value="::" ${c.bindHost === '::' ? 'selected' : ''}>所有地址 · IPv4 + IPv6</option></select></label>
@@ -147,8 +185,8 @@
           </div>
           <div class="form-actions">${button('保存配置','save-service','check','primary')}${state.server.pid ? button('重启使配置生效','restart','refresh') : ''}</div>
         </div>
-      </div><div class="panel section-title"><div><h2>窗口与系统托盘</h2>${toggle('closeToTray','关闭窗口时隐藏到托盘','')}${toggle('launchAtLogin','登录 Windows 后自动启动控制台','')}${toggle('autoStart','打开控制台时自动启动服务','')}</div></div></section>
-      <aside class="panel"><div class="about-mark"><img src="app-icon.png" alt="ZViewer"><div><h2>ZViewer</h2><p>WINDOWS DESKTOP</p></div></div><div class="version">${esc(state.info.version)} <small>LOCAL BUILD</small></div><p class="settings-description">配置保存在当前用户目录，FRP 密钥加密保存。</p><div class="panel-line"></div><div class="subheading">当前运行包</div><p class="runtime-path">${esc(state.server.root)}</p><div class="file-check"><span>后端</span><span>${state.info.runtime.backend ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>FRP 客户端 0.71.1</span><span>${state.server.components?.frpc?.available ? '已下载' : '按需下载'}</span></div><div class="file-check"><span>ZViewerCLI</span><span>${state.server.cli?.available ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>Cloudflare 组件</span><span>${state.server.components?.cloudflared?.available ? '已下载' : '按需下载'}</span></div><div class="file-check"><span>EasyTier 组件</span><span>${state.server.components?.easytier?.available ? '已下载' : '按需下载'}</span></div><div class="live-toolbar">${button('配置文件夹','open-data','folder')}${button('托盘菜单','tray-preview','tray')}</div></aside></div>`;
+      </div><div class="panel section-title"><div><h2>${web ? '启动行为' : '窗口与系统托盘'}</h2>${web ? '' : toggle('closeToTray','关闭窗口时隐藏到托盘','') + toggle('launchAtLogin','登录 Windows 后自动启动控制台','')}${toggle('autoStart','打开控制台时自动启动服务','')}</div></div></section>
+      <aside class="panel"><div class="about-mark"><img src="app-icon.png" alt="ZViewer"><div><h2>ZViewer</h2><p>${web ? 'WEB GUI' : 'WINDOWS DESKTOP'}</p></div></div><div class="version">${esc(state.info.version)} <small>LOCAL BUILD</small></div><p class="settings-description">${web ? '配置保存在服务器数据目录，密钥加密保存。' : '配置保存在当前用户目录，FRP 密钥加密保存。'}</p><div class="panel-line"></div><div class="subheading">当前运行包</div><p class="runtime-path">${esc(state.server.root)}</p><div class="file-check"><span>后端</span><span>${state.info.runtime.backend ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>FRP 客户端 0.71.1</span><span>${state.server.components?.frpc?.available ? '已下载' : '按需下载'}</span></div><div class="file-check"><span>ZViewerCLI</span><span>${state.server.cli?.available ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>Cloudflare 组件</span><span>${state.server.components?.cloudflared?.available ? '已下载' : '按需下载'}</span></div><div class="file-check"><span>EasyTier 组件</span><span>${state.server.components?.easytier?.available ? '已下载' : '按需下载'}</span></div><div class="live-toolbar">${web ? '' : button('配置文件夹','open-data','folder')}${web ? '' : button('托盘菜单','tray-preview','tray')}</div></aside></div>`;
   }
   function logs() {
     return ui.preview.logs()
@@ -320,8 +358,8 @@
       ui.toast('已按图形配置生成，请核对网络名称、密钥与对端地址');
     } else if (action === 'mesh-invite') {
       const data = await command('mesh-invite');
-      await navigator.clipboard.writeText(data.text);
-      ui.toast('入网说明已复制，发给朋友即可');
+      if (window.copyText) window.copyText(data.text, '入网说明已复制，发给朋友即可');
+      else { await navigator.clipboard.writeText(data.text); ui.toast('入网说明已复制，发给朋友即可'); }
     } else if (action === 'export-frp') await command('export',{kind:'frpc'});    else if (action === 'probe-ipv6') {
       const report = await window.zviewerDesktop.command('probe-ipv6', {});
       state.ipv6 = report; ui.render();
@@ -489,12 +527,19 @@
   });
   function init(info) {
     if (initialized) return; initialized = true;
-    state.live = true; state.info = info; state.native = true;
+    state.live = true; state.info = info;
+    // 网页端由 Go HTTP 服务提供：没有托盘与原生窗口，文案/设置项据此分支。
+    const web = info.web === true;
+    state.native = info.native !== false;
     state.views = { overview, connect: ui.preview.connect, web: ui.preview.web, frp, cert, cli: ui.preview.cli, mesh: ui.preview.mesh, crawler: window.ZViewerCrawlerPage ? window.ZViewerCrawlerPage.page : ui.preview.crawler, logs, settings }; state.frpConfigOverride = frpCode;
     const buildLabel = $('.build-label');
-    if (buildLabel) buildLabel.textContent = `WINDOWS DESKTOP · ${info.version}`;
+    if (buildLabel) buildLabel.textContent = web ? `WEB GUI · ${info.version}` : `WINDOWS DESKTOP · ${info.version}`;
     const status = $('.statusbar > span:last-child');
-    if (status) status.innerHTML = `Windows 桌面控制台<span class="footer-separator">/</span>版本 ${esc(info.version)}`;
+    if (status) status.innerHTML = web
+      ? `网页端控制台<span class="footer-separator">/</span>版本 ${esc(info.version)}`
+      : `Windows 桌面控制台<span class="footer-separator">/</span>版本 ${esc(info.version)}`;
+    // 侧栏品牌副标题同理：桌面版写 Windows 控制台，网页版写网页控制台。
+    if (web) { const brandSub = $('.brand small'); if (brandSub) brandSub.textContent = '网页控制台'; }
     sync(info,true);
     ensureFrpConfig();
     ensureIPv6();

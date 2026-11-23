@@ -142,7 +142,7 @@ var activeTray *trayIcon
 func newTray(app *App) *trayIcon {
 	tray := &trayIcon{app: app}
 	if err := tray.start(); err != nil {
-		app.ctrl.Log("系统托盘不可用："+err.Error(), "console", "WARN")
+		app.core.Ctrl().Log("系统托盘不可用："+err.Error(), "console", "WARN")
 		return nil
 	}
 	return tray
@@ -218,7 +218,7 @@ func (t *trayIcon) notify(modify bool, tooltip string) error {
 }
 
 func (t *trayIcon) iconHandle() uintptr {
-	path := filepath.Join(t.app.stateDir, "app.ico")
+	path := filepath.Join(t.app.core.StateDir(), "app.ico")
 	if !fileExists(path) {
 		_ = os.WriteFile(path, appIconICO, 0o600)
 	}
@@ -229,7 +229,7 @@ func (t *trayIcon) iconHandle() uintptr {
 func (t *trayIcon) tooltip() string {
 	status := map[string]string{
 		"stopped": "未启动", "starting": "启动中", "running": "运行中", "stopping": "停止中", "error": "异常",
-	}[t.app.ctrl.Snapshot().Backend]
+	}[t.app.core.Ctrl().Snapshot().Backend]
 	if status == "" {
 		status = "未启动"
 	}
@@ -259,7 +259,7 @@ func (t *trayIcon) balloon(title, body string) {
 	copyUTF16(data.Info[:], body)
 	// NIM_MODIFY = 1
 	if result, _, _ := procShellNotifyIcon.Call(1, uintptr(unsafe.Pointer(&data))); result == 0 {
-		t.app.ctrl.Log("托盘通知发送失败", "tray", "WARN")
+		t.app.core.Ctrl().Log("托盘通知发送失败", "tray", "WARN")
 	}
 }
 
@@ -337,7 +337,7 @@ func (t *trayIcon) popup() {
 	if t == nil || t.hwnd == 0 {
 		return
 	}
-	snapshot := t.app.ctrl.Snapshot()
+	snapshot := t.app.core.Ctrl().Snapshot()
 	status := map[string]string{
 		"stopped": "未启动", "starting": "启动中", "running": "运行中", "stopping": "停止中", "error": "异常",
 	}[snapshot.Backend]
@@ -362,8 +362,8 @@ func (t *trayIcon) popup() {
 	if snapshot.Pid != nil {
 		toggle = "停止服务"
 	}
-	add(menuToggle, toggle, t.app.ctrl.Busy())
-	add(menuRestart, "重启服务", t.app.ctrl.Busy() || snapshot.Pid == nil)
+	add(menuToggle, toggle, t.app.core.Ctrl().Busy())
+	add(menuRestart, "重启服务", t.app.core.Ctrl().Busy() || snapshot.Pid == nil)
 	add(menuOpenWeb, "打开网页端", false)
 	add(menuCli, "高画质代理", false)
 	add(menuLogs, "查看运行日志", false)
@@ -383,7 +383,7 @@ func (t *trayIcon) runMenuCommand(id uint32) {
 	run := func(task func() error) {
 		go func() {
 			if err := task(); err != nil {
-				app.ctrl.Log(err.Error(), "console", "ERROR")
+				app.core.Ctrl().Log(err.Error(), "console", "ERROR")
 			}
 		}()
 	}
@@ -391,24 +391,24 @@ func (t *trayIcon) runMenuCommand(id uint32) {
 	case menuShow:
 		app.showWindow()
 	case menuToggle:
-		if app.ctrl.Snapshot().Pid != nil {
-			run(func() error { _, err := app.ctrl.Stop(); return err })
+		if app.core.Ctrl().Snapshot().Pid != nil {
+			run(func() error { _, err := app.core.Ctrl().Stop(); return err })
 		} else {
-			run(func() error { _, err := app.ctrl.Start(); return err })
+			run(func() error { _, err := app.core.Ctrl().Start(); return err })
 		}
 	case menuRestart:
-		run(func() error { _, err := app.ctrl.Restart(); return err })
+		run(func() error { _, err := app.core.Ctrl().Restart(); return err })
 	case menuOpenWeb:
 		// 与界面上的「打开网页端」一致：内嵌到控制台网页端页，服务未启动时后台拉起。
 		app.showWindow()
-		app.navigate("web")
-		run(func() error { return app.ensureBackend() })
+		app.Navigate("web")
+		run(func() error { return app.core.EnsureBackend() })
 	case menuCli:
 		app.showWindow()
-		app.navigate("cli")
+		app.Navigate("cli")
 	case menuLogs:
 		app.showWindow()
-		app.navigate("logs")
+		app.Navigate("logs")
 	case menuQuit:
 		app.quit()
 	}

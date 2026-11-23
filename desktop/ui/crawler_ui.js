@@ -203,7 +203,7 @@
   }
   function challengesPanel(c) {
     const rows = (c.challenges || []).length ? c.challenges.map(challengeRow).join('') : '<div class="empty">无待处理验证。搜索遇到验证码、滑块或登录墙时在这里处理。</div>';
-    const verify = '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('shield') + '</span><h2>人机验证</h2></div><small>' + (c.challenges || []).length + ' 条</small></div><div class="live-toolbar">' + button('刷新', 'crawler-challenges-refresh', 'refresh') + '</div><p class="field-note">「打开验证页」在系统浏览器打开代理页面；完成后点「我已完成」，引擎用同一会话重新抓取。</p><div class="crawler-rules">' + rows + '</div></section>';
+    const verify = '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('shield') + '</span><h2>人机验证</h2></div><small>' + (c.challenges || []).length + ' 条</small></div><div class="live-toolbar">' + button('刷新', 'crawler-challenges-refresh', 'refresh') + '</div><p class="field-note">「打开验证页」会在弹窗里打开站点页面；完成后点「我已完成」，引擎用同一会话重新抓取。</p><div class="crawler-rules">' + rows + '</div></section>';
     return verify + browserPanel(c);
   }
   /** 内置库来源：规则列表的只读分区，单条导入后才成本地规则。 */
@@ -620,6 +620,19 @@
       send.title = c.runBusy ? '加入队列，执行完毕后发送' : '发送';
     }
   }
+  function modelId(item) {
+    if (typeof item === 'string') return item;
+    if (item && typeof item.id === 'string') return item.id;
+    if (item && typeof item.name === 'string') return item.name;
+    return '';
+  }
+  function normalizeModels(raw) {
+    return (raw || []).map(function (item) {
+      const id = modelId(item);
+      const ownedBy = (item && typeof item === 'object' && (item.ownedBy || item.owned_by)) || '';
+      return { id: id, ownedBy: String(ownedBy) };
+    }).filter(function (item) { return item.id; });
+  }
   function modelOptions(c) {
     const current = c.sessionModel || '';
     const items = [['', '模型：跟随设置']].concat((c.models || []).map(function (item) { return [item.id, '模型：' + item.id]; }));
@@ -679,9 +692,8 @@
   }
   function browserPanel(c) {
     const b = c.browser || {};
-    const stateText = b.running ? (b.mode === 'visible' ? '登录窗口已打开' : '无头运行中') : (b.available ? '未运行' : '未找到 Edge/Chrome');
-    const pillTone = b.running ? 'pill green' : (b.available ? 'pill' : 'pill red');
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>站点登录</h2></div><span class="' + pillTone + '"><i></i>' + esc(stateText) + '</span></div><p class="field-note">需要登录的站点，在浏览器窗口登录后点「保存登录态」。Cookie 存为本地账号，可在规则中绑定。</p><div class="form-row"><label class="field"><span>站点地址</span><input id="crawler-login-url" value="' + esc(c.loginUrl || '') + '" placeholder="https://example.com" autocomplete="off"></label><label class="field"><span>域名（可选）</span><input id="crawler-login-site" value="' + esc(c.loginSite || '') + '" placeholder="example.com" autocomplete="off"></label></div><label class="field"><span>账号名称（可选）</span><input id="crawler-login-name" value="' + esc(c.loginName || '') + '" placeholder="例如 站长账号" autocomplete="off"></label><div class="form-actions">' + button('显示登录窗口', 'crawler-login-open', 'globe', 'primary') + button('保存登录态', 'crawler-login-save', 'check') + button('关闭浏览器', 'crawler-login-close', 'stop') + '</div><p class="field-note">在受控浏览器登录后点「保存登录态」。</p><p class="field-note">浏览器：' + esc(b.bin || '自动检测 Edge/Chrome') + ' · 调试端口 ' + esc(String(b.debugPort || '—')) + '。登录态保存在 data/accounts.json。</p></section>';
+    const localHint = b.available ? '' : '未检测到本机浏览器。';
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('globe') + '</span><h2>站点登录</h2></div><span class="pill green"><i></i>网页内登录</span></div><p class="field-note">点「打开登录页」会在弹窗里打开站点页面，直接在里面输入账号密码；登录完成后点「保存登录态」。</p><div class="form-row"><label class="field"><span>站点地址</span><input id="crawler-login-url" value="' + esc(c.loginUrl || '') + '" placeholder="https://example.com" autocomplete="off"></label><label class="field"><span>域名（可选）</span><input id="crawler-login-site" value="' + esc(c.loginSite || '') + '" placeholder="example.com" autocomplete="off"></label></div><label class="field"><span>账号名称（可选）</span><input id="crawler-login-name" value="' + esc(c.loginName || '') + '" placeholder="例如 站长账号" autocomplete="off"></label><div class="form-actions">' + button('打开登录页', 'crawler-login-open', 'globe', 'primary') + '</div><p class="field-note">' + esc(localHint) + '登录态保存在 data/accounts.json，可在规则里绑定账号。</p></section>';
   }
   const EFFORT_LEVELS = [['', '默认（不指定）'], ['minimal', '极低'], ['low', '低'], ['medium', '中'], ['high', '高']];
   function effortSelect(id, current, note) {
@@ -690,16 +702,19 @@
     }).join('');
     return '<label class="field"><span>思考强度</span><select id="' + id + '">' + options + '</select><small>' + esc(note || '') + '</small></label>';
   }
-  function modelDatalist(c) {
-    if (!c.models.length) return '';
-    return '<datalist id="crawler-model-options">' + c.models.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.ownedBy || '') + '</option>';
-    }).join('') + '</datalist>';
+  // 可用模型列表：直接平铺成按钮，点了就填进输入框。
+  // 不用 datalist 是因为浏览器会按输入框里已有的文字过滤选项，看起来像「只有一个模型」。
+  function modelChips(c) {
+    if (!c.models.length) return '<div class="crawler-model-chips" id="crawler-model-chips" hidden></div>';
+    return '<div class="crawler-model-chips" id="crawler-model-chips">' + c.models.map(function (item) {
+      return '<button type="button" class="crawler-model-chip" data-crawler-model="' + esc(item.id) + '" title="' + esc(item.ownedBy || item.id) + '">' + esc(item.id) + '</button>';
+    }).join('') + '</div>';
   }
   function settingsPanel(c) {
     const config = (c.info && c.info.config) || {};
-    const modelNote = c.modelsLoading ? '获取模型列表…' : (c.modelError ? ('获取失败：' + c.modelError) : (c.models.length ? ('可用 ' + c.models.length + ' 个模型') : '填入 Key 后可拉取模型列表，也可直接填写模型名'));
-    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('settings') + '</span><h2>大模型设置</h2></div><small>OpenAI 兼容接口</small></div><div class="form-row"><label class="field"><span>服务地址</span><input id="crawler-base-url" value="' + esc(config.baseUrl || '') + '" placeholder="https://api.deepseek.com/v1" autocomplete="off"></label><label class="field"><span>模型</span><input id="crawler-model" value="' + esc(config.model || '') + '" list="crawler-model-options" placeholder="deepseek-chat" autocomplete="off"></label></div>' + modelDatalist(c) + '<label class="field"><span>API Key <small>' + (config.apiKeyConfigured ? '已保存' : '必填') + '</small></span><input id="crawler-api-key" type="password" placeholder="' + (config.apiKeyConfigured ? '已配置 ' + esc(config.apiKeyMasked || '') : 'sk-…') + '" autocomplete="off"></label><div class="form-actions">' + button('获取模型', 'crawler-models-load', 'refresh') + button('保存设置', 'crawler-config-save', 'check', 'primary') + '</div><p class="field-note" id="crawler-model-note">' + esc(modelNote) + '</p><div class="form-row">' + effortSelect('crawler-reasoning-effort', c.settingsEffort, '新会话默认强度') + effortSelect('crawler-submission-reasoning-effort', c.submissionEffort, '自动生成规则时的强度') + '</div>' + '<label class="field"><span>自定义提示词 <small>追加到系统提示词末尾</small></span><textarea id="crawler-custom-prompt" rows="4" maxlength="4000" placeholder="例如：优先使用 hls 线路；站点名取网页标题">' + esc(config.customPrompt || '') + '</textarea><span class="field-note">对生成、修复和对话生效。</span></label><label class="check-item crawler-toggle"><input type="checkbox" id="crawler-repair-enabled"' + (c.repairEnabled ? ' checked' : '') + '><div><strong>规则自动修复</strong><br>搜索失败时自动修复规则并重试，同一规则 10 分钟内最多一次。</div></label><p class="field-note">配置保存在 crawler/config.json。</p></section>' + librariesPanel(c);
+    const modelValue = config.model && config.model !== 'undefined' ? config.model : '';
+    const modelNote = c.modelsLoading ? '获取模型列表…' : (c.modelError ? ('获取失败：' + c.modelError) : (c.models.length ? ('可用 ' + c.models.length + ' 个模型，可直接输入或点下面的模型名') : '填入 Key 后可拉取模型列表，也可直接填写模型名'));
+    return '<section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">' + icon('settings') + '</span><h2>大模型设置</h2></div><small>OpenAI 兼容接口</small></div><div class="form-row"><label class="field"><span>服务地址</span><input id="crawler-base-url" value="' + esc(config.baseUrl || '') + '" placeholder="https://api.deepseek.com/v1" autocomplete="off"></label><label class="field"><span>模型</span><input id="crawler-model" value="' + esc(modelValue) + '" placeholder="deepseek-chat" autocomplete="off"></label></div>' + modelChips(c) + '<label class="field"><span>API Key <small>' + (config.apiKeyConfigured ? '已保存' : '必填') + '</small></span><input id="crawler-api-key" type="password" placeholder="' + (config.apiKeyConfigured ? '已配置 ' + esc(config.apiKeyMasked || '') : 'sk-…') + '" autocomplete="off"></label><div class="form-actions">' + button('获取模型', 'crawler-models-load', 'refresh') + button('保存设置', 'crawler-config-save', 'check', 'primary') + '</div><p class="field-note" id="crawler-model-note">' + esc(modelNote) + '</p><div class="form-row">' + effortSelect('crawler-reasoning-effort', c.settingsEffort, '新会话默认强度') + effortSelect('crawler-submission-reasoning-effort', c.submissionEffort, '自动生成规则时的强度') + '</div>' + '<label class="field"><span>自定义提示词 <small>追加到系统提示词末尾</small></span><textarea id="crawler-custom-prompt" rows="4" maxlength="4000" placeholder="例如：优先使用 hls 线路；站点名取网页标题">' + esc(config.customPrompt || '') + '</textarea><span class="field-note">对生成、修复和对话生效。</span></label><label class="check-item crawler-toggle"><input type="checkbox" id="crawler-repair-enabled"' + (c.repairEnabled ? ' checked' : '') + '><div><strong>规则自动修复</strong><br>搜索失败时自动修复规则并重试，同一规则 10 分钟内最多一次。</div></label><p class="field-note">配置保存在 crawler/config.json。</p></section>' + librariesPanel(c);
   }
 
   // ----------------------------------------------------------- 来源库
@@ -1181,7 +1196,7 @@
     if (box) box.scrollTop = box.scrollHeight;
   }
   function modelOptionsHtml(c) {
-    return c.models.map(function (item) { return '<option value="' + esc(item.id) + '">' + esc(item.ownedBy || '') + '</option>'; }).join('');
+    return c.models.map(function (item) { return '<option value="' + esc(item.id) + '">' + esc(item.ownedBy || item.id) + '</option>'; }).join('');
   }
   function setModelNote(text) {
     const note = $('#crawler-model-note');
@@ -1208,26 +1223,25 @@
     try {
       const data = await api('POST', '/api/crawler/models', { baseUrl: baseUrl, apiKey: apiKey });
       if (!data.success) throw new Error(data.error || '获取模型列表失败');
-      c.models = data.models || [];
+      c.models = normalizeModels(data.models);
       if (!c.models.length) {
         c.modelError = '接口未返回模型';
         setModelNote('接口未返回模型，可直接填写模型名');
         return;
       }
-      let list = document.getElementById('crawler-model-options');
-      if (!list) {
-        list = document.createElement('datalist');
-        list.id = 'crawler-model-options';
-        document.body.appendChild(list);
+      const chips = document.getElementById('crawler-model-chips');
+      if (chips) {
+        chips.outerHTML = modelChips(c);
+      } else if (modelInput && modelInput.parentNode) {
+        modelInput.parentNode.insertAdjacentHTML('afterend', modelChips(c));
       }
-      list.innerHTML = modelOptionsHtml(c);
       if (modelInput) {
-        modelInput.setAttribute('list', 'crawler-model-options');
-        if (!modelInput.value.trim()) modelInput.value = c.models[0].id;
+        const currentValue = modelInput.value.trim();
+        if (!currentValue || currentValue === 'undefined') modelInput.value = c.models[0].id;
       }
       const sessionModelSelect = document.getElementById('crawler-session-model');
       if (sessionModelSelect) sessionModelSelect.innerHTML = modelOptions(c);
-      setModelNote('可用 ' + c.models.length + ' 个模型，可直接输入或从列表选择');
+      setModelNote('可用 ' + c.models.length + ' 个模型，可直接输入或点下面的模型名');
       ui.toast('已获取 ' + c.models.length + ' 个可用模型');
     } catch (error) {
       c.modelError = message(error);
@@ -1601,37 +1615,47 @@
     }
     return site.replace(/^www./, '');
   }
+  // 网页内登录：先向后端要一个登录会话，再把同源反代地址塞进 iframe 弹窗。
+  // Cookie 由引擎的登录会话收集（第一方 Cookie），保存后落成账号；Linux 没有本机浏览器也能用。
   async function openLogin(urlOverride) {
     const c = cs();
+    const nameInput = $('#crawler-login-name');
+    // 从规则列表「去登录」进来时 DOM 里没有账号名输入框，回退到 c.loginName（规则名）。
+    const name = (nameInput && nameInput.value.trim()) || (c.loginName || '').trim() || '';
     let url = String(urlOverride || '').trim();
     if (!url) {
       const urlInput = $('#crawler-login-url');
       url = (urlInput && urlInput.value.trim()) || '';
-      if (!url) { url = 'https://' + (loginSite() || ''); }
+      if (!url) {
+        const guess = loginSite();
+        if (guess) url = 'https://' + guess;
+      }
     }
     if (!url || url === 'https://') { ui.toast('请填写站点地址'); return; }
-    c.loginBusy = true;
+    const site = loginSite() || hostOf(url);
+    c.loginSite = site;
+    if ($('#crawler-login-url')) $('#crawler-login-url').value = url;
+    if ($('#crawler-login-site')) $('#crawler-login-site').value = site;
     renderIf();
+    let session = null;
     try {
-      await api('POST', '/api/crawler/browser/open-login', { url: url });
-      ui.toast('登录窗口已打开，登录后点「保存登录态」');
-      await refreshBrowser();
-    } catch (error) { ui.toast(message(error)); }
-    c.loginBusy = false;
-    renderIf();
-  }
-  async function saveLogin() {
-    const site = loginSite();
-    if (!site) { ui.toast('请填写站点地址或域名'); return; }
-    const nameInput = $('#crawler-login-name');
-    const name = (nameInput && nameInput.value.trim()) || '';
-    try {
-      const result = await api('POST', '/api/crawler/browser/save-login', { site: site, name: name });
-      ui.toast('登录态已保存：' + ((result.account && result.account.name) || site));
-      if (site && $('#crawler-login-site')) $('#crawler-login-site').value = site;
-      cs().loginSite = site;
-      await refreshBrowser();
-    } catch (error) { ui.toast(message(error)); }
+      session = await api('POST', '/api/crawler/login/session', { site: site, url: url });
+    } catch (error) {
+      ui.toast('打开登录页失败：' + message(error));
+      return;
+    }
+    const id = (session && session.id) || '';
+    if (!id) { ui.toast('登录会话创建失败，请重试'); return; }
+    const sessionSite = session.site || site;
+    const label = sessionSite || hostOf(url) || site;
+    openSiteModal({
+      kind: 'login',
+      id: id,
+      site: sessionSite,
+      name: name || (label ? label + ' 登录' : '登录账号'),
+      url: session.url || url,
+      src: session.proxyUrl || siteSessionSrc(id)
+    });
   }
   function ruleSite(rule) {
     let site = String((rule && rule.site) || '').trim().toLowerCase();
@@ -1654,36 +1678,179 @@
     await openLogin(c.loginUrl);
   }
 
-  async function closeBrowser() {
-    try {
-      await api('POST', '/api/crawler/browser/close', {});
-      ui.toast('浏览器已关闭');
-      await refreshBrowser();
-    } catch (error) { ui.toast(message(error)); }
-  }
-
   async function refreshChallenges() {
     const c = cs();
     const data = await api('GET', '/api/crawler/challenges');
     c.challenges = data.challenges || [];
     renderIf();
   }
-  function challengeUrl(item) {
-    const c = cs();
-    const port = c.info && c.info.port;
-    if (!item || !item.proxyUrl || !port) return '';
-    return 'http://127.0.0.1:' + port + item.proxyUrl;
+  // ---------------- 网页内登录 / 站点验证（同源反代 iframe） ----------------
+  // 弹窗用 iframe 打开 /api/crawler/challenge/<id>/site：浏览器只看到自己来源下的路径，
+  // Cookie 是第一方 Cookie，登录与人机验证都在普通浏览器里完成（Linux 无本机浏览器也能用）。
+  // 纯前端路由的 SPA（腾讯视频等）反代页可能异常，这类站点以后单独处理。
+  let siteView = null; // 当前反代弹窗会话；同一时间只允许开一个。
+
+  function hostOf(url) {
+    try { return new URL(String(url || '')).hostname.replace(/^www\./, ''); } catch (error) { return ''; }
+  }
+  // 后端返回的反代根路径（/api/crawler/challenge/<id>/site），控制台与网页端都会转给后端。
+  function siteSessionSrc(id) {
+    return '/api/crawler/challenge/' + encodeURIComponent(id) + '/site';
+  }
+  function siteProxyBase(current) {
+    return String((current && current.proxySrc) || '').replace(/\/+$/, '');
+  }
+  function setSiteLoading(text) {
+    const current = siteView;
+    if (!current || !current.loading) return;
+    if (text) {
+      current.loading.textContent = String(text);
+      current.loading.hidden = false;
+    } else {
+      current.loading.hidden = true;
+    }
+  }
+  // 反代页与本页同源，能直接读 iframe 的地址：把站点路径还原成真实地址显示在工具栏。
+  function syncSiteAddress() {
+    const current = siteView;
+    if (!current || current.closed || !current.iframe) return;
+    const input = current.urlInput;
+    if (!input || document.activeElement === input) return;
+    let path = '';
+    let search = '';
+    try {
+      const loc = current.iframe.contentWindow.location;
+      const base = siteProxyBase(current);
+      if (loc && loc.pathname && base && loc.pathname.indexOf(base) === 0) {
+        path = loc.pathname.slice(base.length) || '/';
+        search = loc.search || '';
+      }
+    } catch (error) { return; }
+    if (!path) return;
+    input.value = 'https://' + (current.site || '') + path + search;
+  }
+  // 「前往」只允许在同一个站点域名内跳转：把真实地址换算回反代路径。
+  function navigateSiteView(raw) {
+    const current = siteView;
+    if (!current || current.closed || !current.iframe) return;
+    const value = String(raw || '').trim();
+    if (!value) return;
+    let parsed = null;
+    try { parsed = new URL(value); } catch (error) { ui.toast('请填写完整地址，例如 https://example.com'); return; }
+    const host = parsed.hostname.replace(/^www\./, '');
+    if (current.site && host && host !== current.site) { ui.toast('只能在这个站点的域名内跳转'); return; }
+    const base = siteProxyBase(current);
+    if (!base) return;
+    setSiteLoading('正在加载站点页面…');
+    current.iframe.src = base + (parsed.pathname || '/') + (parsed.search || '');
+  }
+  function refreshSiteView() {
+    const current = siteView;
+    if (!current || current.closed || !current.iframe) return;
+    setSiteLoading('正在刷新站点页面…');
+    try {
+      current.iframe.contentWindow.location.reload();
+    } catch (error) {
+      current.iframe.src = current.iframe.src;
+    }
+  }
+  function openSiteModal(options) {
+    const opts = options || {};
+    const isLogin = opts.kind === 'login';
+    const site = opts.site || hostOf(opts.url) || '';
+    const label = site || '站点';
+    const src = opts.src || siteSessionSrc(opts.id);
+    if (siteView) closeSiteView();
+    if (!src) { ui.toast('登录会话创建失败，请重试'); return; }
+    const title = (isLogin ? '网页内登录 · ' : '站点验证 · ') + label;
+    const hint = isLogin
+      ? '在这个窗口里完成登录，完成后点「保存登录态」。'
+      : '在这个窗口里完成人机验证，完成后点「我已完成」，引擎会用同一会话重新抓取。';
+    const primary = isLogin
+      ? button('保存登录态', 'crawler-site-save', 'check', 'primary')
+      : button('我已完成', 'crawler-site-verify', 'check', 'primary');
+    ui.modal(
+      '<h2>' + esc(title) + '</h2><p class="field-note">' + esc(hint) + '</p>' +
+      '<div class="crawler-site-frame"><iframe id="crawler-site-iframe" src="' + esc(src) + '" referrerpolicy="same-origin"></iframe><div class="crawler-site-loading">正在加载站点页面…</div></div>' +
+      '<div class="crawler-site-toolbar"><input id="crawler-site-url" class="crawler-site-url" value="' + esc(opts.url || '') + '" placeholder="https://example.com" spellcheck="false" autocomplete="off" aria-label="页面地址">' +
+      button('前往', 'crawler-site-go', 'link') + button('刷新', 'crawler-site-refresh', 'refresh') + primary + button('关闭', 'crawler-site-close') + '</div>',
+      { wide: true }
+    );
+    const iframe = $('#crawler-site-iframe');
+    siteView = {
+      kind: isLogin ? 'login' : 'challenge',
+      id: opts.id || '',
+      site: site,
+      name: opts.name || '',
+      proxySrc: src,
+      iframe: iframe,
+      loading: document.querySelector('.crawler-site-loading'),
+      urlInput: $('#crawler-site-url'),
+      closed: false
+    };
+    if (iframe) {
+      iframe.addEventListener('load', function () {
+        if (!siteView || siteView.closed || siteView.iframe !== iframe) return;
+        setSiteLoading('');
+        syncSiteAddress();
+      });
+    }
+  }
+  function closeSiteView() {
+    const current = siteView;
+    siteView = null;
+    if (current) {
+      current.closed = true;
+      // 断开加载，避免隐藏的 iframe 继续在后台跑。
+      if (current.iframe) current.iframe.removeAttribute('src');
+      // 登录会话用完即删（Cookie 已存成账号或用户放弃）；验证会话保留，方便稍后重试。
+      if (current.kind === 'login' && current.id) {
+        api('DELETE', '/api/crawler/login/' + encodeURIComponent(current.id)).catch(function () {});
+      }
+    }
+    const dialog = $('#modal');
+    if (dialog && dialog.open) dialog.close();
+  }
+  async function saveSiteLogin() {
+    const current = siteView;
+    if (!current) { ui.toast('登录窗口已关闭，请重新打开'); return; }
+    if (!current.id) { ui.toast('登录会话已失效，请重新打开登录页'); return; }
+    const site = current.site || hostOf(current.urlInput ? current.urlInput.value : '');
+    const name = current.name || (site ? site + ' 登录' : '站点 登录');
+    try {
+      await api('POST', '/api/crawler/login/' + encodeURIComponent(current.id) + '/save', { site: site, name: name });
+      closeSiteView();
+      ui.toast('已保存登录态：' + name);
+      await refreshBrowser();
+    } catch (error) { ui.toast(message(error)); }
+  }
+  async function verifySiteChallenge() {
+    const current = siteView;
+    if (!current || !current.id) { ui.toast('验证会话已失效，请刷新列表'); return; }
+    const id = current.id;
+    try {
+      const data = await api('POST', '/api/crawler/challenge/' + encodeURIComponent(id) + '/verify');
+      const result = (data && data.result) || {};
+      const count = Number(result.count || (result.items || []).length || 0);
+      closeSiteView();
+      await refreshChallenges();
+      ui.toast('验证通过，已获取 ' + count + ' 条结果');
+    } catch (error) {
+      // 验证失败不关窗：用户通常还要在同一个页面里再操作一次。
+      ui.toast(message(error));
+    }
   }
   function openChallenge(id) {
     const item = (cs().challenges || []).find(function (entry) { return entry.id === id; });
-    const url = challengeUrl(item);
+    if (!item) { ui.toast('验证会话不存在，请刷新列表'); return; }
+    const site = item.site || item.name || '';
+    const url = item.pageUrl || item.url || (site ? 'https://' + site : '');
     if (!url) { ui.toast('验证页地址未就绪，请刷新'); return; }
-    if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
-    else window.open(url, '_blank', 'noreferrer');
+    openSiteModal({ kind: 'challenge', id: id, site: site, url: url, src: siteSessionSrc(id) });
   }
   async function verifyChallenge(id) {
     const data = await api('POST', '/api/crawler/challenge/' + encodeURIComponent(id) + '/verify');
-    const result = data.result || {};
+    const result = (data && data.result) || {};
     const count = Number(result.count || (result.items || []).length || 0);
     ui.toast('验证通过，已获取 ' + count + ' 条结果');
     await refreshChallenges();
@@ -1801,8 +1968,11 @@
     if (name === 'crawler-submissions-refresh') { await refreshSubmissions(); await refreshBrowser(); return; }
     if (name === 'crawler-auto-save') { await setAutoGenerate(Boolean($('#crawler-auto-generate') && $('#crawler-auto-generate').checked)); return; }
     if (name === 'crawler-login-open') { await openLogin(); return; }
-    if (name === 'crawler-login-save') { await saveLogin(); return; }
-    if (name === 'crawler-login-close') { await closeBrowser(); return; }
+    if (name === 'crawler-site-save') { await saveSiteLogin(); return; }
+    if (name === 'crawler-site-verify') { await verifySiteChallenge(); return; }
+    if (name === 'crawler-site-refresh') { refreshSiteView(); return; }
+    if (name === 'crawler-site-go') { const input = $('#crawler-site-url'); navigateSiteView(input ? input.value : ''); return; }
+    if (name === 'crawler-site-close') { closeSiteView(); return; }
     if (name === 'crawler-models-load') { await loadModels(); return; }
     if (name === 'crawler-config-save') {
       const payload = {
@@ -2006,6 +2176,17 @@
       renderChat();
       return;
     }
+    const modelChip = event.target.closest('[data-crawler-model]');
+    if (modelChip) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const modelInput = $('#crawler-model');
+      if (modelInput) {
+        modelInput.value = modelChip.dataset.crawlerModel || '';
+        modelInput.focus();
+      }
+      return;
+    }
     const action = event.target.closest('[data-action]');
     if (action && action.dataset.action.indexOf('crawler-') === 0) {
       event.preventDefault();
@@ -2112,6 +2293,16 @@
     if (state.page !== 'crawler' || c.tab !== 'challenges' || !c.info || c.info.available === false) return;
     refreshChallenges().catch(function () {});
   }, 15000);
+
+  // 弹窗被 ESC/遮罩关掉时也要清理反代会话：断开 iframe 加载、删掉临时登录会话，
+  // 否则隐藏的页面会在后台继续请求。
+  (function bindModalReset() {
+    const dialog = $('#modal');
+    if (!dialog) return;
+    dialog.addEventListener('close', function () {
+      if (siteView) closeSiteView();
+    });
+  })();
 
   window.ZViewerCrawlerPage = { page: page, ensure: ensure };
 })();
