@@ -215,7 +215,7 @@ func (c *Console) emitUpdate() {
 }
 
 // Emit 向界面广播一个自定义事件（桌面端 = Wails 事件，网页端 = SSE）。
-// 用于刷新不在快照里的信息，例如网页端访问密码变化。
+// 用于刷新不在快照里的信息（例如规则导入结果这类一次性状态）。
 func (c *Console) Emit(name string, payload any) {
 	c.Host().Emit(name, payload)
 }

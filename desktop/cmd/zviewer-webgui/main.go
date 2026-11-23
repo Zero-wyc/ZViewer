@@ -3,8 +3,8 @@
 //
 // 典型用法（运行包目录内）：
 //
-//	./zviewer-webgui                 # 0.0.0.0:33345，状态目录 ./profile
-//	./zviewer-webgui --port 33345 --bind 0.0.0.0
+//	./zviewer-webgui                 # 0.0.0.0:3332，状态目录 ./profile
+//	./zviewer-webgui --port 3332 --bind 0.0.0.0
 //	./zviewer-webgui --root /opt/zviewer/runtime --state-dir /var/lib/zviewer
 //
 // 设计要点：

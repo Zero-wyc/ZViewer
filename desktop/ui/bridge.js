@@ -35,8 +35,6 @@
       onNavigate: callback => on('navigate', callback),
       onUpdate: callback => on('desktop-update', callback),
       onCrawlerChallenge: callback => on('crawler-challenge', callback),
-      // 网页端访问密码被修改/重置后通知界面刷新密码显示（详见 console.Emit）。
-      onWebguiAuthChanged: callback => on('webgui-auth-changed', callback),
       demoState: () => Promise.resolve(),
       closeBehavior: () => {}
     };
@@ -52,7 +50,7 @@
     else document.addEventListener('DOMContentLoaded', markBody, { once: true });
 
     const JSON_HEADERS = { 'Content-Type': 'application/json' };
-    const listeners = { update: [], navigate: [], challenge: [], webguiAuth: [] };
+    const listeners = { update: [], navigate: [], challenge: [] };
     const MAX_IMPORT_BYTES = 256 * 1024;
     let source = null;
 
@@ -273,7 +271,6 @@
       source.addEventListener('navigate', event => dispatch('navigate', parseData(event.data)));
       source.addEventListener('crawler-challenge', event => dispatch('challenge', parseData(event.data)));
       // 密码变化：界面据此重拉 /api/info，避免网页端卡片继续显示旧密码。
-      source.addEventListener('webgui-auth-changed', event => dispatch('webguiAuth', parseData(event.data)));
       source.addEventListener('open-url', event => {
         // 兼容两种载荷：直接是 URL 字符串，或 {url:"..."}。
         const payload = parseData(event.data);
@@ -376,7 +373,6 @@
       onNavigate: callback => { if (typeof callback === 'function') { listeners.navigate.push(callback); ensureSource(); } },
       onUpdate: callback => { if (typeof callback === 'function') { listeners.update.push(callback); ensureSource(); } },
       onCrawlerChallenge: callback => { if (typeof callback === 'function') { listeners.challenge.push(callback); ensureSource(); } },
-      onWebguiAuthChanged: callback => { if (typeof callback === 'function') { listeners.webguiAuth.push(callback); } },
       demoState: () => Promise.resolve(),
       closeBehavior: () => {},
       // 供登录/设置页判断运行形态，并复用同一套鉴权调用（同源 fetch + 会话 cookie）。

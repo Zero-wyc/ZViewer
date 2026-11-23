@@ -20,10 +20,14 @@
       <button type="button" class="auth-theme" id="theme-toggle" aria-label="切换深色/浅色主题" title="切换主题">◐</button>
     </div>
     <h2 class="auth-title">登录</h2>
-    <p class="auth-sub">请输入访问密码后继续使用控制台。</p>
+    <p class="auth-sub">使用 ZViewer 超级管理员账号登录控制台。</p>
     <form class="auth-form" id="login-form" novalidate>
       <div class="auth-field">
-        <label for="password">访问密码</label>
+        <label for="username">用户名</label>
+        <input id="username" name="username" type="text" autocomplete="username" spellcheck="false" required />
+      </div>
+      <div class="auth-field">
+        <label for="password">密码</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required />
       </div>
       <p class="auth-error" id="auth-error" role="alert" hidden></p>

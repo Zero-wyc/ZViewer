@@ -147,22 +147,21 @@
       ? '<div class="web-access-list">' + rows + '</div>'
       : '<span class="field-note">' + (gui.error ? '网页版 GUI 未启动：' + esc(gui.error) : '还没有可访问地址：请把下方「网页与信令监听范围」改为局域网或所有地址并重启服务。') + '</span>';
     const localOnly = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(bind);
-    const password = gui.passwordSet
-      ? '<span class="pill green"><i></i>已设置</span>'
-      : '<span class="pill"><i></i>未设置</span>';
+    // 登录账号来自后端数据库：databaseReady=false 说明库还没初始化，走 root/root 兜底。
+    const accountPill = gui.databaseReady === false
+      ? '<span class="pill"><i></i>未初始化 · root/root</span>'
+      : '<span class="pill green"><i></i>超管账号</span>';
     const title = web ? '网页端访问' : '网页版 GUI';
     const authURL = urls[0] ? urls[0].replace(/\/+$/, '') + '/web/auth.html' : '';
     const authButton = web
-      ? '<a class="btn" href="/web/auth.html" target="_blank" rel="noopener">' + icon('lock') + (gui.passwordSet ? '修改访问密码' : '设置访问密码') + '</a>'
-      : (authURL ? '<button class="btn" data-external="' + esc(authURL) + '">' + icon('lock') + (gui.passwordSet ? '修改访问密码' : '设置访问密码') + '</button>' : '');
+      ? '<a class="btn" href="/web/auth.html" target="_blank" rel="noopener">' + icon('lock') + '账号与访问</a>'
+      : (authURL ? '<button class="btn" data-external="' + esc(authURL) + '">' + icon('lock') + '账号与访问</button>' : '');
     const note = web
-      ? ''
-      : '<p class="field-note">复制上面的链接和访问密码，就能在其它设备上登录控制本机。</p>' +
-        (gui.passwordSet && !gui.password ? '<p class="field-note">密码是旧版本设置的，没有记录明文；在网页端「应用设置 → 网页端访问」里改一次密码即可重新显示。</p>' : '');
+      ? '<p class="field-note">登录使用 ZViewer 超级管理员账号，密码在 ZViewer 后台的「个人设置」里修改。</p>'
+      : '<p class="field-note">在其它设备打开上面的链接，用 ZViewer 超级管理员账号登录即可控制本机。</p>';
     return `<div class="panel web-access"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">${icon('globe')}</span><h2>${title}</h2></div><span class="pill">端口 ${esc(port)}</span></div>
       ${list}
-      <div class="meta-list"><div class="meta-line"><span>监听地址</span><span>${esc(bind || '—')}</span></div><div class="meta-line"><span>访问密码</span>${password}</div></div>
-      ${!web && gui.password ? '<div class="web-access-row web-access-cred"><span class="web-access-url"><span>访问密码</span><code>' + esc(gui.password) + '</code></span><button class="text-button" data-copy="' + esc(gui.password) + '">' + icon('copy') + '复制密码</button></div>' : ''}
+      <div class="meta-list"><div class="meta-line"><span>监听地址</span><span>${esc(bind || '—')}</span></div><div class="meta-line"><span>登录账号</span>${accountPill}</div></div>
       ${note}
       ${localOnly ? '<p class="field-note">当前仅本机可访问；如需局域网打开，请把监听范围改为「局域网 IPv4」或「所有地址」。</p>' : ''}
       <div class="live-toolbar">${authButton}</div></div>`;
@@ -173,7 +172,7 @@
     function toggle(key, label, help) { return `<div class="switch-row"><div><strong>${label}</strong>${help ? `<p>${help}</p>` : ''}</div><button class="switch" role="switch" aria-label="${label}" aria-checked="${state.config[key]}" data-live-pref="${key}"></button></div>`; }
     // 网页端没有托盘/原生窗口，相关开关与文案都要收敛（见下方 web 分支）。
     const web = state.info?.web === true;
-    return heading('应用设置', web ? '监听端口、访问密码与启动行为。' : '监听端口、托盘与启动行为。') +
+    return heading('应用设置', web ? '监听端口、登录账号与启动行为。' : '监听端口、托盘与启动行为。') +
       `<div class="settings-grid">${webAccessPanel()}<section><div class="panel network-settings"><div class="panel-heading"><h2>监听端口与网络</h2><span class="pill">保存后下次启动生效</span></div>
         <div class="settings-form">
           <div class="form-row triple">${field('service-port','网页 / 管理页面',c.port)}${field('rtmp-port','RTMP 推流',c.rtmpPort)}${field('flv-port','HTTP-FLV',c.flvPort)}</div>

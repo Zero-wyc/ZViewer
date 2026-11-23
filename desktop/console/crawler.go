@@ -317,7 +317,7 @@ func (c *Console) crawlerAPI(payload map[string]any) (any, error) {
 // ServeCrawlerProxy 把验证/登录反代页面转给后端（桌面壳与网页端共用）。
 //
 // 浏览器只看到自己来源下的 /api/crawler/challenge/ 路径，Cookie 是第一方
-// Cookie：桌面壳（wails.localhost）与网页端（http://host:33345）都能正常
+// Cookie：桌面壳（wails.localhost）与网页端（http://host:3332）都能正常
 // 登录、过人机验证，远程访问也不会串站点。
 func (c *Console) ServeCrawlerProxy(w http.ResponseWriter, r *http.Request) {
 	if c == nil || c.crawler == nil {

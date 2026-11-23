@@ -361,14 +361,14 @@
     const urls = webAddresses(), current = webAddress();
     const options = urls.map(url => `<option value="${esc(url)}" ${url === current ? 'selected' : ''}>${esc(webAddressLabel(url))} · ${esc(url)}</option>`).join('');
     const backend = state.live ? state.server?.backend || 'stopped' : 'running';
-    // 网页版 GUI（控制台本身，33345）与后端网页端（3333）是两套东西：
+    // 网页版 GUI（控制台本身，3332）与后端网页端（3333）是两套东西：
     // 这里给一条独立入口，方便复制链接到其它浏览器/局域网设备上控制本机。
     const gui = state.info?.webgui;
     const guiUrls = Array.isArray(gui?.urls) ? gui.urls.filter(Boolean) : [];
     const guiUrl = guiUrls[0] || '';
     const guiBar = guiUrl
       ? `<div class="web-toolbar web-console-bar"><label class="web-address"><span>网页版 GUI</span><div class="web-console-url" title="${esc(guiUrls.join('\n'))}">${esc(guiUrl)}</div></label><div class="web-actions"><button class="btn" data-copy="${esc(guiUrl)}">${icon('copy')}复制链接</button><button class="btn" data-external="${esc(guiUrl)}">${icon('external')}在浏览器打开</button></div></div>`
-      : notice('网页版 GUI 未启动：端口 ' + (gui?.port || 33345) + ' 可能被占用或服务初始化失败，详见「运行日志」。');
+      : notice('网页版 GUI 未启动：端口 ' + (gui?.port || 3332) + ' 可能被占用或服务初始化失败，详见「运行日志」。');
     return `<div class="web-toolbar"><label class="web-address"><span>访问地址</span><select id="web-address" aria-label="访问地址">${options}</select></label><div class="web-actions">${button('刷新', 'web-refresh', 'refresh')}${button('在浏览器打开', 'web-external', 'external')}</div></div>` + guiBar +
       (backend === 'running' ? '' : notice('主服务尚未启动，请先在「服务总览」启动服务；启动后这里会自动加载。'));
   }
@@ -735,7 +735,7 @@
     function toggle(key, title, text) { return `<div class="switch-row"><div><strong>${title}</strong>${text ? `<p>${text}</p>` : ''}</div><button class="switch" role="switch" aria-label="${title}" aria-checked="${state.prefs[key]}" data-pref="${key}"></button></div>`; }
     return heading('应用设置', '窗口、托盘与启动行为。') + `<div class="settings-grid"><section><div class="panel"><div class="panel-heading"><h2>窗口与系统托盘</h2><span class="pill ${state.native ? 'green' : ''}">${state.native ? '原生托盘已启用' : '浏览器预览'}</span></div>${toggle('closeToTray', '关闭窗口时隐藏到托盘', '')}${toggle('remember', '持久化保存设置', '')}<div class="switch-row"><div><strong>登录 Windows 后自动启动控制台</strong></div><span class="pill">后续接入</span></div><div class="switch-row"><div><strong>打开控制台时自动启动服务</strong></div><span class="pill">后续接入</span></div></div><div class="panel section-title"><div><h2>托盘交互</h2></div>${button('预览菜单', 'tray-preview', 'tray')}</div></section><aside class="panel"><div class="about-mark"><img src="app-icon.png" alt="ZViewer 标志"><div><h2>ZViewer</h2><p>WINDOWS DESKTOP</p></div></div><div class="version">0.1.0 <small>LOCAL BUILD</small></div><p class="settings-description">Windows 桌面控制台</p><div class="panel-line"></div><div class="subheading">本地运行包</div>${[['backend', 'zviewer-backend.exe'], ['web', 'frontend/dist']].map(([key, label]) => `<div class="file-check"><code>${label}</code><span>${info ? (info[key] ? '已检测到' : '未找到') : '桌面版中检测'}</span></div>`).join('')}<div class="file-check"><code>frpc.exe</code><span>按需下载</span></div></aside></div>`;
   }
-  // 网页端没有独立的「网页端」分页（访问密码改在应用的设置页里配置）。
+  // 网页端没有独立的「网页端」分页（登录账号就是 ZViewer 超管，无需在控制台里另配密码）。
   function navigate(page) { if (!titles[page] || (state.web && page === 'web')) page = 'overview'; state.page = page; if (location.hash !== `#${page}`) location.hash = page; else render(); }
   // 左上角状态卡：绿点=主服务运行中，红点=未启动；按钮与服务总览共用 toggle-run。
   function syncWorkspace() {
@@ -1003,16 +1003,6 @@
         state.cliEmbedUrl = '';
         $('#cli-settings-frame')?.remove();
       }
-    });
-    // 网页端访问密码变化（改密/重置）后重新拉 Info：桌面卡片里的密码与 /api/info 一致。
-    window.zviewerDesktop.onWebguiAuthChanged?.(() => {
-      window.zviewerDesktop.info().then(info => {
-        state.info = info;
-        state.native = info.native !== false;
-        state.web = info.web === true;
-        if (!state.live) return;
-        render();
-      }).catch(() => { /* 拉取失败时保持旧显示，下次事件再试 */ });
     });
   }
 })();

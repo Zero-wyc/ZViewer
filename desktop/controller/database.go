@@ -19,6 +19,20 @@ type InitialAdmin struct {
 
 var initialAdminPattern = regexp.MustCompile(`(?m)^[\t ]*初始管理员:\s*(\S+)\s*/\s*(\S+)[\t ]*\r?$`)
 
+// BackendDatabasePath 返回后端 sqlite 的绝对路径，解析规则与后端完全一致
+// （PROJECT_ROOT / CONFIG_DIR / DATABASE_URL，缺省 <root>/config/dev.sqlite）。
+//
+// 网页控制台用它定位 user 表来校验超级管理员登录——控制台不复制后端代码，
+// 只共享「库在哪里」这一件事，所以路径规则必须从这一处出口出去。
+func BackendDatabasePath(root string) string {
+	values := EnvValues(root)
+	pairs := make([]string, 0, len(values))
+	for key, value := range values {
+		pairs = append(pairs, key+"="+value)
+	}
+	return backendDatabasePath(root, pairs)
+}
+
 // Match the backend's PROJECT_ROOT / CONFIG_DIR / DATABASE_URL path rules.
 func backendDatabasePath(root string, env []string) string {
 	values := make(map[string]string)

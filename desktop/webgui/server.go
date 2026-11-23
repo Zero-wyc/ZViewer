@@ -6,9 +6,10 @@ package webgui
 //   1. 不依赖 Windows/Wails，Linux 上也能跑——所以只有标准库 + console 包；
 //   2. 与「正常后端」解耦：控制台服务本身永远先起来，主服务（zviewer-backend）
 //      起没起只影响状态面板，不影响页面可访问（页面里 start 按钮负责拉起后端）；
-//   3. 固定端口 33345（可用 --port / ZVIEWER_WEB_PORT 覆盖），默认绑定 0.0.0.0，
-//      方便局域网/远程机器访问；启动时若没有密码会自动生成 12 位随机密码（明文写在
-//      stateDir/webgui-password.txt），任何来源（含本机/反代）都必须先登录，不做回环免密。
+//   3. 固定端口 3332（可用 --port / ZVIEWER_WEB_PORT 覆盖），默认绑定 0.0.0.0，
+//      方便局域网/远程机器访问；登录口径是 ZViewer 的超级管理员账号
+//      （user 表 role=root，bcrypt 校验），库还没初始化时用 root / root 兜底，
+//      任何来源（含本机/反代）都必须先登录，不做回环免密。
 //
 // 与桌面壳的关系：桌面壳也内嵌这个服务（同一进程、同一端口），这样 Windows 用户
 // 点开桌面控制台就同时拥有网页端；Linux 用户只跑 cmd/zviewer-webgui（无 GUI 依赖）。
@@ -36,7 +37,7 @@ import (
 )
 
 // DefaultPort 是网页控制台的固定端口。
-const DefaultPort = 33345
+const DefaultPort = 3332
 
 // DefaultBind 默认监听所有网卡：Linux 服务器/远程桌面场景下只绑回环等于没法用。
 const DefaultBind = "0.0.0.0"
@@ -47,11 +48,11 @@ type Config struct {
 	Console *console.Console
 	// UI 是桌面控制台界面资源（ui.FS()），必填。
 	UI fs.FS
-	// StateDir 保存鉴权信息（webgui-auth.json）与初始明文密码（webgui-password.txt）。
+	// StateDir 保存运行期数据；鉴权信息不再落盘（账号密码来自后端数据库）。
 	StateDir string
 	// Version 显示在页面底部。
 	Version string
-	// Bind / Port 默认 0.0.0.0:33345。
+	// Bind / Port 默认 0.0.0.0:3332。
 	Bind string
 	Port int
 	// CertFile / KeyFile 同时给出时启用 HTTPS（会话 cookie 也会带上 Secure）。
@@ -109,7 +110,7 @@ func New(cfg Config) (*Server, error) {
 	return &Server{
 		cfg:       cfg,
 		logger:    logger,
-		auth:      loadAuth(cfg.StateDir),
+		auth:      newAuthStore(),
 		hub:       newHub(),
 		webFS:     webFS,
 		downloads: map[string]downloadEntry{},
@@ -127,17 +128,10 @@ func (s *Server) Start() error {
 	s.listener = listener
 	s.startedAt = time.Now()
 	s.urls = buildURLs(s.cfg.Bind, s.cfg.Port)
-	if generated, err := s.auth.ensureCredential(s.cfg.StateDir); err != nil {
-		s.logger.Printf("生成网页端初始密码失败：%v", err)
-	} else if generated != "" {
-		s.logger.Printf("已生成网页端初始密码：%s", generated)
-	}
-	if password := s.auth.credential(); password != "" {
-		s.logger.Printf("网页控制台：%s", s.urls[0])
-		s.logger.Printf("访问密码：%s（可在网页端 应用设置 → 网页端访问 修改）", password)
-		s.logger.Printf("密码同时保存在：%s", path.Join(s.cfg.StateDir, credentialFileName))
-	} else {
-		s.logger.Printf("网页控制台已启动：%s（已启用鉴权，密码为历史设置，未记录明文）", s.urls[0])
+	s.logger.Printf("网页控制台：%s", s.urls[0])
+	s.logger.Printf("登录账号：ZViewer 超级管理员（数据库 user 表中 role=root 的账号）")
+	if info, err := os.Stat(controller.BackendDatabasePath(s.cfg.Console.Root())); err != nil || info.IsDir() {
+		s.logger.Printf("数据库尚未初始化：首次可用 root / root 登录，后端启动完成后自动改用真实管理员密码")
 	}
 	s.httpServer = &http.Server{
 		Handler:           s.routes(),
@@ -211,7 +205,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("/api/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/auth/logout", s.handleLogout)
-	mux.HandleFunc("/api/auth/password", s.handlePassword)
 	mux.HandleFunc("/api/info", s.guard(s.handleInfo))
 	mux.HandleFunc("/api/command", s.guard(s.handleCommand))
 	mux.HandleFunc("/api/events", s.guard(s.handleEvents))
@@ -280,12 +273,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
-	passwordSet := s.auth.passwordSet()
-	authenticated := s.authorized(r)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"passwordSet":   passwordSet,
-		"authenticated": authenticated,
+		// passwordSet 是给旧前端留的兼容字段：控制台不再有「还没设密码」的状态，
+		// 恒为 true；新前端应看 databaseReady / account。
+		"passwordSet":   true,
+		"authenticated": s.authorized(r),
 		"needsSetup":    false,
+		"account":       "ZViewer 超级管理员",
+		"databaseReady": s.databaseReady(),
 		"loopback":      isLoopback(r),
 		"platform":      runtime.GOOS,
 		"version":       s.cfg.Version,
@@ -293,29 +288,29 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// databaseReady 报告后端数据库是否已经存在：false 说明登录走的是 root/root 兜底。
+func (s *Server) databaseReady() bool {
+	info, err := os.Stat(controller.BackendDatabasePath(s.cfg.Console.Root()))
+	return err == nil && !info.IsDir()
+}
+
 func (s *Server) webguiInfo() map[string]any {
 	return map[string]any{
-		"bind":        net.JoinHostPort(s.cfg.Bind, strconv.Itoa(s.cfg.Port)),
-		"port":        s.cfg.Port,
-		"urls":        s.urls,
-		"passwordSet": s.auth.passwordSet(),
+		"bind":          net.JoinHostPort(s.cfg.Bind, strconv.Itoa(s.cfg.Port)),
+		"port":          s.cfg.Port,
+		"urls":          s.urls,
+		"passwordSet":   true,
+		"databaseReady": s.databaseReady(),
+		"account":       "ZViewer 超级管理员",
 	}
 }
 
 // Info 暴露服务自身的地址与鉴权状态，供桌面端 Info() 一并返回。
 func (s *Server) Info() map[string]any { return s.webguiInfo() }
 
-// Credential 返回网页端当前密码明文，只给同一进程里的桌面控制台展示用，
-// 不会通过任何 HTTP 接口返回（否则等于把密码发给浏览器）。
-func (s *Server) Credential() string { return s.auth.credential() }
-
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w)
-		return
-	}
-	if !s.auth.passwordSet() {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "尚未设置鉴权密码"})
 		return
 	}
 	ip := clientIP(r)
@@ -324,21 +319,31 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
+		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "请求格式不正确"})
 		return
 	}
-	if !s.auth.verifyPassword(body.Password) {
+	verdict := verifyAdminLogin(s.cfg.Console.Root(), body.Username, body.Password)
+	if !verdict.OK {
 		s.auth.recordFailure(ip)
 		time.Sleep(loginFailureWait)
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"ok": false, "error": "密码不正确"})
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"ok": false, "error": verdict.Reason})
 		return
 	}
 	s.issueSession(w, r)
-	s.logger.Printf("网页端登录成功（%s）", ip)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	source := "数据库"
+	if !verdict.DatabaseReady {
+		source = "兜底口令（数据库未初始化）"
+	}
+	s.logger.Printf("网页端登录成功（%s，账号 %s，%s）", ip, strings.TrimSpace(body.Username), source)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                 true,
+		"mustChangePassword": verdict.MustChangePassword,
+		"databaseReady":      verdict.DatabaseReady,
+	})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -354,50 +359,6 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (s *Server) handlePassword(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
-		return
-	}
-	var body struct {
-		Current string `json:"current"`
-		New     string `json:"new"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "请求格式不正确"})
-		return
-	}
-	if s.auth.passwordSet() && !s.auth.verifyPassword(body.Current) {
-		time.Sleep(loginFailureWait)
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"ok": false, "error": "当前密码不正确"})
-		return
-	}
-	if strings.TrimSpace(body.New) == "" {
-		// 不支持取消密码：网页端（含反代后的外网入口）一律要求登录。
-		// 空值当作「重置为随机密码」，把新密码回给已登录的调用方保存。
-		password, err := randomPassword(passwordLength)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": err.Error()})
-			return
-		}
-		if err := s.auth.setPassword(s.cfg.StateDir, password); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": err.Error()})
-			return
-		}
-		s.logger.Printf("网页端访问密码已重置为随机密码（来自 %s）", clientIP(r))
-		s.cfg.Console.Emit("webgui-auth-changed", map[string]any{"passwordSet": true, "reset": true})
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "passwordSet": true, "password": password, "reset": true})
-		return
-	}
-	if err := s.auth.setPassword(s.cfg.StateDir, body.New); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
-		return
-	}
-	s.logger.Printf("网页端鉴权密码已更新（来自 %s）", clientIP(r))
-	s.cfg.Console.Emit("webgui-auth-changed", map[string]any{"passwordSet": true})
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "passwordSet": true})
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
@@ -518,7 +479,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 // handleCrawlerProxy 把引擎的同源反代页面（人机验证 / 网页内登录）转给浏览器。
 //
 // 网页端不直接访问 3333，也不暴露引擎端口：弹窗 iframe 用的是本进程的
-// /api/crawler/challenge/... 地址，Cookie 落在 33345 这一侧。
+// /api/crawler/challenge/... 地址，Cookie 落在 3332 这一侧。
 func (s *Server) handleCrawlerProxy(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Console.ServeCrawlerProxy(w, r)
 }
@@ -566,7 +527,7 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	s.serveWebPage(w, r, "login.html", "form-action 'self'")
 }
 
-// handleSetupPage 只做兼容：服务启动时就生成密码，不再有「首次设置密码」这一步，
+// handleSetupPage 只做兼容：账号密码来自 ZViewer 超级管理员，不再有「首次设置密码」这一步，
 // 旧书签/旧链接统一回落到登录页。
 func (s *Server) handleSetupPage(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusFound)

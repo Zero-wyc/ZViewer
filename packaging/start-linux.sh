@@ -7,7 +7,7 @@
 # 无需独立的前端 exe。
 #
 # 网页端：Linux 没有 Wails 桌面壳，由独立进程 zviewer-webgui 提供网页控制台
-# （默认端口 33345）。它与后端解耦 —— 后端没启动时网页端也能打开。
+# （默认端口 3332）。它与后端解耦 —— 后端没启动时网页端也能打开。
 # 没有 zviewer-webgui 时脚本行为与旧版完全一致。
 
 cd "$(dirname "$0")" || exit 1
@@ -25,7 +25,7 @@ ENV_FILE="$ROOT_DIR/.env"
 DEFAULT_PORT=3333
 DEFAULT_RTMP_PORT=3334
 DEFAULT_FLV_PORT=3335
-DEFAULT_WEBGUI_PORT=33345
+DEFAULT_WEBGUI_PORT=3332
 WEBGUI_PORT=""
 BACKEND_PORT="${BACKEND_PORT:-}"
 BACKEND_ONLY=0
@@ -58,7 +58,7 @@ resolve_ports() {
   HTTP_FLV_PORT="$(env_port_value HTTP_FLV_PORT "$DEFAULT_FLV_PORT")"
 }
 
-# 网页端端口：环境变量 ZVIEWER_WEB_PORT > .env 的 WEBGUI_PORT > 33345
+# 网页端端口：环境变量 ZVIEWER_WEB_PORT > .env 的 WEBGUI_PORT > 3332
 resolve_webgui_port() {
   if [ -n "$WEBGUI_PORT" ]; then return; fi
   WEBGUI_PORT="${ZVIEWER_WEB_PORT:-}"
@@ -212,27 +212,22 @@ lan_ip() {
   echo "$ip"
 }
 
-# 打印网页端地址（本机 + 局域网）与访问密码。WEBGUI_PORT 需已解析。
-# 网页端启动时若未设密码会自动生成 12 位随机密码并写入 profile/webgui-password.txt，
-# 这里把明文密码一并打出来，方便直接登录。
+# 打印网页端地址（本机 + 局域网）。WEBGUI_PORT 需已解析。
+# 登录用 ZViewer 的超级管理员账号（数据库 user 表中 role=root 的账号）；
+# 数据库还没初始化时（后端从未跑过）用 root / root 兜底。
 print_webgui_urls() {
-  local ip pass_file pass
+  local ip
   echo ""
   echo "  GUI 网页端：http://localhost:$WEBGUI_PORT"
   ip=$(lan_ip)
   if [ -n "$ip" ]; then
     echo "  局域网访问：http://$ip:$WEBGUI_PORT"
   fi
-  pass_file="$PWD/profile/webgui-password.txt"
-  if [ -f "$pass_file" ]; then
-    pass=$(head -n 1 "$pass_file" 2>/dev/null | tr -d '\r\n')
-    if [ -n "$pass" ]; then
-      echo "  访问密码：$pass"
-      echo "  密码文件：$pass_file（可在网页端「应用设置 → 网页端访问」修改）"
-      return
-    fi
+  if [ -f "$ROOT_DIR/config/dev.sqlite" ]; then
+    echo "  登录账号：ZViewer 超级管理员（与后台是同一个账号）"
+  else
+    echo "  登录账号：数据库尚未初始化，首次请用 root / root"
   fi
-  echo "  提示：访问密码保存在 $pass_file（网页端首次启动后生成）"
 }
 
 # 启动后端进程。成功时把 PID 写入 BACKEND_PID。
@@ -440,8 +435,10 @@ do_status() {
       echo "    记录 PID: $wp ($(if [ "$webgui_running" = "是" ]; then echo 运行中; else echo 未运行; fi))"
     fi
     echo "    地址: http://localhost:$WEBGUI_PORT"
-    if [ -f "$PWD/profile/webgui-password.txt" ]; then
-      echo "    访问密码: $(head -n 1 "$PWD/profile/webgui-password.txt" 2>/dev/null | tr -d '\r\n')"
+    if [ -f "$ROOT_DIR/config/dev.sqlite" ]; then
+      echo "    登录账号: ZViewer 超级管理员（与后台同一个账号）"
+    else
+      echo "    登录账号: 数据库尚未初始化，root / root"
     fi
   else
     echo "  网页端: 未安装（zviewer-webgui 缺失）"
@@ -508,7 +505,7 @@ start/restart/cert/https 选项:
       --force              证书强制重新签发
 
 端口: 后端默认取 .env 的 PORT（否则 3333），前后端共用同一端口
-      网页端默认 33345（环境变量 ZVIEWER_WEB_PORT > .env 的 WEBGUI_PORT > 33345）
+      网页端默认 3332（环境变量 ZVIEWER_WEB_PORT > .env 的 WEBGUI_PORT > 3332）
       网页端（zviewer-webgui）与后端解耦：后端没启动也能打开
 
 示例:

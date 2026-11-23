@@ -6,7 +6,7 @@ package main
 // （console.Host）；其余命令分发、爬虫桥接、配置导入导出都在 console 包里，
 // Linux 网页端（cmd/zviewer-webgui）复用同一份实现。
 //
-// 同一个进程里还会起一份 HTTP 网页端（webgui.Server，默认 33345）：桌面窗口
+// 同一个进程里还会起一份 HTTP 网页端（webgui.Server，默认 3332）：桌面窗口
 // 与浏览器共享同一份控制台状态，事件同时推给 Wails 与 SSE 客户端。
 
 import (
@@ -169,22 +169,22 @@ func (a *App) Info() (map[string]any, error) {
 	out["web"] = false
 	out["platform"] = "windows"
 	if a.web != nil {
-		info := a.web.Info()
-		// 桌面窗口里回显网页端密码：用户第一次访问网页端要知道输什么。
-		info["password"] = a.web.Credential()
-		out["webgui"] = info
+		// 网页端登录用 ZViewer 超级管理员账号，桌面窗口不再回显密码，
+		// 只透出「数据库是否就绪」（false 时提示用 root/root 兜底）。
+		out["webgui"] = a.web.Info()
 	} else {
 		// 网页端起不来（端口被占用之类）时也给前端一份结构一致的信息，
 		// 界面据此提示「网页版 GUI 未启动」而不是显示空白卡片。
 		port := envInt("ZVIEWER_WEB_PORT", webgui.DefaultPort)
 		bind := envString("ZVIEWER_WEB_BIND", webgui.DefaultBind)
 		out["webgui"] = map[string]any{
-			"available":   false,
-			"bind":        fmt.Sprintf("%s:%d", bind, port),
-			"port":        port,
-			"urls":        []string{},
-			"passwordSet": false,
-			"error":       a.webErr,
+			"available":     false,
+			"bind":          fmt.Sprintf("%s:%d", bind, port),
+			"port":          port,
+			"urls":          []string{},
+			"passwordSet":   true,
+			"databaseReady": false,
+			"error":         a.webErr,
 		}
 	}
 	return out, nil

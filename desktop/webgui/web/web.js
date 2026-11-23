@@ -113,18 +113,31 @@
     request('/api/auth/status').then(function (result) {
       var status = result.data || {};
       if (status.authenticated) { location.replace(nextTarget()); return; }
-      var password = byId('password');
-      if (password) password.focus();
+      var account = byId('username');
+      if (account) account.focus();
+      if (status.databaseReady === false) {
+        setNotice('note', '数据库尚未初始化：首次请用 root / root 登录，后端启动后改用真实管理员密码。');
+      }
     });
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       clearNotice();
+      var account = (byId('username').value || '').trim();
       var password = byId('password').value;
-      if (!password) { setNotice('error', '请输入访问密码'); return; }
+      if (!account || !password) { setNotice('error', '请输入用户名和密码'); return; }
       setBusy(form, true, '登录中…');
-      request('/api/auth/login', { method: 'POST', body: { password: password } }).then(function (result) {
+      request('/api/auth/login', { method: 'POST', body: { username: account, password: password } }).then(function (result) {
         setBusy(form, false);
-        if (result.ok && result.data && result.data.ok !== false) { location.replace(nextTarget()); return; }
+        if (result.ok && result.data && result.data.ok !== false) {
+          // 与 ZViewer 后台一致：root 还在用初始口令时强提示一次，但不禁用登录。
+          if (result.data.mustChangePassword) {
+            setNotice('note', '当前仍是初始密码 root，请到 ZViewer 后台修改后再使用。');
+            window.setTimeout(function () { location.replace(nextTarget()); }, 1500);
+            return;
+          }
+          location.replace(nextTarget());
+          return;
+        }
         setNotice('error', (result.data && result.data.error) || '登录失败');
         var box = byId('password');
         if (box) { box.focus(); box.select(); }
@@ -164,14 +177,18 @@
     if (bind) bind.textContent = gui.bind || '—';
     var port = byId('access-port');
     if (port) port.textContent = gui.port ? String(gui.port) : '—';
-    var password = byId('access-password');
-    if (password) password.textContent = status.passwordSet ? '已设置' : '未设置';
+    var account = byId('access-account');
+    if (account) account.textContent = gui.account || 'ZViewer 超级管理员';
+    var database = byId('access-database');
+    if (database) {
+      database.textContent = status.databaseReady === false
+        ? '未初始化（root / root 兜底）'
+        : '已连接';
+    }
   }
 
   function initAuth() {
-    var form = byId('password-form');
     var logout = byId('logout');
-    var reset = byId('reset-password');
 
     // 该页面是静态托管的（/web/auth.html），服务端不鉴权，所以进入时先确认会话。
     request('/api/auth/status').then(function (result) {
@@ -181,60 +198,13 @@
         return;
       }
       renderAccess(status.webgui || {}, status);
-      var current = byId('current-password');
-      if (current) current.focus();
     });
-
-    if (form) {
-      form.addEventListener('submit', function (event) {
-        event.preventDefault();
-        clearNotice();
-        var current = byId('current-password').value;
-        var next = byId('new-password').value;
-        var confirm = byId('confirm-password').value;
-        if (!next || next.length < 6) { setNotice('error', '新密码至少 6 位'); return; }
-        if (next !== confirm) { setNotice('error', '两次输入的新密码不一致'); return; }
-        setBusy(form, true, '保存中…');
-        request('/api/auth/password', { method: 'POST', body: { current: current, new: next } }).then(function (result) {
-          setBusy(form, false);
-          if (result.ok && result.data && result.data.ok !== false) {
-            form.reset();
-            var password = byId('access-password');
-            if (password) password.textContent = '已设置';
-            setNotice('note', '访问密码已更新，下次登录请使用新密码。');
-            return;
-          }
-          setNotice('error', (result.data && result.data.error) || '修改失败');
-        });
-      });
-    }
 
     if (logout) {
       logout.addEventListener('click', function () {
         logout.disabled = true;
         request('/api/auth/logout', { method: 'POST' }).then(function () {
           location.replace('/login');
-        });
-      });
-    }
-
-    // 重置为随机密码：服务端在 new 为空时生成 12 位随机密码并回传（不再支持「取消密码」）。
-    if (reset) {
-      reset.addEventListener('click', function () {
-        clearNotice();
-        var current = byId('current-password').value;
-        if (!current) { setNotice('error', '重置前请先填写当前密码'); return; }
-        if (!window.confirm('重置后旧密码立即失效，新密码由服务端随机生成。确定继续？')) return;
-        reset.disabled = true;
-        request('/api/auth/password', { method: 'POST', body: { current: current, new: '' } }).then(function (result) {
-          reset.disabled = false;
-          var data = result.data || {};
-          if (result.ok && data.ok !== false && data.password) {
-            if (form) form.reset();
-            setNotice('note', '新访问密码：' + data.password);
-            return;
-          }
-          setNotice('error', data.error || '重置失败');
         });
       });
     }

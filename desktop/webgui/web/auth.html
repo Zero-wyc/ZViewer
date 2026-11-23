@@ -19,7 +19,7 @@
       </div>
       <button type="button" class="auth-theme" id="theme-toggle" aria-label="切换深色/浅色主题" title="切换主题">◐</button>
     </div>
-    <p class="auth-sub">这里的设置只作用于网页端。</p>
+    <p class="auth-sub">控制台使用 ZViewer 超级管理员账号登录，密码在 ZViewer 后台修改。</p>
 
     <section class="auth-section">
       <h2 class="auth-title">访问地址</h2>
@@ -27,32 +27,10 @@
       <dl class="auth-meta">
         <div><dt>监听地址</dt><dd id="access-bind">—</dd></div>
         <div><dt>端口</dt><dd id="access-port">—</dd></div>
-        <div><dt>访问密码</dt><dd id="access-password">—</dd></div>
+        <div><dt>登录账号</dt><dd id="access-account">—</dd></div>
+        <div><dt>账号来源</dt><dd id="access-database">—</dd></div>
       </dl>
-    </section>
-
-    <section class="auth-section">
-      <h2 class="auth-title">修改访问密码</h2>
-      <form class="auth-form" id="password-form" novalidate>
-        <div class="auth-field">
-          <label for="current-password">当前密码</label>
-          <input id="current-password" name="current" type="password" autocomplete="current-password" required />
-        </div>
-        <div class="auth-field">
-          <label for="new-password">新密码（至少 6 位）</label>
-          <input id="new-password" name="new" type="password" autocomplete="new-password" minlength="6" required />
-        </div>
-        <div class="auth-field">
-          <label for="confirm-password">确认新密码</label>
-          <input id="confirm-password" name="confirm" type="password" autocomplete="new-password" minlength="6" required />
-        </div>
-        <p class="auth-error" id="auth-error" role="alert" hidden></p>
-        <p class="auth-note" id="auth-note" role="status" hidden></p>
-        <button type="submit" class="auth-primary">保存新密码</button>
-      </form>
-      <div class="auth-inline">
-        <button type="button" class="auth-link" id="reset-password">忘记密码？重置为随机密码</button>
-      </div>
+      <p class="auth-note">要修改密码，请登录 ZViewer 后台：右上角头像 → 个人设置 → 修改密码。</p>
     </section>
 
     <div class="auth-actions">
