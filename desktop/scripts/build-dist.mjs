@@ -20,13 +20,12 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const desktop = root;
 const repo = dirname(desktop);
 const pkg = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8'));
-const tools = join(desktop, '.runtime', 'tools');
-const cliDir = join(tools, 'zviewer-cli');
 const runtimeSource = process.env.ZVIEWER_RUNTIME_ROOT || join(repo, 'dist', 'win');
 // CLI 固定从运行包的网页目录取：build-all 会把 frontend/public 的
 // zviewer-cli-windows-amd64.exe 原样复制到 dist/win/frontend/dist，网页「下载 CLI」
-// 用的也是这份。这里只判断存在性，不校验摘要——运行包里必然带它，缺了说明运行包
-// 没打全，直接报错而不是去源码重建（壳从 runtime/<名字> 拉起代理，所以再复制过去）。
+// 用的也是这份。该文件直接来自 ZViewerCLI 的 GitHub Release，本地不再从源码重建。
+// 这里只判断存在性，不校验摘要——缺了说明运行包没打全，直接报错而不是兜底重建
+// （壳从 runtime/<名字> 拉起代理，所以再复制过去）。
 const cliSource = join(runtimeSource, 'frontend', 'dist', 'zviewer-cli-windows-amd64.exe');
 const outRoot = process.env.ZVIEWER_OUT_DIR || join(desktop, 'dist-gui');
 const distribution = join(outRoot, 'zviewer-windows-x64-GUI');
@@ -77,9 +76,9 @@ copyFileSync(join(desktop, 'assets', 'ZViewer.ProcessHost.exe'), join(distributi
 // CLI 固定放进 runtime/：壳只从运行包里找它，缺了就等于没有高画质代理。
 // 运行包网页目录那份已经是同一个文件，无需再覆盖一遍。
 copyFileSync(cliSource, join(runtime, 'zviewer-cli-windows-amd64.exe'));
-// 顺手带上 CLI 的 MIT 许可证（本地有源码仓库或 prepare-cli 产物时才有）。
-const cliLicense = [join(cliDir, 'LICENSE'), join(repo, '..', 'ZViewerCLI', 'LICENSE')].find((file) => existsSync(file));
-if (cliLicense) copyFileSync(cliLicense, join(distribution, 'LICENSE-ZViewerCLI.txt'));
+// 顺手带上 CLI 的 MIT 许可证（本地并排放着 ZViewerCLI 源码仓库时才有）。
+const cliLicense = join(repo, '..', 'ZViewerCLI', 'LICENSE');
+if (existsSync(cliLicense)) copyFileSync(cliLicense, join(distribution, 'LICENSE-ZViewerCLI.txt'));
 // 分发包不附使用说明：操作引导在 GUI 内的教程里，README 只留在源码仓库。
 for (const [source, target] of [['LICENSE', 'LICENSE-ZViewer.txt']]) {
   const file = join(repo, source);
