@@ -1,6 +1,9 @@
 import type { ResolvedSource } from './types'
 import { getBilibiliVideoView } from './bilibiliApi'
+import { registerCliCandidates } from './cliCandidates'
 import { t } from '@/i18n'
+
+export { registerCliCandidates } from './cliCandidates'
 
 const BV_REGEX = /BV[0-9A-Za-z]{10}/
 
@@ -82,11 +85,14 @@ export function buildCliProxyUrl(
  * - 视频流（videoUrl）走本地 CLI 代理
  * - 音频流（audioUrl）走本地 CLI 代理
  * - 播放器/下载器无需感知代理细节，直接请求 localhost 即可
+ *
+ * 同时把候选 CDN 地址登记给 CLI（见 registerCliCandidates），代理才有换节点能力。
  */
 export function wrapResolvedSourceWithCliProxy(
   proxyUrl: string,
   resolved: ResolvedSource
 ): ResolvedSource {
+  registerCliCandidates(proxyUrl, resolved)
   return {
     ...resolved,
     videoUrl: buildCliProxyUrl(proxyUrl, resolved.videoUrl),
@@ -106,6 +112,9 @@ interface CliResolveResponse {
   cid?: number
   videoUrl?: string
   audioUrl?: string
+  /** 视频 / 音频轨的候选 CDN 地址（CLI 自己也会缓存，这里用于统一登记）。 */
+  videoBackupUrls?: string[]
+  audioBackupUrls?: string[]
   videoCodec?: string
   audioCodec?: string
   format?: 'mp4' | 'dash' | string
@@ -287,6 +296,8 @@ export async function resolveBilibiliViaCli(
     title: data.title,
     videoUrl: data.videoUrl,
     audioUrl: data.audioUrl,
+    videoBackupUrls: data.videoBackupUrls,
+    audioBackupUrls: data.audioBackupUrls,
     videoCodec: data.videoCodec,
     audioCodec: data.audioCodec,
     duration: data.duration,
@@ -371,6 +382,8 @@ export async function resolveBangumiViaCli(
     title: data.title,
     videoUrl: data.videoUrl,
     audioUrl: data.audioUrl,
+    videoBackupUrls: data.videoBackupUrls,
+    audioBackupUrls: data.audioBackupUrls,
     videoCodec: data.videoCodec,
     audioCodec: data.audioCodec,
     duration: data.duration,

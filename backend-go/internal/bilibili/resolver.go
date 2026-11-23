@@ -57,28 +57,34 @@ type ResolvePageInfo struct {
 
 // ResolveResult 是最终解析结果，字段名与前端约定逐字对齐。
 type ResolveResult struct {
-	Title         string            `json:"title"`
-	Duration      int               `json:"duration"`
-	Cid           int64             `json:"cid"`
-	VideoURL      string            `json:"videoUrl"`
-	AudioURL      string            `json:"audioUrl,omitempty"`
-	VideoCodec    string            `json:"videoCodec,omitempty"`
-	AudioCodec    string            `json:"audioCodec,omitempty"`
-	Format        string            `json:"format"`
-	LoggedIn      bool              `json:"loggedIn"`
-	VipStatus     int               `json:"vipStatus"`
-	CurrentQn     int               `json:"currentQn,omitempty"`
-	AcceptQuality []Quality         `json:"acceptQuality,omitempty"`
-	IsHDR         bool              `json:"isHdr,omitempty"`
-	HdrType       string            `json:"hdrType,omitempty"`
-	VideoCodecid  int               `json:"videoCodecid,omitempty"`
-	Pages         []ResolvePageInfo `json:"pages,omitempty"`
-	CurrentPage   int               `json:"currentPage,omitempty"`
-	ResolvedURL   string            `json:"resolvedUrl"`
-	EpID          int64             `json:"epId,omitempty"`
-	SeasonID      int64             `json:"seasonId,omitempty"`
-	SeasonTitle   string            `json:"seasonTitle,omitempty"`
-	Preview       bool              `json:"preview,omitempty"`
+	Title    string `json:"title"`
+	Duration int    `json:"duration"`
+	Cid      int64  `json:"cid"`
+	VideoURL string `json:"videoUrl"`
+	AudioURL string `json:"audioUrl,omitempty"`
+	// VideoBackupUrls / AudioBackupUrls 是同一轨道的全部候选 CDN 地址，
+	// 按「非 mcdn 优先」排好序，可能包含已选中的那条（客户端按需去重）。
+	// 用途是把换节点的能力交给真正拉流的一方：CLI 本地代理遇到某个候选
+	// 返回 5xx 时可以直接换下一个，而不是把 502 丢给播放器。
+	VideoBackupUrls []string          `json:"videoBackupUrls,omitempty"`
+	AudioBackupUrls []string          `json:"audioBackupUrls,omitempty"`
+	VideoCodec      string            `json:"videoCodec,omitempty"`
+	AudioCodec      string            `json:"audioCodec,omitempty"`
+	Format          string            `json:"format"`
+	LoggedIn        bool              `json:"loggedIn"`
+	VipStatus       int               `json:"vipStatus"`
+	CurrentQn       int               `json:"currentQn,omitempty"`
+	AcceptQuality   []Quality         `json:"acceptQuality,omitempty"`
+	IsHDR           bool              `json:"isHdr,omitempty"`
+	HdrType         string            `json:"hdrType,omitempty"`
+	VideoCodecid    int               `json:"videoCodecid,omitempty"`
+	Pages           []ResolvePageInfo `json:"pages,omitempty"`
+	CurrentPage     int               `json:"currentPage,omitempty"`
+	ResolvedURL     string            `json:"resolvedUrl"`
+	EpID            int64             `json:"epId,omitempty"`
+	SeasonID        int64             `json:"seasonId,omitempty"`
+	SeasonTitle     string            `json:"seasonTitle,omitempty"`
+	Preview         bool              `json:"preview,omitempty"`
 }
 
 // ResolveError 是归一化的解析错误，Code 供前端分流提示文案。
@@ -264,17 +270,33 @@ func narrowAcceptQualityForMP4(list []Quality) []Quality {
 	}
 }
 
-// selectDashSources 为音视频轨选可达地址。
-func selectDashSources(ctx context.Context, playURL *PlayURLResult, skipCdnCheck bool) (videoURL, audioURL string) {
+// dashSelection 是 DASH 轨道的选取结果：主地址 + 可用于回退的候选列表。
+//
+// 候选列表随解析结果一起下发，客户端本地代理（CLI）在主地址失败时才有得换。
+// 不带候选时，一个分段 5xx 就是一个整段黑屏。
+type dashSelection struct {
+	VideoURL     string
+	AudioURL     string
+	VideoBackups []string
+	AudioBackups []string
+}
+
+// selectDashSources 为音视频轨选可达地址，并附上回退候选。
+func selectDashSources(ctx context.Context, playURL *PlayURLResult, skipCdnCheck bool) dashSelection {
 	if playURL.BestVideo == nil {
-		return "", ""
+		return dashSelection{}
 	}
+	videoBackups := TrackCandidateURLs(playURL.BestVideo)
+	audioBackups := TrackCandidateURLs(playURL.BestAudio)
 	if skipCdnCheck {
 		// 不做可达性探测（结果不代表客户端网络），但按「非 mcdn 优先」挑地址：
 		// mcdn 是 P2P 回源节点，CLI/客户端直连大概率 502，不能原样下发 baseUrl。
-		videoURL = PickTrackURL(playURL.BestVideo)
-		audioURL = PickTrackURL(playURL.BestAudio)
-		return videoURL, audioURL
+		return dashSelection{
+			VideoURL:     PickTrackURL(playURL.BestVideo),
+			AudioURL:     PickTrackURL(playURL.BestAudio),
+			VideoBackups: videoBackups,
+			AudioBackups: audioBackups,
+		}
 	}
 
 	type probe struct {
@@ -298,18 +320,19 @@ func selectDashSources(ctx context.Context, playURL *PlayURLResult, skipCdnCheck
 		ch <- probe{kind: "audio"}
 	}
 
+	selection := dashSelection{VideoBackups: videoBackups, AudioBackups: audioBackups}
 	for i := 0; i < 2; i++ {
 		res := <-ch
 		if res.kind == "video" {
-			videoURL = res.url
+			selection.VideoURL = res.url
 			if !res.ok {
-				videoURL = ""
+				selection.VideoURL = ""
 			}
 		} else {
-			audioURL = res.url
+			selection.AudioURL = res.url
 		}
 	}
-	return videoURL, audioURL
+	return selection
 }
 
 // cdnUnreachable 是「所有媒体 CDN 都连不上」的统一错误。
@@ -546,8 +569,8 @@ func (s *Service) resolveUGC(ctx context.Context, opts ResolveOptions, bvid, exp
 
 	if playURL.Format == "dash" && playURL.BestVideo != nil {
 		opts.emit("cdn", "正在选择可用 CDN...")
-		videoURL, audioURL := selectDashSources(ctx, playURL, opts.SkipCdnCheck)
-		if videoURL == "" {
+		selection := selectDashSources(ctx, playURL, opts.SkipCdnCheck)
+		if selection.VideoURL == "" {
 			if opts.ForceDash {
 				return nil, cdnUnreachable()
 			}
@@ -576,8 +599,10 @@ func (s *Service) resolveUGC(ctx context.Context, opts ResolveOptions, bvid, exp
 
 		result := base()
 		result.Format = "dash"
-		result.VideoURL = videoURL
-		result.AudioURL = audioURL
+		result.VideoURL = selection.VideoURL
+		result.AudioURL = selection.AudioURL
+		result.VideoBackupUrls = selection.VideoBackups
+		result.AudioBackupUrls = selection.AudioBackups
 		result.VideoCodec = playURL.BestVideo.Codecs
 		if playURL.BestAudio != nil {
 			result.AudioCodec = playURL.BestAudio.Codecs
@@ -857,8 +882,8 @@ func (s *Service) resolvePGC(ctx context.Context, opts ResolveOptions, id Bangum
 
 	if playURL.Format == "dash" && playURL.BestVideo != nil {
 		opts.emit("cdn", "正在选择可用 CDN...")
-		videoURL, audioURL := selectDashSources(ctx, playURL, opts.SkipCdnCheck)
-		if videoURL == "" {
+		selection := selectDashSources(ctx, playURL, opts.SkipCdnCheck)
+		if selection.VideoURL == "" {
 			if opts.ForceDash {
 				return nil, cdnUnreachable()
 			}
@@ -873,8 +898,10 @@ func (s *Service) resolvePGC(ctx context.Context, opts ResolveOptions, id Bangum
 
 		result := base()
 		result.Format = "dash"
-		result.VideoURL = videoURL
-		result.AudioURL = audioURL
+		result.VideoURL = selection.VideoURL
+		result.AudioURL = selection.AudioURL
+		result.VideoBackupUrls = selection.VideoBackups
+		result.AudioBackupUrls = selection.AudioBackups
 		result.VideoCodec = playURL.BestVideo.Codecs
 		if playURL.BestAudio != nil {
 			result.AudioCodec = playURL.BestAudio.Codecs

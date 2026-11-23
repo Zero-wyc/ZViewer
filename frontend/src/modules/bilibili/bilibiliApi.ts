@@ -416,6 +416,8 @@ function mapResolvedBilibili(data: ResolveProgressLine): ResolvedSource {
     title: data.title,
     videoUrl: data.videoUrl ?? '',
     audioUrl: data.audioUrl,
+    videoBackupUrls: data.videoBackupUrls,
+    audioBackupUrls: data.audioBackupUrls,
     videoCodec: data.videoCodec,
     audioCodec: data.audioCodec,
     duration: data.duration,

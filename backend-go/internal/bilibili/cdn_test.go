@@ -186,3 +186,41 @@ func TestFindReachableMediaURLStillProbes(t *testing.T) {
 		t.Fatalf("可达地址应被选中，got=%q ok=%v", got, ok)
 	}
 }
+
+// TestTrackCandidateURLs 验证下发给客户端的候选表：去重、https 升级、非 mcdn 优先。
+//
+// 这张表是「CLI 代理失败换节点」的数据来源，丢一条就少一个可用节点。
+func TestTrackCandidateURLs(t *testing.T) {
+	track := &DashMediaTrack{
+		BaseURL: "http://a.mcdn.bilivideo.cn:8082/v.m4s",
+		BackupURL: []string{
+			"http://upos-sz-mirrorcos.bilivideo.com/v.m4s",
+			"http://upos-sz-mirrorcos.bilivideo.com/v.m4s", // 重复项
+			"",
+			"http://upos-sz-mirrorali.bilivideo.com/v.m4s",
+		},
+	}
+	got := TrackCandidateURLs(track)
+	want := []string{
+		"https://upos-sz-mirrorcos.bilivideo.com/v.m4s",
+		"https://upos-sz-mirrorali.bilivideo.com/v.m4s",
+		// mcdn 不在 https 白名单内，保留原协议：它只作为代理回退候选，
+		// 由 CLI（Go 侧）发起请求，不经过浏览器，不受 Mixed Content 限制。
+		"http://a.mcdn.bilivideo.cn:8082/v.m4s",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("候选数 = %d，期望 %d（%v）", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("第 %d 个候选 = %q，期望 %q（完整结果 %v）", i, got[i], want[i], got)
+		}
+	}
+
+	if got := TrackCandidateURLs(nil); got != nil {
+		t.Fatalf("nil 轨道应返回 nil，实际 %v", got)
+	}
+	if got := TrackCandidateURLs(&DashMediaTrack{}); len(got) != 0 {
+		t.Fatalf("空轨道应返回空，实际 %v", got)
+	}
+}

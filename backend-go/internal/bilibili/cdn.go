@@ -282,6 +282,36 @@ func SelectReachableTrackURL(ctx context.Context, track MediaTrackCandidate) (st
 	return FindReachableMediaURL(ctx, track)
 }
 
+// TrackCandidateURLs 返回一条轨道的全部候选地址（https 升级、去重、非 mcdn 优先）。
+//
+// 用途是把「换节点」的能力下发给真正拉流的客户端：CLI 本地代理在某个候选
+// 返回 5xx 时可以换下一个，而不是把一个分段 502 原样丢给播放器。
+// 顺序与 FindReachableMediaURL / PickTrackURL 的选取顺序一致，保证客户端
+// 回退时先试的也是服务端认为更可靠的那一档。
+func TrackCandidateURLs(track *DashMediaTrack) []string {
+	if track == nil {
+		return nil
+	}
+	ordered := orderTrackCandidates(track.BaseURL, track.BackupURL)
+	if len(ordered) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ordered))
+	seen := make(map[string]struct{}, len(ordered))
+	for _, candidate := range ordered {
+		upgraded := UpgradeURLToHTTPS(candidate)
+		if upgraded == "" {
+			continue
+		}
+		if _, dup := seen[upgraded]; dup {
+			continue
+		}
+		seen[upgraded] = struct{}{}
+		out = append(out, upgraded)
+	}
+	return out
+}
+
 // PickTrackURL 在不做连通性探测时挑一条轨道地址：非 mcdn 优先。
 //
 // 使用场景是「跳过后端探测、由客户端直连」：探测结果不代表客户端网络，所以

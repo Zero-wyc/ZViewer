@@ -44,6 +44,14 @@ export interface ResolvedSource {
   title?: string
   videoUrl: string
   audioUrl?: string
+  /**
+   * 视频 / 音频轨的候选 CDN 地址（同一轨道的不同节点，可能含已选中的那条）。
+   *
+   * 由后端解析时下发。只有走本地 CLI 代理播放时才有意义：代理在某个节点
+   * 返回 5xx 时按这张表换节点，客户端播放器始终只认一个代理 URL。
+   */
+  videoBackupUrls?: string[]
+  audioBackupUrls?: string[]
   videoCodec?: string
   audioCodec?: string
   duration?: number
@@ -146,6 +154,9 @@ export interface ResolveProgressLine {
   title?: string
   videoUrl?: string
   audioUrl?: string
+  /** 视频 / 音频轨的候选 CDN 地址，供 CLI 代理失败换节点。 */
+  videoBackupUrls?: string[]
+  audioBackupUrls?: string[]
   videoCodec?: string
   audioCodec?: string
   duration?: number
