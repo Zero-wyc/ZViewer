@@ -270,10 +270,10 @@ func selectDashSources(ctx context.Context, playURL *PlayURLResult, skipCdnCheck
 		return "", ""
 	}
 	if skipCdnCheck {
-		videoURL = UpgradeURLToHTTPS(playURL.BestVideo.BaseURL)
-		if playURL.BestAudio != nil {
-			audioURL = UpgradeURLToHTTPS(playURL.BestAudio.BaseURL)
-		}
+		// 不做可达性探测（结果不代表客户端网络），但按「非 mcdn 优先」挑地址：
+		// mcdn 是 P2P 回源节点，CLI/客户端直连大概率 502，不能原样下发 baseUrl。
+		videoURL = PickTrackURL(playURL.BestVideo)
+		audioURL = PickTrackURL(playURL.BestAudio)
 		return videoURL, audioURL
 	}
 

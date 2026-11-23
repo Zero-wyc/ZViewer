@@ -54,6 +54,55 @@ func UpgradeURLToHTTPS(raw string) string {
 	return parsed.String()
 }
 
+// mcdnHostSuffix 是 B站 P2P 回源节点（mcdn）的域名后缀。
+//
+// 这类节点靠客户端 P2P 网络回源，对「服务器 / CLI 直连」场景天然不可靠：
+// 常见表现是 443/8082 不通，或上游直接回 502。而 playurl 的 baseUrl 有一定
+// 概率就落在 mcdn 上——一旦跳过探测（CLI 房主直链就是这样），死链会被原样
+// 交给播放器，用户看到的就是「点开 502、重新解析还是 502」。
+const mcdnHostSuffix = ".mcdn.bilivideo.cn"
+
+// isMcdnURL 判断地址是否落在 mcdn P2P 节点上。
+func isMcdnURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == strings.TrimPrefix(mcdnHostSuffix, ".") || strings.HasSuffix(host, mcdnHostSuffix)
+}
+
+// orderTrackCandidates 把主 + 备地址按「非 mcdn 优先」重排。
+//
+// 稳定分区而不是全排序：B站 给的候选顺序本身带优先级（同地域 upos 在前），
+// 只把 mcdn 这一档整体挪到最后，其余保持原序。
+func orderTrackCandidates(base string, backups []string) []string {
+	all := make([]string, 0, 1+len(backups))
+	if base != "" {
+		all = append(all, base)
+	}
+	for _, backup := range backups {
+		if backup != "" {
+			all = append(all, backup)
+		}
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	ordered := make([]string, 0, len(all))
+	for _, candidate := range all {
+		if !isMcdnURL(candidate) {
+			ordered = append(ordered, candidate)
+		}
+	}
+	for _, candidate := range all {
+		if isMcdnURL(candidate) {
+			ordered = append(ordered, candidate)
+		}
+	}
+	return ordered
+}
+
 // MediaTrackCandidate 是一条待探测的媒体地址（主 + 备）。
 type MediaTrackCandidate struct {
 	BaseURL   string
@@ -145,22 +194,36 @@ func checkURLReachable(ctx context.Context, raw string) bool {
 	return ok
 }
 
+// mcdnProbeDelay 是 mcdn 候选的探测延迟：存在非 mcdn 候选时，让后者先占位。
+//
+// 原因：mcdn 是 P2P 边缘节点，RTT 往往比 upos 更低，并行探测时「先到先得」
+// 会优先选中它——但它恰恰是最容易在服务器/CLI 侧回源失败的一档。延迟不改变
+// 结论（非 mcdn 全不可达时仍会探测 mcdn），只调整优先级。
+const mcdnProbeDelay = 300 * time.Millisecond
+
 // FindReachableMediaURL 并行探测主地址与备用地址，返回第一个可达的 URL。
 //
 // 用「先到先得」而不是顺序尝试：顺序方案在全部不可达时要串行等满
 // N × 3.5s，而一次解析里音视频各一轮，用户会明显感到卡顿。
 func FindReachableMediaURL(ctx context.Context, candidate MediaTrackCandidate) (string, bool) {
-	candidates := make([]string, 0, 1+len(candidate.BackupURL))
-	if base := UpgradeURLToHTTPS(candidate.BaseURL); base != "" {
-		candidates = append(candidates, base)
-	}
+	base := UpgradeURLToHTTPS(candidate.BaseURL)
+	backups := make([]string, 0, len(candidate.BackupURL))
 	for _, backup := range candidate.BackupURL {
 		if upgraded := UpgradeURLToHTTPS(backup); upgraded != "" {
-			candidates = append(candidates, upgraded)
+			backups = append(backups, upgraded)
 		}
 	}
+	// 非 mcdn 优先，其余保持 B站 下发的原序。
+	candidates := orderTrackCandidates(base, backups)
 	if len(candidates) == 0 {
 		return "", false
+	}
+	hasDirect := false
+	for _, candidateURL := range candidates {
+		if !isMcdnURL(candidateURL) {
+			hasDirect = true
+			break
+		}
 	}
 
 	type result struct {
@@ -171,17 +234,29 @@ func FindReachableMediaURL(ctx context.Context, candidate MediaTrackCandidate) (
 	ch := make(chan result, len(candidates))
 
 	for _, candidateURL := range candidates {
-		go func(u string) {
+		wait := time.Duration(0)
+		if hasDirect && isMcdnURL(candidateURL) {
+			wait = mcdnProbeDelay
+		}
+		go func(u string, wait time.Duration) {
+			if wait > 0 {
+				select {
+				case <-time.After(wait):
+				case <-ctx.Done():
+					ch <- result{}
+					return
+				}
+			}
 			if checkURLReachable(ctx, u) {
 				ch <- result{url: u, ok: true}
 				return
 			}
 			ch <- result{}
-		}(candidateURL)
+		}(candidateURL, wait)
 	}
 
 	// 兜底：超时后一律返回 false，不等待残余 goroutine。
-	timer := time.NewTimer(healthCheckTimeout + 500*time.Millisecond)
+	timer := time.NewTimer(healthCheckTimeout + mcdnProbeDelay + 500*time.Millisecond)
 	defer timer.Stop()
 
 	pending := len(candidates)
@@ -205,4 +280,21 @@ func FindReachableMediaURL(ctx context.Context, candidate MediaTrackCandidate) (
 // SelectReachableTrackURL 是 FindReachableMediaURL 的语义别名（供上层按轨道调用）。
 func SelectReachableTrackURL(ctx context.Context, track MediaTrackCandidate) (string, bool) {
 	return FindReachableMediaURL(ctx, track)
+}
+
+// PickTrackURL 在不做连通性探测时挑一条轨道地址：非 mcdn 优先。
+//
+// 使用场景是「跳过后端探测、由客户端直连」：探测结果不代表客户端网络，所以
+// 不做可达性判断，但也不能直接把 mcdn 死链丢出去——按候选顺序取第一个非
+// mcdn 地址，全部是 mcdn 时才退回原 baseUrl。
+func PickTrackURL(track *DashMediaTrack) string {
+	if track == nil {
+		return ""
+	}
+	for _, candidate := range orderTrackCandidates(track.BaseURL, track.BackupURL) {
+		if upgraded := UpgradeURLToHTTPS(candidate); upgraded != "" {
+			return upgraded
+		}
+	}
+	return ""
 }
