@@ -45,6 +45,8 @@ func (s *Server) registerCrawlerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/crawler/challenge/", s.handleCrawlerChallengeProxy)
 	s.registerCrawlerAgentRoutes(mux)
 	s.registerCrawlerManageRoutes(mux)
+	// 登录会话也放在引擎进程里：Cookie 不落在浏览器，Linux 无浏览器同样可用。
+	s.registerCrawlerLoginRoutes(mux)
 	s.registerCrawlerLibraryRoutes(mux)
 }
 

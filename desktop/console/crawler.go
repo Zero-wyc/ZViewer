@@ -1,20 +1,19 @@
-package main
+package console
 
-// 爬虫引擎的桌面桥接（GUI 控制台 → 后端）。
+// 爬虫引擎桥接（GUI 控制台 → 后端）。
 //
 // 引擎已并入后端进程（backend-go/internal/crawler）：规则、搜索、Agent 对话、
 // 浏览器登录全部在 Go 后端里跑，不再有独立的 Python 服务与 3789 端口。
 // 这里只剩三件事：
 //   1. 把 GUI 的 /api/crawler/* 请求转发到后端，并带上壳内管理令牌；
 //   2. 给界面提供引擎快照（根目录、规则数、配置）；
-//   3. 文件级操作（规则文档读取、导出/导入对话框）。
+//   3. 文件级操作（规则文档读取、导出/导入）。
 //
 // 命令名沿用「独立引擎」时期的叫法（crawler-info / crawler-api …），
 // GUI 已按这些名字写死，不要改。
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,28 +26,28 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const crawlerMaxBody = 8 << 20
+const (
+	crawlerMaxBody = 8 << 20
+	// crawlerProxyPrefix 是后端提供的同源反代前缀（验证页、登录页都在这里）。
+	crawlerProxyPrefix = "/api/crawler/challenge/"
+)
 
 // crawlerBridge 把界面的请求转给后端进程内的爬虫引擎。
 type crawlerBridge struct {
-	root string
-	app  *App
-
-	ctx context.Context
+	root    string
+	console *Console
 
 	mu      sync.Mutex
 	lastErr string
 }
 
-// newCrawlerBridge 构造桥接；app 用来取后端地址与壳内令牌（bootstrap 之后可用）。
-func newCrawlerBridge(exeDir, runtimeRoot string, app *App) *crawlerBridge {
+// newCrawlerBridge 构造桥接；console 用来取后端地址与壳内令牌（bootstrap 之后可用）。
+func newCrawlerBridge(exeDir, runtimeRoot string, console *Console) *crawlerBridge {
 	return &crawlerBridge{
-		root: resolveCrawlerRoot(exeDir, runtimeRoot),
-		app:  app,
+		root:    resolveCrawlerRoot(exeDir, runtimeRoot),
+		console: console,
 	}
 }
 
@@ -103,14 +102,14 @@ func (b *crawlerBridge) ensureRoot() error {
 
 // backend 返回后端基础地址与壳内管理令牌。
 func (b *crawlerBridge) backend() (string, string, error) {
-	if b.app == nil || b.app.ctrl == nil {
+	if b.console == nil || b.console.ctrl == nil {
 		return "", "", errors.New("桌面控制台尚未初始化")
 	}
-	base := strings.TrimRight(b.app.ctrl.WebURL(), "/")
+	base := strings.TrimRight(b.console.ctrl.WebURL(), "/")
 	if base == "" {
 		return "", "", errors.New("后端地址不可用")
 	}
-	return base, b.app.ctrl.DesktopToken(), nil
+	return base, b.console.ctrl.DesktopToken(), nil
 }
 
 // port 解析后端端口，供界面显示。
@@ -126,13 +125,6 @@ func (b *crawlerBridge) port() int {
 	port := 0
 	_, _ = fmt.Sscanf(parsed.Port(), "%d", &port)
 	return port
-}
-
-func (b *crawlerBridge) dialogCtx() context.Context {
-	if b.ctx != nil {
-		return b.ctx
-	}
-	return context.Background()
 }
 
 func (b *crawlerBridge) configFile() string { return filepath.Join(b.root, "config.json") }
@@ -193,12 +185,20 @@ func (b *crawlerBridge) llmConfig() map[string]any {
 
 // healthy 探一次后端（只关心连通性，401/403 也说明服务在跑）。
 func (b *crawlerBridge) healthy() bool {
-	base, _, err := b.backend()
+	base, token, err := b.backend()
 	if err != nil {
 		return false
 	}
 	client := &http.Client{Timeout: 1500 * time.Millisecond}
-	resp, err := client.Get(base + "/api/crawler/status")
+	// 带上控制台令牌：否则每 8 秒一次的探活会在后端日志里刷一条 401。
+	request, err := http.NewRequest(http.MethodGet, base+"/api/crawler/status", nil)
+	if err != nil {
+		return false
+	}
+	if token != "" {
+		request.Header.Set("X-Desktop-Token", token)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		return false
 	}
@@ -221,17 +221,6 @@ func (b *crawlerBridge) ruleCount() int {
 	matches, _ := filepath.Glob(filepath.Join(b.root, "data", "rules", "*.json"))
 	return len(matches)
 }
-
-// crawlerRoot 给控制器用：把壳解析出的目录下发给后端（可能为空，未初始化时）。
-func (a *App) crawlerRoot() string {
-	if a == nil || a.crawler == nil {
-		return ""
-	}
-	return a.crawler.root
-}
-
-// mcpInfo 已迁到 shell_mcp.go：MCP 的清单探测、客户端写入与部署提示词都在那边，
-// 这里只保留 HTTP 桥接与引擎快照。
 
 // info 给界面用的快照。
 func (b *crawlerBridge) info() map[string]any {
@@ -257,8 +246,8 @@ func (b *crawlerBridge) info() map[string]any {
 // 保留命令是为了兼容 GUI 的启动按钮与自动拉起逻辑——按钮不能是死路，
 // 后端没在跑时顺手把它拉起来，再回状态。
 func (b *crawlerBridge) start() (map[string]any, error) {
-	if !b.healthy() && b.app != nil && b.app.ctrl != nil {
-		if _, err := b.app.ctrl.Start(); err != nil {
+	if !b.healthy() && b.console != nil && b.console.ctrl != nil {
+		if _, err := b.console.ctrl.Start(); err != nil {
 			return nil, err
 		}
 		// 进程起来到接口可响应有一小段窗口：等一会儿再判可用性，
@@ -289,13 +278,13 @@ func (b *crawlerBridge) stop() (map[string]any, error) {
 func (b *crawlerBridge) stopQuietly() {}
 
 // crawlerInfo 给界面用的快照；引擎在跑时顺带带上 /api/crawler/status。
-func (a *App) crawlerInfo() (any, error) {
-	if a.crawler == nil {
+func (c *Console) crawlerInfo() (any, error) {
+	if c.crawler == nil {
 		return map[string]any{"available": false, "reason": "桌面桥接未初始化"}, nil
 	}
-	info := a.crawler.info()
+	info := c.crawler.info()
 	if running, _ := info["running"].(bool); running {
-		if result, err := a.crawler.do("GET", "/api/crawler/status", nil); err == nil {
+		if result, err := c.crawler.do("GET", "/api/crawler/status", nil); err == nil {
 			if status, _ := result["status"].(int); status == 200 {
 				if body, ok := result["body"].(map[string]any); ok {
 					info["engine"] = body
@@ -307,8 +296,8 @@ func (a *App) crawlerInfo() (any, error) {
 }
 
 // crawlerAPI 把界面的任意引擎请求转发过去，只放行爬虫接口。
-func (a *App) crawlerAPI(payload map[string]any) (any, error) {
-	if a.crawler == nil {
+func (c *Console) crawlerAPI(payload map[string]any) (any, error) {
+	if c.crawler == nil {
 		return nil, errors.New("桌面桥接未初始化")
 	}
 	method := strings.ToUpper(strings.TrimSpace(payloadString(payload, "method")))
@@ -322,7 +311,89 @@ func (a *App) crawlerAPI(payload map[string]any) (any, error) {
 	if raw, ok := payload["body"]; ok {
 		body = raw
 	}
-	return a.crawler.do(method, path, body)
+	return c.crawler.do(method, path, body)
+}
+
+// ServeCrawlerProxy 把验证/登录反代页面转给后端（桌面壳与网页端共用）。
+//
+// 浏览器只看到自己来源下的 /api/crawler/challenge/ 路径，Cookie 是第一方
+// Cookie：桌面壳（wails.localhost）与网页端（http://host:33345）都能正常
+// 登录、过人机验证，远程访问也不会串站点。
+func (c *Console) ServeCrawlerProxy(w http.ResponseWriter, r *http.Request) {
+	if c == nil || c.crawler == nil {
+		http.Error(w, "爬虫引擎不可用", http.StatusServiceUnavailable)
+		return
+	}
+	c.crawler.proxyHTTP(w, r)
+}
+
+// proxyHTTP 流式转发同源反代请求：只放行验证/登录前缀。
+func (b *crawlerBridge) proxyHTTP(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case strings.HasPrefix(r.URL.Path, crawlerProxyPrefix):
+		b.forwardProxy(w, r, 2*time.Minute)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// forwardProxy 把请求转发给引擎，并把响应按原样回写给浏览器。
+func (b *crawlerBridge) forwardProxy(w http.ResponseWriter, r *http.Request, timeout time.Duration) {
+	base, token, err := b.backend()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	request, err := http.NewRequestWithContext(r.Context(), r.Method, base+r.URL.RequestURI(), r.Body)
+	if err != nil {
+		http.Error(w, "验证页请求构造失败", http.StatusInternalServerError)
+		return
+	}
+	for _, name := range []string{"Content-Type", "Accept", "Accept-Language", "Cookie", "X-Requested-With", "User-Agent", "Range", "Referer"} {
+		if value := r.Header.Get(name); value != "" {
+			request.Header.Set(name, value)
+		}
+	}
+	if token != "" {
+		request.Header.Set("X-Desktop-Token", token)
+	}
+	// 验证页可能带大图/视频，超时给足；不缓冲响应，边收边回。
+	// GET 请求在后端刚启动/重启的几秒内会连接失败，重试一次再报错。
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(request)
+	if err != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(400 * time.Millisecond):
+			retry, buildErr := http.NewRequestWithContext(r.Context(), r.Method, base+r.URL.RequestURI(), nil)
+			if buildErr == nil {
+				for _, name := range []string{"Content-Type", "Accept", "Accept-Language", "Cookie", "X-Requested-With", "User-Agent", "Range", "Referer"} {
+					if value := r.Header.Get(name); value != "" {
+						retry.Header.Set(name, value)
+					}
+				}
+				if token != "" {
+					retry.Header.Set("X-Desktop-Token", token)
+				}
+				resp, err = client.Do(retry)
+			}
+		}
+	}
+	if err != nil {
+		http.Error(w, "验证页加载失败：后端服务未响应，请稍后点「重试」", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	// 只透传反代页面真正需要的响应头；Set-Cookie 要原样回写，Cookie 才落在浏览器侧。
+	for _, name := range []string{"Content-Type", "Content-Language", "Cache-Control", "Location", "Content-Disposition", "Set-Cookie"} {
+		for _, value := range resp.Header.Values(name) {
+			w.Header().Add(name, value)
+		}
+	}
+	w.Header().Set("X-Frame-Options", "ALLOWALL")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(resp.Body, 32<<20))
 }
 
 // do 代理一次请求到后端；返回 {"status": int, "body": map}。
@@ -536,9 +607,9 @@ func exportRulesPath(ids []string) string {
 }
 
 // exportRules 导出规则包。ids 为空表示导出全部（含停用规则）。
-func (b *crawlerBridge) exportRules(ids []string) (any, error) {
-	path := exportRulesPath(ids)
-	result, err := b.do("GET", path, nil)
+// 桌面端交给保存对话框；网页端由请求级宿主生成下载令牌。
+func (b *crawlerBridge) exportRules(ids []string, h Host) (any, error) {
+	result, err := b.do("GET", exportRulesPath(ids), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -557,47 +628,59 @@ func (b *crawlerBridge) exportRules(ids []string) (any, error) {
 		return nil, err
 	}
 	raw = append(raw, '\n')
-	path, dialogErr := runtime.SaveFileDialog(b.dialogCtx(), runtime.SaveDialogOptions{
-		Title:            "导出爬虫规则",
-		DefaultFilename:  "crawler-rules.json",
-		DefaultDirectory: downloadsDir(),
-		Filters:          []runtime.FileFilter{{DisplayName: "爬虫规则（JSON）", Pattern: "*.json"}},
-	})
-	if dialogErr != nil || path == "" {
-		return map[string]any{"canceled": true}, nil
-	}
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		return nil, fmt.Errorf("无法写入文件：%w", err)
+	if err := h.DeliverFile("crawler-rules.json", raw); err != nil {
+		if errors.Is(err, ErrCanceled) {
+			return map[string]any{"canceled": true}, nil
+		}
+		return nil, err
 	}
 	count := 0
 	if value, ok := body["count"].(float64); ok {
 		count = int(value)
 	}
-	return map[string]any{"canceled": false, "path": path, "count": count}, nil
+	if count == 0 {
+		if bundleMap, ok := bundle.(map[string]any); ok {
+			if rules, ok := bundleMap["rules"].([]any); ok {
+				count = len(rules)
+			}
+		}
+	}
+	return map[string]any{"canceled": false, "count": count}, nil
 }
 
-func (b *crawlerBridge) importRules(mode string, dryRun bool) (any, error) {
-	path, err := runtime.OpenFileDialog(b.dialogCtx(), runtime.OpenDialogOptions{
-		Title:            "导入爬虫规则",
-		DefaultDirectory: downloadsDir(),
-		Filters:          []runtime.FileFilter{{DisplayName: "爬虫规则（JSON）", Pattern: "*.json"}},
-	})
-	if err != nil {
-		return nil, err
+// importRules 导入规则包：桌面端弹文件对话框，网页端由前端上传内容。
+func (b *crawlerBridge) importRules(payload map[string]any, h Host) (any, error) {
+	content := payloadString(payload, "content")
+	name := payloadString(payload, "name")
+	if content == "" {
+		pickedName, data, err := h.PickFile(FileRequest{
+			Title:            "导入爬虫规则",
+			DefaultDirectory: h.DownloadsDir(),
+			Filters:          []FileFilter{{DisplayName: "爬虫规则（JSON）", Pattern: "*.json"}},
+		})
+		if err != nil {
+			if errors.Is(err, ErrCanceled) {
+				return map[string]any{"canceled": true}, nil
+			}
+			return nil, err
+		}
+		if pickedName == "" {
+			return map[string]any{"canceled": true}, nil
+		}
+		content = string(data)
+		name = pickedName
 	}
-	if path == "" {
-		return map[string]any{"canceled": true}, nil
+	mode := payloadString(payload, "mode")
+	dryRun, _ := payload["dryRun"].(bool)
+	if mode == "" {
+		mode = "merge"
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("无法读取文件：%w", err)
-	}
-	if info.Size() > crawlerMaxBody {
+	return b.importContent([]byte(content), name, mode, dryRun)
+}
+
+func (b *crawlerBridge) importContent(raw []byte, name, mode string, dryRun bool) (any, error) {
+	if len(raw) > crawlerMaxBody {
 		return nil, errors.New("规则文件不能超过 8 MB")
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("无法读取文件：%w", err)
 	}
 	var bundle any
 	if err := json.Unmarshal(raw, &bundle); err != nil {
@@ -617,23 +700,29 @@ func (b *crawlerBridge) importRules(mode string, dryRun bool) (any, error) {
 	if status != 200 {
 		return nil, engineError(body)
 	}
-	body["name"] = filepath.Base(path)
+	if name == "" {
+		name = "crawler-rules.json"
+	}
+	body["name"] = filepath.Base(name)
 	return body, nil
 }
 
-// watchChallenges 轮询人机验证会话，新会话弹托盘气泡提醒房主。
-func (a *App) watchChallenges() {
-	if a.crawler == nil {
+// watchChallenges 轮询人机验证会话，新会话提醒房主。
+func (c *Console) watchChallenges() {
+	if c.crawler == nil {
 		return
 	}
 	seen := map[string]bool{}
 	first := true
 	for {
 		time.Sleep(8 * time.Second)
-		if !a.crawler.running() {
+		if c.quitting.Load() {
+			return
+		}
+		if !c.crawler.running() {
 			continue
 		}
-		result, err := a.crawler.do("GET", "/api/crawler/challenges", nil)
+		result, err := c.crawler.do("GET", "/api/crawler/challenges", nil)
 		if err != nil {
 			continue
 		}
@@ -649,18 +738,15 @@ func (a *App) watchChallenges() {
 			if first {
 				continue
 			}
-			a.notifyChallenge(item)
+			c.notifyChallenge(item)
 		}
 		first = false
 	}
 }
 
-var crawlerToastOnce sync.Once
-
-func (a *App) notifyChallenge(item map[string]any) {
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "crawler-challenge", item)
-	}
+func (c *Console) notifyChallenge(item map[string]any) {
+	host := c.Host()
+	host.Emit("crawler-challenge", item)
 	name, _ := item["name"].(string)
 	if name == "" {
 		name, _ = item["site"].(string)
@@ -674,8 +760,6 @@ func (a *App) notifyChallenge(item map[string]any) {
 	if note != "" && len([]rune(note)) < 80 {
 		body = name + "：" + note
 	}
-	a.ctrl.Log("站点需要人工验证："+name+"（"+reason+"）", "crawler", "WARN")
-	if a.tray != nil {
-		a.tray.balloon("一起看站点需要人工验证", body+"（打开控制台 → 爬虫引擎 → 人机验证）")
-	}
+	c.ctrl.Log("站点需要人工验证："+name+"（"+reason+"）", "crawler", "WARN")
+	host.Notify("一起看站点需要人工验证", body+"（打开控制台 → 爬虫引擎 → 人机验证）")
 }

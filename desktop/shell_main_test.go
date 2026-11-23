@@ -87,7 +87,8 @@ func TestPackagedFieldUsesHelper(t *testing.T) {
 	found := false
 	for _, line := range strings.Split(string(src), "\n") {
 		code := strings.TrimSpace(line)
-		if strings.HasPrefix(code, "//") || !strings.Contains(code, "packaged:") {
+		// 字段名已随控制台核心抽包改为 console.Options.Packaged。
+		if strings.HasPrefix(code, "//") || !strings.Contains(strings.ToLower(code), "packaged:") {
 			continue
 		}
 		found = true

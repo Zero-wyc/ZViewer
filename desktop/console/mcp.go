@@ -1,9 +1,9 @@
-package main
+package console
 
 // MCP 工具的桌面侧能力：清单探测、各家客户端的配置文件位置、部署提示词。
 //
 // 都围绕同一份事实：后端可执行文件自己就是 MCP stdio 服务
-// （`zviewer-backend.exe --mcp`），客户端配置里只需要 command + args。
+// （`zviewer-backend --mcp`），客户端配置里只需要 command + args。
 // 所以这里不复制工具清单、也不内置任何站规，只负责：
 //   1. 探测工具清单——先问运行中的后端 HTTP 接口，失败就真的拉起一次
 //      `--mcp` 走 JSON-RPC 问 tools/list（MCP 不需要 HTTP 服务，这条路更接近
@@ -12,10 +12,10 @@ package main
 //   3. 生成给别的 Agent 平台看的部署提示词（让对面的大模型自己找配置文件、
 //      自己合并、自己校验，而不是让用户手动粘）。
 //
-// 桌面端**不直接改客户端配置**：写别人的配置文件风险高（备份、格式、并发），
+// 控制台**不直接改客户端配置**：写别人的配置文件风险高（备份、格式、并发），
 // 复制片段或交给能读写文件的 Agent 更可控。
 //
-// 为什么探测要真的拉进程：桌面控制台和后端是两个产物，运行包里后端可能是
+// 为什么探测要真的拉进程：控制台和后端是两个产物，运行包里后端可能是
 // 旧版本。只信 HTTP 会把「后端旧了」报成「工具有 0 个」，用户完全看不出原因；
 // 而 stdio 探测拿到的是客户端即将看到的同一份清单，顺手还验证了可执行文件本身。
 
@@ -117,16 +117,16 @@ func mcpClients() []map[string]any {
 
 // mcpInfo 给 GUI 的「MCP 工具」弹窗：客户端要填的命令、参数、目录、工具清单，
 // 各家客户端的配置文件位置，以及给别的 Agent 平台自动部署用的提示词。
-func (a *App) mcpInfo() (any, error) {
-	if a.crawler == nil {
+func (c *Console) mcpInfo() (any, error) {
+	if c.crawler == nil {
 		return map[string]any{"available": false, "reason": "桌面桥接未初始化"}, nil
 	}
 	// MCP 客户端拉起的是运行包里的后端本体：它在 runtime/ 下，自动能探测到 runtime/crawler。
-	command := filepath.Join(a.root, "zviewer-backend.exe")
+	command := filepath.Join(c.root, backendExecutableName())
 	args := []string{"--mcp"}
-	ready, reason := a.crawler.available()
+	ready, reason := c.crawler.available()
 
-	tools, toolsError, source := a.mcpTools(command, args, ready)
+	tools, toolsError, source := c.mcpTools(command, args, ready)
 	return map[string]any{
 		"available":     true,
 		"engineReady":   ready,
@@ -134,13 +134,13 @@ func (a *App) mcpInfo() (any, error) {
 		"command":       command,
 		"commandExists": fileExists(command),
 		"args":          args,
-		"root":          a.crawler.root,
+		"root":          c.crawler.root,
 		"count":         len(tools),
 		"tools":         tools,
 		"toolsError":    toolsError,
 		"toolsSource":   source,
 		"clients":       mcpClients(),
-		"prompt":        mcpDeployPrompt(command, args, a.crawler.root, tools),
+		"prompt":        mcpDeployPrompt(command, args, c.crawler.root, tools),
 	}, nil
 }
 
@@ -148,11 +148,11 @@ func (a *App) mcpInfo() (any, error) {
 //
 // 第二个返回值是给界面的失败原因，第三个是数据来源（backend / stdio / none），
 // 界面据此说明「清单来自哪」。两个都失败才报错。
-func (a *App) mcpTools(command string, args []string, ready bool) ([]any, string, string) {
+func (c *Console) mcpTools(command string, args []string, ready bool) ([]any, string, string) {
 	tools := []any{}
 	errText := ""
 	if ready {
-		result, err := a.crawler.do("GET", "/api/crawler/tools", nil)
+		result, err := c.crawler.do("GET", "/api/crawler/tools", nil)
 		if err != nil {
 			errText = err.Error()
 		} else if status, _ := result["status"].(int); status != http.StatusOK {
@@ -172,9 +172,9 @@ func (a *App) mcpTools(command string, args []string, ready bool) ([]any, string
 		errText = "后端服务未运行"
 	}
 	if !fileExists(command) {
-		return tools, firstNonEmpty(errText, "找不到 zviewer-backend.exe"), "none"
+		return tools, firstNonEmpty(errText, "找不到 "+backendExecutableName()), "none"
 	}
-	probed, probeErr := probeMCPTools(command, append(append([]string{}, args...), "--root", a.crawler.root))
+	probed, probeErr := probeMCPTools(command, append(append([]string{}, args...), "--root", c.crawler.root))
 	if probeErr != nil {
 		return tools, firstNonEmpty(errText, probeErr.Error()), "none"
 	}
@@ -184,15 +184,6 @@ func (a *App) mcpTools(command string, args []string, ready bool) ([]any, string
 	}
 	// stdio 通了但 HTTP 没过：原因仍然值得显示（多半是后端该更新了）。
 	return out, errText, "stdio"
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 // probeMCPTools 直接拉起 `--mcp` 走一遍 initialize + tools/list。
@@ -309,7 +300,7 @@ func probeMCPTools(command string, args []string) ([]map[string]any, error) {
 
 // mcpDeployPrompt 生成一段可直接粘给「别的 AI Agent」的部署指令。
 //
-// 用处是跨平台：桌面端只提供上面那六家的片段，Cherry Studio、Cline、Trae
+// 用处是跨平台：控制台只提供上面那六家的片段，Cherry Studio、Cline、Trae
 // 这些还在长；与其一家家适配，不如把「怎么装」讲清楚，让对面那个本来就能
 // 读写文件的模型自己去装、自己去校验。
 func mcpDeployPrompt(command string, args []string, root string, tools []any) string {

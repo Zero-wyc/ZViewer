@@ -311,6 +311,48 @@ function buildGoBackend(target, outputPath) {
   );
 }
 
+// 取应用版本号：优先桌面端 package.json（与 Wails 壳的 appVersion 一致），
+// 回退到项目根 package.json。webgui 的 main.appVersion 由 -X 注入。
+function appVersion() {
+  for (const file of [path.join(ROOT, 'desktop', 'package.json'), PKG_CONFIG]) {
+    try {
+      const version = JSON.parse(fs.readFileSync(file, 'utf8')).version;
+      if (version) return version;
+    } catch { /* 忽略缺失/损坏，继续回退 */ }
+  }
+  return '0.0.0';
+}
+
+// 交叉编译网页端控制台（仅 Linux 包需要）。
+//
+// Windows 分发包里桌面 exe（Wails 壳）自己就是控制台，不需要独立网页端；
+// Linux 没有 Wails GUI，靠 zviewer-webgui 提供网页控制台，并且它与后端解耦
+// （后端没启动时网页端也能打开，只是功能不可用），所以要单独构建成可执行文件。
+function buildGoWebgui(target, outputPath) {
+  const isArm = target.includes('arm64');
+  const env = {
+    ...process.env,
+    GOOS: 'linux',
+    GOARCH: isArm ? 'arm64' : 'amd64',
+    CGO_ENABLED: '0',
+  };
+  // 与 buildGoBackend 保持一致：本机直连 proxy.golang.org 不通。
+  if (!env.GOPROXY) env.GOPROXY = 'https://goproxy.cn,direct';
+
+  execFileSync(
+    'go',
+    [
+      'build',
+      '-buildvcs=false',
+      '-trimpath',
+      '-ldflags', `-X main.appVersion=${appVersion()}`,
+      '-o', outputPath,
+      './cmd/zviewer-webgui',
+    ],
+    { cwd: path.join(ROOT, 'desktop'), env, stdio: 'inherit' },
+  );
+}
+
 function packageBackend(targetPlatforms, frontendDist) {
   console.log('');
   console.log('>>> 打包后端 (go build)...');
@@ -380,6 +422,66 @@ function packageBackend(targetPlatforms, frontendDist) {
   }
 
   return results;
+}
+
+// 打包 Linux 网页端（zviewer-webgui）到 dist/linux/，与后端同目录。
+// Windows 目标不需要：桌面 exe 已内置控制台。
+function packageWebgui(targetPlatforms) {
+  const linuxPlatforms = targetPlatforms.filter((p) => p.folder === 'linux');
+  if (linuxPlatforms.length === 0) {
+    log('Windows 包不需要独立网页端（桌面 exe 内置控制台），跳过 zviewer-webgui');
+    return [];
+  }
+
+  console.log('');
+  console.log('>>> 打包网页端 (go build ./cmd/zviewer-webgui)...');
+
+  const results = [];
+  for (const platform of linuxPlatforms) {
+    for (const target of platform.targets) {
+      const outputFolder = path.join(DIST_EXE, platform.folder);
+      const outputPath = path.join(outputFolder, 'zviewer-webgui');
+      fs.mkdirSync(outputFolder, { recursive: true });
+
+      log(`打包网页端 → ${target} (${platform.label})...`);
+      try {
+        buildGoWebgui(target, outputPath);
+      } catch (e) {
+        error(`网页端编译失败 (${target}): ${e.message}`);
+        process.exit(1);
+      }
+      if (!fs.existsSync(outputPath)) {
+        warn(`网页端打包失败：未生成 ${outputPath}`);
+        continue;
+      }
+
+      const stats = fs.statSync(outputPath);
+      results.push({
+        type: '网页端',
+        platform: platform.label,
+        target,
+        path: outputPath,
+        size: stats.size,
+      });
+      success(`网页端 ${target}: ${outputPath} (${formatBytes(stats.size)})`);
+    }
+  }
+
+  return results;
+}
+
+// 计算终端显示宽度：CJK 等宽字符占 2 列，用来对齐汇总表。
+function displayWidth(text) {
+  let width = 0;
+  for (const ch of text) {
+    width += ch.codePointAt(0) > 0x2e80 ? 2 : 1;
+  }
+  return width;
+}
+
+function padDisplay(text, width) {
+  const pad = width - displayWidth(text);
+  return pad > 0 ? text + ' '.repeat(pad) : text;
 }
 
 // Copy per-platform one-click start scripts into the output folders.
@@ -466,7 +568,7 @@ function printSummary(allResults) {
 
     for (const f of group.files) {
       const filename = path.basename(f.path);
-      console.log(`      ${f.type.padEnd(6)} ${filename.padEnd(30)} ${formatBytes(f.size)}`);
+      console.log(`      ${padDisplay(f.type, 8)} ${filename.padEnd(30)} ${formatBytes(f.size)}`);
     }
   }
 
@@ -560,6 +662,10 @@ async function main() {
   if (shouldBuildBackend) {
     const backendResults = packageBackend(targetPlatforms, frontendDist);
     allResults.push(...backendResults);
+
+    // 3.1 Linux 包额外产出独立网页端 zviewer-webgui（与后端同目录）
+    const webguiResults = packageWebgui(targetPlatforms);
+    allResults.push(...webguiResults);
   }
 
   // 4. 输出汇总

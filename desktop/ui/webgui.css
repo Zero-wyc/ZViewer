@@ -1,0 +1,369 @@
+/* ============================================================
+   webgui.css · 浏览器网页端（Go HTTP 服务，端口 33345）专用样式
+   只在 <html> 带 .web 类时生效（bridge.js 在网页模式注入），
+   桌面 Wails 模式不会命中任何规则，因此完全不影响现有 WinUI 外观。
+   移动端（≤720px）把侧栏改成抽屉，并提供悬浮导航按钮与遮罩。
+   ============================================================ */
+
+/* ---------- 1. 外壳：网页端没有 Wails 窗口栏 ---------- */
+html.web .windowbar { display: none; }
+html.web .sidebar { top: 0; }
+html.web .main-shell { top: 0; }
+
+/* 刘海屏/系统状态栏安全区：工具栏顶部让出空间，避免按钮被压住。 */
+html.web .toolbar {
+  min-height: calc(48px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* 网页端没有 Mica/亚克力底，侧栏必须是实色：
+   否则窄屏抽屉滑出时，主区文字会透过半透明侧栏叠在一起。 */
+html.web .sidebar { background-color: var(--app-bg, #f3f3f3); }
+
+/* 网页端没有托盘：托盘入口一律隐藏（html/body 都有 .web，双保险）。 */
+html.web #tray-button,
+html.web body #tray-button { display: none !important; }
+
+/* 网页端用抽屉导航，不需要「折叠成 48px 图标栏」这套状态。 */
+html.web #nav-toggle { display: none !important; }
+
+/* 移动端控件默认不占位，只有 ≤720px 才出现（见第 3 节）。 */
+#web-nav-toggle { display: none; }
+#web-nav-scrim { display: none; }
+
+/* ---------- 2. 桌面宽度：侧栏固定 280px，内容居中 ---------- */
+@media (min-width: 721px) {
+  html.web .sidebar { width: 280px; }
+  html.web .main-shell { left: 280px; }
+  /* styles.css 在 900px 以下会把侧栏压成 48px 图标栏、隐藏文字；
+     网页端没有窗口栏，721-900px 区间仍保持完整导航。 */
+  html.web .sidebar .brand > div { display: block; }
+  html.web .sidebar .workspace { display: flex; }
+  html.web .sidebar .nav-caption { display: block; }
+  html.web .sidebar .nav-key { display: inline; }
+  html.web .sidebar nav a { justify-content: flex-start; padding: 0 12px; gap: 12px; }
+  html.web .sidebar nav a > .nav-label,
+  html.web .sidebar-bottom .nav-label { display: inline; }
+  /* 只恢复「使用文档」的外部链接箭头；#update-link 的末位是红点，不能一起放出来。 */
+  html.web #docs-link > span:last-child { display: inline; }
+}
+
+/* 超宽屏：内容居中收敛，避免 21:9 屏幕上卡片被拉得过宽。 */
+@media (min-width: 1600px) {
+  html.web main > div { max-width: 1480px; margin-left: auto; margin-right: auto; }
+}
+
+/* ---------- 3. 网页端访问卡片（设置页） ---------- */
+/* 桌面窗口也用这张卡（网页版 GUI 入口），所以不加 html.web 前缀。 */
+.settings-grid > .web-access { grid-column: 1 / -1; }
+.web-access-list { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.web-access-row { display: flex; align-items: center; gap: 8px; }
+.web-access-row .web-access-url { flex: 1; min-width: 0; }
+.web-access-row .text-button { flex: none; }
+/* 桌面端在卡片里回显网页端访问密码：等宽字体 + 可换行，避免长密码把行撑开。 */
+.web-access-cred { margin: 10px 0 2px; }
+.web-access-cred .web-access-url { color: var(--text-primary, rgba(0, 0, 0, .9)); }
+.web-access-cred code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace); font-size: 12.5px; }
+.web-access-url {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent, #0067c0);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
+  text-decoration: none;
+}
+.web-access-url:hover { text-decoration: underline; }
+/* 右侧小标签：区分「本机」与「局域网」地址，避免用户把回环地址发给别人。 */
+.web-access-tag {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--control-stroke, rgba(0, 0, 0, .08));
+  border-radius: 999px;
+  color: var(--text-tertiary, rgba(0, 0, 0, .45));
+  font-size: 11px;
+  line-height: 16px;
+}
+.web-access .meta-list { margin-bottom: 12px; }
+.web-access .field-note { margin-top: 8px; }
+
+/* 桌面窗口「网页端」页顶部的网页版 GUI 入口（33345）。 */
+.web-toolbar.web-console-bar {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-stroke, rgba(0, 0, 0, .06));
+  border-radius: var(--radius-card, 8px);
+  background: var(--card-bg, rgba(255, 255, 255, .7));
+}
+.web-console-url {
+  padding: 6px 8px;
+  border: 1px solid var(--control-stroke, rgba(0, 0, 0, .06));
+  border-radius: var(--radius-control, 6px);
+  background: var(--control-fill, rgba(255, 255, 255, .7));
+  color: var(--accent, #0067c0);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
+}
+
+/* ---------- 4. 窄屏（≤720px）：抽屉侧栏 + 单列布局 ---------- */
+@media (max-width: 720px) {
+  /* 侧栏变抽屉：fixed、贴左、默认移出屏幕，打开时滑入。 */
+  html.web .sidebar {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(280px, 84vw);
+    z-index: 70;
+    transform: translateX(-100%);
+    transition: transform var(--dur-normal, 200ms) var(--ease-decel, cubic-bezier(.1, .9, .2, 1));
+    box-shadow: var(--shadow-flyout, 0 8px 16px rgba(0, 0, 0, .14));
+    will-change: transform;
+  }
+  html.web body.web-nav-open .sidebar { transform: translateX(0); }
+
+  /* 抽屉打开时主区域保持原位（不推挤、不缩放）。 */
+  html.web .main-shell { left: 0 !important; }
+
+  /* 工具栏左侧给悬浮按钮留出 56px，右侧收紧。 */
+  html.web .toolbar { padding-left: 56px; padding-right: 16px; }
+
+  /* 悬浮导航按钮：☰，仅网页端窄屏出现，位于工具栏高度内。 */
+  html.web #web-nav-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    left: 12px;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    width: 40px;
+    height: 40px;
+    z-index: 75;
+    padding: 0;
+    border: 1px solid var(--control-stroke, rgba(0, 0, 0, .06));
+    border-radius: var(--radius-control, 4px);
+    background: var(--flyout-bg, #f9f9f9);
+    color: var(--text-primary, rgba(0, 0, 0, .9));
+    font-family: var(--font-ui, system-ui);
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: var(--shadow-flyout, 0 8px 16px rgba(0, 0, 0, .14));
+    -webkit-tap-highlight-color: transparent;
+    /* 抽屉开合时按钮跟着滑到抽屉右侧，和侧栏动画同一条时间曲线。 */
+    transition: left var(--dur-normal, 200ms) var(--ease-decel, cubic-bezier(.1, .9, .2, 1)),
+      background-color var(--dur-fast, 120ms) linear;
+  }
+  html.web body.web-nav-open #web-nav-toggle {
+    left: calc(min(280px, 84vw) + 8px);
+  }
+  /* 极窄屏（<360px）抽屉几乎盖满，按钮会压在主题按钮上：
+     抽屉打开时把工具栏按钮让出来（本来也在遮罩后面，不可点）。 */
+  html.web body.web-nav-open #theme-button { visibility: hidden; }
+  html.web #web-nav-toggle:active { background: var(--control-fill-pressed, rgba(0, 0, 0, .05)); }
+
+  /* 遮罩：只随 web-nav-open 出现，点击由 bridge.js 收起抽屉。 */
+  html.web #web-nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 65;
+    background: rgba(0, 0, 0, .4);
+  }
+  html.web body.web-nav-open #web-nav-scrim { display: block; }
+
+  /* 多列网格全部单列，窄屏不再左右分栏。 */
+  html.web .service-grid,
+  html.web .bottom-grid,
+  html.web .connect-grid,
+  html.web .form-layout,
+  html.web .cli-layout,
+  html.web .settings-grid,
+  html.web .hero,
+  html.web .crawler-facts { grid-template-columns: 1fr; }
+
+  /* 表单内部的两列/三列行同样单列，输入框不会被挤成一条缝。 */
+  html.web .form-row,
+  html.web .form-row.triple { grid-template-columns: 1fr; }
+
+  /* 弹窗铺满可用宽度，并允许内部滚动。 */
+  html.web dialog {
+    width: calc(100vw - 24px);
+    max-width: none;
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+  }
+  html.web dialog.modal-wide { width: calc(100vw - 24px); }
+
+  /* toast 贴底并让出 iOS 安全区。 */
+  html.web .toast {
+    left: 12px;
+    right: 12px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    max-width: none;
+  }
+
+  /* 触控目标至少 40px 高。 */
+  html.web .btn,
+  html.web .toolbar-button,
+  html.web .workspace-action,
+  html.web .tabs button,
+  html.web nav a,
+  html.web .settings-link,
+  html.web .docs-link { min-height: 40px; }
+
+  /* 16px 输入字号避免 iOS 聚焦时自动放大页面。 */
+  html.web input,
+  html.web select,
+  html.web textarea { font-size: 16px; }
+
+  /* 状态栏字号缩小，省出垂直空间。 */
+  html.web .statusbar {
+    height: auto;
+    min-height: 28px;
+    padding: 4px 12px;
+    font-size: 10px;
+    line-height: 14px;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  /* iframe（网页预览 / 高画质代理）与视频自适应宽度。 */
+  html.web iframe,
+  html.web video { max-width: 100%; }
+  html.web #cli-settings-frame,
+  html.web #web-frame { width: 100%; }
+
+  /* 抽屉里恢复完整导航：styles.css 在 ≤900px 会把侧栏压成 48px 图标栏并隐藏文字，
+     但抽屉本身有 280px 宽，必须把文案、分组标题和页脚链接放回来。 */
+  html.web .sidebar .brand > div,
+  html.web .sidebar .brand small,
+  html.web .sidebar .nav-caption,
+  html.web .sidebar .nav-key { display: block; }
+  html.web .sidebar .workspace { display: flex; }
+  html.web .sidebar nav a,
+  html.web .sidebar .settings-link,
+  html.web .sidebar .docs-link { justify-content: flex-start; padding: 0 12px; gap: 12px; }
+  html.web .sidebar nav a > .nav-label,
+  html.web .sidebar-bottom .nav-label { display: inline; }
+  html.web .sidebar #docs-link > span:last-child { display: inline; }
+
+  /* 页面标题：窄屏下标题与右侧操作各占一行。
+     styles.css 的 .page-heading 是横向 flex 且 .heading-actions 不收缩，
+     「未启动 / 刷新 / MCP 工具」这类按钮会把标题列压到只剩几十像素，
+     出现 h1 逐字竖排、副标题一行一两个字。 */
+  html.web .page-heading {
+    flex-direction: column;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  html.web .page-heading > div:first-child { width: 100%; min-width: 0; }
+  html.web .page-heading h1 { white-space: nowrap; }
+  html.web .heading-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    gap: 8px;
+  }
+  html.web .heading-actions > * { min-width: 0; }
+
+  /* 分页条（如爬虫引擎的 5 个标签）在窄屏横向滚动，不挤压、不换行。 */
+  html.web .tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 12px;
+  }
+  html.web .tabs::-webkit-scrollbar { display: none; }
+  html.web .tabs button { flex: 0 0 auto; white-space: nowrap; }
+}
+/* 网页端不提供「检查更新」，也不需要有独立的「网页端」分页：
+   两个入口在浏览器里一律隐藏（桌面程序仍保留）。 */
+html.web .sidebar nav a[data-page="web"],
+html.web #update-link,
+html.web #update-dot { display: none !important; }
+
+/* ---------- 网页内登录 / 站点验证弹窗（同源反代 iframe） ----------
+   弹窗里直接加载 /api/crawler/challenge/<id>/site：Cookie 落在本站来源下，
+   登录与人机验证都在普通浏览器里完成，桌面端与网页端共用这一套样式。 */
+.crawler-site-frame {
+  position: relative;
+  margin-top: 12px;
+  border: 1px solid var(--card-stroke, #d8d8d8);
+  border-radius: var(--radius-card, 8px);
+  overflow: hidden;
+  background: #fff;
+}
+.crawler-site-frame iframe {
+  display: block;
+  width: 100%;
+  /* 弹窗里给站点页面留出足够高度；页面自己在 iframe 内滚动。 */
+  height: 62vh;
+  border: 0;
+  background: #fff;
+}
+/* 页面加载完成前盖住 iframe（浏览器会在 iframe 里显示上一页残影）。 */
+.crawler-site-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary, #666);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--card-fill, #fff);
+}
+.crawler-site-loading[hidden] { display: none; }
+.crawler-site-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.crawler-site-url {
+  /* 收窄一点，让「保存登录态」「关闭」能和地址栏排在同一行。 */
+  flex: 1 1 220px;
+  min-width: 0;
+  height: var(--control-height, 32px);
+  padding: 0 10px;
+  border: 1px solid var(--control-stroke, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius-control, 4px);
+  background: var(--control-fill, #fff);
+  color: var(--text-primary, #1f1f1f);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  /* 手机上弹窗占满宽度，留一点高度给地址栏与按钮。 */
+  .crawler-site-frame iframe { height: 56vh; }
+  .crawler-site-url { flex-basis: 100%; }
+}
+
+/* ---- 爬虫引擎：可用模型 chip 行（桌面/网页共用，不区分 html.web） ---- */
+.crawler-model-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 12px;
+}
+.crawler-model-chip {
+  border: 1px solid var(--card-stroke, #d8d8d8);
+  background: var(--card-bg, #fff);
+  color: var(--text, #1f1f1f);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.crawler-model-chip:hover { border-color: var(--accent, #0a84ff); color: var(--accent, #0a84ff); }
+.crawler-model-chip:active { transform: scale(0.98); }
+
+

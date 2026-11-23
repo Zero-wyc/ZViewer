@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -15,6 +16,12 @@ import (
 // 每个工具都返回可直接序列化的 map；出错也以 {success:false, code, error}
 // 的形式返回而不是向上抛，这样 function calling 的 tool 消息与 MCP 的
 // tools/call 都可以原样转发给模型。
+
+// browserToolTimeout 是一条浏览器工具调用的总上限。
+//
+// 卡死时宁可让 Agent 立刻拿到「浏览器没响应」的错误，也不要静默等两分钟：
+// 界面上那段时间是「正在执行」，用户只会以为对话坏了。
+const browserToolTimeout = 45 * time.Second
 
 // RuleGuide 是给模型的规则格式说明（系统提示词的 %s）。
 //
@@ -602,6 +609,8 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 				"wait_sec": NumProp("额外等待秒数，最多 10"),
 			}, "url"),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				ctx, cancel := context.WithTimeout(ctx, browserToolTimeout)
+				defer cancel()
 				info, err := browser.OpenPage(ctx, ArgString(args, "url"), ArgFloat(args, "wait_sec", 0))
 				if err != nil {
 					return nil, err
@@ -618,6 +627,8 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 				"max_chars": IntProp(""),
 			}),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				ctx, cancel := context.WithTimeout(ctx, browserToolTimeout)
+				defer cancel()
 				text, pageURL, err := browser.PageText(ctx, ArgString(args, "selector"), ArgInt(args, "max_chars", 8000))
 				if err != nil {
 					return nil, err
@@ -633,6 +644,8 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 				"max_chars": IntProp(""),
 			}),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				ctx, cancel := context.WithTimeout(ctx, browserToolTimeout)
+				defer cancel()
 				htmlText, pageURL, err := browser.PageHTML(ctx, ArgInt(args, "max_chars", 60000))
 				if err != nil {
 					return nil, err
@@ -648,6 +661,8 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 				"script": StrProp("JS 表达式，支持 await"),
 			}, "script"),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				ctx, cancel := context.WithTimeout(ctx, browserToolTimeout)
+				defer cancel()
 				value, pageURL, err := browser.EvalValue(ctx, ArgString(args, "script"))
 				if err != nil {
 					return nil, err
@@ -663,6 +678,8 @@ func BuildRegistry(opts ToolOptions) *ToolRegistry {
 				"selector": StrProp(""),
 			}, "selector"),
 			Handler: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				ctx, cancel := context.WithTimeout(ctx, browserToolTimeout)
+				defer cancel()
 				result, err := browser.Click(ctx, ArgString(args, "selector"))
 				if err != nil {
 					return nil, err

@@ -42,7 +42,7 @@
   let prefs = { closeToTray: true, remember: true };
   try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem('zviewer-ui-prefs') || '{}') }; } catch { /* Use safe defaults if storage is unavailable. */ }
   const state = {
-    page: 'overview', running: false, certReady: false, native: false, info: null,
+    page: 'overview', running: false, certReady: false, native: false, web: false, info: null,
     ipv6: null, cloudflaredSource: 'gitcode',
     frp: { host: '', port: 7000, voice: true, rtmp: true, tcp: false, webPort: 3333, voicePort: 3333, rtmpPort: 3334, tcpPort: 3337 },
     logLevel: 'all', logSource: 'all', logSearch: '', paused: false, cliDraft: null, cliEmbedUrl: '',
@@ -263,6 +263,8 @@
       <p class="update-note">${icon('info')}<span>${meta}</span></p>`;
   }
   function openUpdate() {
+    // 网页端不提供检查更新：该入口在导航里已隐藏，这里再兜一层。
+    if (state.web) return;
     state.updateOpen = true; state.updateKey = '';
     modal(updateModal());
     const report = updateReport();
@@ -359,7 +361,15 @@
     const urls = webAddresses(), current = webAddress();
     const options = urls.map(url => `<option value="${esc(url)}" ${url === current ? 'selected' : ''}>${esc(webAddressLabel(url))} · ${esc(url)}</option>`).join('');
     const backend = state.live ? state.server?.backend || 'stopped' : 'running';
-    return `<div class="web-toolbar"><label class="web-address"><span>访问地址</span><select id="web-address" aria-label="访问地址">${options}</select></label><div class="web-actions">${button('刷新', 'web-refresh', 'refresh')}${button('在浏览器打开', 'web-external', 'external')}</div></div>` +
+    // 网页版 GUI（控制台本身，33345）与后端网页端（3333）是两套东西：
+    // 这里给一条独立入口，方便复制链接到其它浏览器/局域网设备上控制本机。
+    const gui = state.info?.webgui;
+    const guiUrls = Array.isArray(gui?.urls) ? gui.urls.filter(Boolean) : [];
+    const guiUrl = guiUrls[0] || '';
+    const guiBar = guiUrl
+      ? `<div class="web-toolbar web-console-bar"><label class="web-address"><span>网页版 GUI</span><div class="web-console-url" title="${esc(guiUrls.join('\n'))}">${esc(guiUrl)}</div></label><div class="web-actions"><button class="btn" data-copy="${esc(guiUrl)}">${icon('copy')}复制链接</button><button class="btn" data-external="${esc(guiUrl)}">${icon('external')}在浏览器打开</button></div></div>`
+      : notice('网页版 GUI 未启动：端口 ' + (gui?.port || 33345) + ' 可能被占用或服务初始化失败，详见「运行日志」。');
+    return `<div class="web-toolbar"><label class="web-address"><span>访问地址</span><select id="web-address" aria-label="访问地址">${options}</select></label><div class="web-actions">${button('刷新', 'web-refresh', 'refresh')}${button('在浏览器打开', 'web-external', 'external')}</div></div>` + guiBar +
       (backend === 'running' ? '' : notice('主服务尚未启动，请先在「服务总览」启动服务；启动后这里会自动加载。'));
   }
   function setRunning(running, notify = true) {
@@ -725,7 +735,8 @@
     function toggle(key, title, text) { return `<div class="switch-row"><div><strong>${title}</strong>${text ? `<p>${text}</p>` : ''}</div><button class="switch" role="switch" aria-label="${title}" aria-checked="${state.prefs[key]}" data-pref="${key}"></button></div>`; }
     return heading('应用设置', '窗口、托盘与启动行为。') + `<div class="settings-grid"><section><div class="panel"><div class="panel-heading"><h2>窗口与系统托盘</h2><span class="pill ${state.native ? 'green' : ''}">${state.native ? '原生托盘已启用' : '浏览器预览'}</span></div>${toggle('closeToTray', '关闭窗口时隐藏到托盘', '')}${toggle('remember', '持久化保存设置', '')}<div class="switch-row"><div><strong>登录 Windows 后自动启动控制台</strong></div><span class="pill">后续接入</span></div><div class="switch-row"><div><strong>打开控制台时自动启动服务</strong></div><span class="pill">后续接入</span></div></div><div class="panel section-title"><div><h2>托盘交互</h2></div>${button('预览菜单', 'tray-preview', 'tray')}</div></section><aside class="panel"><div class="about-mark"><img src="app-icon.png" alt="ZViewer 标志"><div><h2>ZViewer</h2><p>WINDOWS DESKTOP</p></div></div><div class="version">0.1.0 <small>LOCAL BUILD</small></div><p class="settings-description">Windows 桌面控制台</p><div class="panel-line"></div><div class="subheading">本地运行包</div>${[['backend', 'zviewer-backend.exe'], ['web', 'frontend/dist']].map(([key, label]) => `<div class="file-check"><code>${label}</code><span>${info ? (info[key] ? '已检测到' : '未找到') : '桌面版中检测'}</span></div>`).join('')}<div class="file-check"><code>frpc.exe</code><span>按需下载</span></div></aside></div>`;
   }
-  function navigate(page) { if (!titles[page]) page = 'overview'; state.page = page; if (location.hash !== `#${page}`) location.hash = page; else render(); }
+  // 网页端没有独立的「网页端」分页（访问密码改在应用的设置页里配置）。
+  function navigate(page) { if (!titles[page] || (state.web && page === 'web')) page = 'overview'; state.page = page; if (location.hash !== `#${page}`) location.hash = page; else render(); }
   // 左上角状态卡：绿点=主服务运行中，红点=未启动；按钮与服务总览共用 toggle-run。
   function syncWorkspace() {
     const dot = $('#workspace-dot'), label = $('#workspace-state'), button = $('#workspace-action');
@@ -767,7 +778,10 @@
     // 网页端 iframe 独立于页面容器，切页不销毁浏览上下文。
     syncWebFrame();
     $('#tray-label').textContent = state.native ? '收起到托盘' : '托盘预览';
-    $('#footer-status').textContent = state.live ? (state.server?.backend === 'running' ? '本地服务运行中' : '原生托盘已启用') : state.native ? '原生托盘已启用' : '本地界面预览';
+    // 网页端没有原生窗口/托盘，页脚按浏览器模式给出独立文案。
+    $('#footer-status').textContent = state.web
+      ? (state.server?.backend === 'running' ? '本地服务运行中' : '网页控制台已连接')
+      : state.live ? (state.server?.backend === 'running' ? '本地服务运行中' : '原生托盘已启用') : state.native ? '原生托盘已启用' : '本地界面预览';
     icons();
     // 下拉列表改由页面渲染：原生 select 的弹出层不跟随暗色主题。
     window.ZViewerSelect?.enhance(document);
@@ -841,8 +855,7 @@
       addEvent('已导出 frpc.toml 模板，未包含输入密钥。', 'frp');
       toast('已导出，请配置 FRP_TOKEN');
     } else if (name === 'copy-frp') {
-      try { await navigator.clipboard.writeText(frpConfig()); toast('已复制'); }
-      catch { toast('剪贴板不可用，可使用“导出配置模板”'); }
+      copyText(frpConfig(), '已复制');
     } else if (name === 'export-logs') {
       download('zviewer-preview-events.log', '# ZViewer GUI prototype events only\n' + filteredEvents().map(e => `${e.time} ${e.level} [${e.source}] ${e.message}`).join('\n'));
       toast('已导出日志');
@@ -856,6 +869,34 @@
     else if (name === 'tray-logs') { $('#modal').close(); navigate('logs'); }
   }
   $('#modal').addEventListener('close', () => { state.updateOpen = false; });
+  // 复制文本：Wails 桌面端走运行时剪贴板（WebView2 里 navigator.clipboard 常被拒），
+  // 浏览器里有安全上下文就用 Clipboard API，否则退回到临时 textarea + execCommand。
+  function copyText(text, message = '已复制地址') {
+    const value = String(text ?? '');
+    const done = () => toast(message);
+    const fallback = () => {
+      const area = document.createElement('textarea');
+      area.value = value;
+      area.setAttribute('readonly', '');
+      area.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      document.body.removeChild(area);
+      if (ok) done(); else toast('剪贴板不可用，请手动选择地址复制');
+    };
+    if (window.runtime?.ClipboardSetText) {
+      Promise.resolve(window.runtime.ClipboardSetText(value)).then(done).catch(fallback);
+      return;
+    }
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(value).then(done).catch(fallback);
+      return;
+    }
+    fallback();
+  }
+  window.copyText = copyText;
   document.addEventListener('click', event => {
     if (!event.target.closest('.tutorial')) closeTutorials();
     const tutorialToggle = event.target.closest('[data-tutorial-toggle]');
@@ -886,9 +927,7 @@
     }
     const copyTarget = event.target.closest('[data-copy]');
     if (copyTarget) {
-      navigator.clipboard.writeText(copyTarget.dataset.copy)
-        .then(() => toast('已复制地址'))
-        .catch(() => toast('剪贴板不可用，可手动选择地址复制'));
+      copyText(copyTarget.dataset.copy);
       return;
     }
     const tutorialSection = event.target.closest('[data-tutorial-section]');
@@ -932,7 +971,7 @@
     if ((event.ctrlKey && event.key.toLowerCase() === 'r') || event.key === 'F5') { event.preventDefault(); location.reload(); }
     if (event.key === 'Escape') closeTutorials();
   });
-  window.addEventListener('hashchange', () => { state.page = titles[location.hash.slice(1)] ? location.hash.slice(1) : 'overview'; render(); });
+  window.addEventListener('hashchange', () => { const target = titles[location.hash.slice(1)] ? location.hash.slice(1) : 'overview'; state.page = state.web && target === 'web' ? 'overview' : target; render(); });
   $('#modal').addEventListener('click', event => { if (event.target === $('#modal')) { const r = $('#modal').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) $('#modal').close(); } });
   state.page = titles[location.hash.slice(1)] ? location.hash.slice(1) : 'overview';
   const navToggle = $('#nav-toggle');
@@ -950,10 +989,13 @@
   render();
   if (window.zviewerDesktop) {
     window.zviewerDesktop.info().then(info => {
-      state.info = info; state.native = true;
+      // 网页模式（info.native=false）没有原生窗口/托盘，后续状态文案据此分支。
+      state.info = info; state.native = info.native !== false; state.web = info.web === true;
+      // 网页端隐藏了「网页端」分页；带 #web 打开时落到服务总览。
+      if (state.web && state.page === 'web') navigate('overview');
       if (info.live) { window.dispatchEvent(new CustomEvent('zviewer-ready', { detail: info })); return; }
       render();
-    }).catch(() => toast('桌面桥接未就绪，请重新打开控制台。'));
+    }).catch(() => toast('控制台连接失败，请刷新页面重试。'));
     window.zviewerDesktop.onNavigate(navigate);
     window.zviewerDesktop.onUpdate?.(snapshot => {
       // Clear a stopped proxy even while its view is hidden; ordinary updates leave the iframe alone.
@@ -961,6 +1003,16 @@
         state.cliEmbedUrl = '';
         $('#cli-settings-frame')?.remove();
       }
+    });
+    // 网页端访问密码变化（改密/重置）后重新拉 Info：桌面卡片里的密码与 /api/info 一致。
+    window.zviewerDesktop.onWebguiAuthChanged?.(() => {
+      window.zviewerDesktop.info().then(info => {
+        state.info = info;
+        state.native = info.native !== false;
+        state.web = info.web === true;
+        if (!state.live) return;
+        render();
+      }).catch(() => { /* 拉取失败时保持旧显示，下次事件再试 */ });
     });
   }
 })();

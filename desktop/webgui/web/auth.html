@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- 与 Go 端响应头 CSP 等价：不给自己留内联脚本/样式，避免两套策略不一致 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'" />
+<title>访问设置 · ZViewer 网页控制台</title>
+<link rel="stylesheet" href="/tokens.css" />
+<link rel="stylesheet" href="/web/web.css" />
+</head>
+<body data-page="auth">
+<main class="auth-shell">
+  <section class="auth-card auth-card-wide">
+    <div class="auth-topbar">
+      <div class="auth-brand">
+        <img class="auth-logo" src="/app-icon.png" alt="" width="36" height="36" />
+        <div><h1>ZViewer</h1><p class="auth-kicker">网页控制台 · 访问设置</p></div>
+      </div>
+      <button type="button" class="auth-theme" id="theme-toggle" aria-label="切换深色/浅色主题" title="切换主题">◐</button>
+    </div>
+    <p class="auth-sub">这里的设置只作用于网页端。</p>
+
+    <section class="auth-section">
+      <h2 class="auth-title">访问地址</h2>
+      <ul class="auth-urls" id="access-urls"><li class="auth-note">正在读取当前监听信息…</li></ul>
+      <dl class="auth-meta">
+        <div><dt>监听地址</dt><dd id="access-bind">—</dd></div>
+        <div><dt>端口</dt><dd id="access-port">—</dd></div>
+        <div><dt>访问密码</dt><dd id="access-password">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="auth-section">
+      <h2 class="auth-title">修改访问密码</h2>
+      <form class="auth-form" id="password-form" novalidate>
+        <div class="auth-field">
+          <label for="current-password">当前密码</label>
+          <input id="current-password" name="current" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="auth-field">
+          <label for="new-password">新密码（至少 6 位）</label>
+          <input id="new-password" name="new" type="password" autocomplete="new-password" minlength="6" required />
+        </div>
+        <div class="auth-field">
+          <label for="confirm-password">确认新密码</label>
+          <input id="confirm-password" name="confirm" type="password" autocomplete="new-password" minlength="6" required />
+        </div>
+        <p class="auth-error" id="auth-error" role="alert" hidden></p>
+        <p class="auth-note" id="auth-note" role="status" hidden></p>
+        <button type="submit" class="auth-primary">保存新密码</button>
+      </form>
+      <div class="auth-inline">
+        <button type="button" class="auth-link" id="reset-password">忘记密码？重置为随机密码</button>
+      </div>
+    </section>
+
+    <div class="auth-actions">
+      <a class="auth-secondary" href="/">返回控制台</a>
+      <button type="button" class="auth-secondary" id="logout">退出登录</button>
+    </div>
+  </section>
+</main>
+<script src="/web/web.js" defer></script>
+</body>
+</html>

@@ -1,26 +1,12 @@
 package main
 
-import (
-	"embed"
-	"io/fs"
-)
-
-// 直接嵌入 desktop/ui：界面不依赖任何运行时资源文件，
-// 单文件 EXE 即可完整渲染，也省掉打包时的静态目录同步。
-//
-//go:embed all:ui
-var uiAssets embed.FS
+// 界面资源已移到 desktop/ui 包（go:embed 不能引用父目录，网页端也要复用），
+// 这里只保留桌面壳专属的嵌入文件。即使是 string / []byte，go:embed 也要求
+// 空导入 embed 包。
+import _ "embed"
 
 //go:embed lib/windows-process.ps1
 var processHelperScript string
 
 //go:embed assets/app.ico
 var appIconICO []byte
-
-func uiFS() fs.FS {
-	sub, err := fs.Sub(uiAssets, "ui")
-	if err != nil {
-		panic(err)
-	}
-	return sub
-}
