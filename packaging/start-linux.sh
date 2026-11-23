@@ -5,18 +5,28 @@
 #
 # 统一端口：前后端共用同一端口（默认 3333），由后端 exe 托管 frontend/dist 静态文件，
 # 无需独立的前端 exe。
+#
+# 网页端：Linux 没有 Wails 桌面壳，由独立进程 zviewer-webgui 提供网页控制台
+# （默认端口 33345）。它与后端解耦 —— 后端没启动时网页端也能打开。
+# 没有 zviewer-webgui 时脚本行为与旧版完全一致。
 
 cd "$(dirname "$0")" || exit 1
 
 ROOT_DIR=$(pwd)
 BACKEND_BIN="$ROOT_DIR/zviewer-backend"
+# 网页控制台（Linux 没有 Wails 桌面壳，用独立进程提供网页端）。
+# 与后端解耦：后端没启动时网页端也能打开，只是功能不可用。
+WEBGUI_BIN="$ROOT_DIR/zviewer-webgui"
 LOG_DIR="$ROOT_DIR/log"
+WEBGUI_LOG="$LOG_DIR/webgui.log"
 PIDS_FILE="$ROOT_DIR/.prod.pids.json"
 ENV_FILE="$ROOT_DIR/.env"
 
 DEFAULT_PORT=3333
 DEFAULT_RTMP_PORT=3334
 DEFAULT_FLV_PORT=3335
+DEFAULT_WEBGUI_PORT=33345
+WEBGUI_PORT=""
 BACKEND_PORT="${BACKEND_PORT:-}"
 BACKEND_ONLY=0
 HTTPS_MODE=0
@@ -48,9 +58,21 @@ resolve_ports() {
   HTTP_FLV_PORT="$(env_port_value HTTP_FLV_PORT "$DEFAULT_FLV_PORT")"
 }
 
+# 网页端端口：环境变量 ZVIEWER_WEB_PORT > .env 的 WEBGUI_PORT > 33345
+resolve_webgui_port() {
+  if [ -n "$WEBGUI_PORT" ]; then return; fi
+  WEBGUI_PORT="${ZVIEWER_WEB_PORT:-}"
+  if [ -z "$WEBGUI_PORT" ]; then
+    WEBGUI_PORT="$(env_port_value WEBGUI_PORT "$DEFAULT_WEBGUI_PORT")"
+  fi
+}
+
+# $1=backend_pid（可空） $2=webgui_pid（可空）
 write_pids() {
-  # $1=backend_pid
-  printf '{"backend":{"pid":%s},"frontend":null}\n' "$1" > "$PIDS_FILE"
+  local backend_json="null" webgui_json="null"
+  if [ -n "$1" ]; then backend_json="{\"pid\":$1}"; fi
+  if [ -n "$2" ]; then webgui_json="{\"pid\":$2}"; fi
+  printf '{"backend":%s,"frontend":null,"webgui":%s}\n' "$backend_json" "$webgui_json" > "$PIDS_FILE"
 }
 
 read_pid() { # $1=backend|frontend
@@ -178,20 +200,45 @@ do_cert() {
 
 # ==================== 启动 ====================
 
-do_start() {
-  resolve_ports
-  echo "========================================"
-  echo "  ZViewer 启动"
-  echo "  端口: $BACKEND_PORT"
-  if [ "$HTTPS_MODE" -eq 1 ]; then
-    echo "  模式: HTTPS（可信/自签证书）"
-  elif [ "$BACKEND_ONLY" -eq 1 ]; then
-    echo "  模式: 仅后端（不校验前端产物）"
-  else
-    echo "  模式: HTTP（后端统一提供 API + 前端静态文件）"
+# 取第一个非回环 IPv4，用于打印局域网访问地址；取不到时输出空串。
+lan_ip() {
+  local ip=""
+  if command -v hostname >/dev/null 2>&1; then
+    ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.' | head -n 1)
   fi
-  echo "========================================"
+  if [ -z "$ip" ] && command -v ip >/dev/null 2>&1; then
+    ip=$(ip -4 addr show 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)
+  fi
+  echo "$ip"
+}
 
+# 打印网页端地址（本机 + 局域网）与访问密码。WEBGUI_PORT 需已解析。
+# 网页端启动时若未设密码会自动生成 12 位随机密码并写入 profile/webgui-password.txt，
+# 这里把明文密码一并打出来，方便直接登录。
+print_webgui_urls() {
+  local ip pass_file pass
+  echo ""
+  echo "  GUI 网页端：http://localhost:$WEBGUI_PORT"
+  ip=$(lan_ip)
+  if [ -n "$ip" ]; then
+    echo "  局域网访问：http://$ip:$WEBGUI_PORT"
+  fi
+  pass_file="$PWD/profile/webgui-password.txt"
+  if [ -f "$pass_file" ]; then
+    pass=$(head -n 1 "$pass_file" 2>/dev/null | tr -d '\r\n')
+    if [ -n "$pass" ]; then
+      echo "  访问密码：$pass"
+      echo "  密码文件：$pass_file（可在网页端「应用设置 → 网页端访问」修改）"
+      return
+    fi
+  fi
+  echo "  提示：访问密码保存在 $pass_file（网页端首次启动后生成）"
+}
+
+# 启动后端进程。成功时把 PID 写入 BACKEND_PID。
+# 返回 0=成功 1=失败（可继续启动网页端） 2=中止（HTTPS 证书失败）
+start_backend() {
+  BACKEND_PID=""
   if ! has_exe "$BACKEND_BIN" "后端程序 zviewer-backend"; then return 1; fi
 
   if port_in_use "$BACKEND_PORT"; then
@@ -216,7 +263,7 @@ do_start() {
     issue_cert
     if [ "$CERT_RC" -ne 0 ]; then
       echo "  [证书] 签发失败，HTTPS 启动中止"
-      return 1
+      return 2
     fi
   fi
 
@@ -242,21 +289,108 @@ do_start() {
     return 1
   fi
 
-  write_pids "$local_backend_pid"
-  echo "  后端 PID: $local_backend_pid"
+  BACKEND_PID="$local_backend_pid"
+  echo "  后端 PID: $BACKEND_PID"
   if [ "$HTTPS_MODE" -eq 1 ]; then
     echo "  访问  : https://localhost:$BACKEND_PORT"
   else
     echo "  访问  : http://localhost:$BACKEND_PORT"
   fi
-  echo "  日志  : $LOG_DIR/"
+  return 0
+}
+
+# 启动网页控制台（zviewer-webgui）。成功/已运行返回 0，未安装或启动失败返回 1。
+# 注意：没有该二进制时保持旧版行为 —— 不启动、不报错。
+start_webgui() {
+  WEBGUI_PID=""
+  if [ ! -f "$WEBGUI_BIN" ]; then
+    return 1
+  fi
+
+  if port_in_use "$WEBGUI_PORT"; then
+    echo "  [网页端] 端口 $WEBGUI_PORT 已被占用，跳过启动（可能已有网页端在运行）"
+    print_webgui_urls
+    return 1
+  fi
+
+  mkdir -p "$LOG_DIR"
+  [ -x "$WEBGUI_BIN" ] || chmod +x "$WEBGUI_BIN" 2>/dev/null || true
+
+  echo "  启动网页端..."
+  nohup "$WEBGUI_BIN" --root "$PWD" --state-dir "$PWD/profile" --port "$WEBGUI_PORT" --bind 0.0.0.0 >> "$WEBGUI_LOG" 2>&1 &
+  WEBGUI_PID=$!
+
+  # 网页端只是静态壳 + 代理，通常 1-2 秒就绪；60 * 0.5s ≈ 30s 上限
+  echo "  等待网页端就绪..."
+  if wait_port_ready "$WEBGUI_PORT" 60; then
+    print_webgui_urls
+    echo "  网页端 PID: $WEBGUI_PID"
+    echo "  网页端日志: $WEBGUI_LOG"
+    return 0
+  fi
+
+  echo "  GUI 网页端启动失败，请查看 $WEBGUI_LOG" >&2
+  echo "  （后端仍可用，不影响后端功能）"
+  return 1
+}
+
+do_start() {
+  resolve_ports
+  resolve_webgui_port
+  echo "========================================"
+  echo "  ZViewer 启动"
+  echo "  端口: $BACKEND_PORT"
+  if [ "$HTTPS_MODE" -eq 1 ]; then
+    echo "  模式: HTTPS（可信/自签证书）"
+  elif [ "$BACKEND_ONLY" -eq 1 ]; then
+    echo "  模式: 仅后端（不校验前端产物）"
+  else
+    echo "  模式: HTTP（后端统一提供 API + 前端静态文件）"
+  fi
+  if [ -f "$WEBGUI_BIN" ]; then
+    echo "  网页端: 端口 $WEBGUI_PORT（独立进程，后端未启动也可访问）"
+  fi
+  echo "========================================"
+
+  # 1) 后端：失败不中止 —— 网页端与后端解耦，仍会继续尝试启动
+  local backend_rc=0
+  start_backend || backend_rc=$?
+  if [ "$backend_rc" -eq 2 ]; then
+    return 1
+  fi
+  if [ "$backend_rc" -ne 0 ]; then
+    echo "  [提示] 后端未启动，网页端仍可打开（部分功能不可用）"
+  fi
+
+  # 2) 网页端
+  local webgui_rc=0
+  start_webgui || webgui_rc=$?
+
+  # 3) 记录 PID（至少启动了一个才写，保持旧版无 pids 文件的行为）
+  if [ -n "$BACKEND_PID" ] || [ -n "$WEBGUI_PID" ]; then
+    write_pids "$BACKEND_PID" "$WEBGUI_PID"
+  fi
+
+  if [ -n "$BACKEND_PID" ]; then
+    echo "  日志  : $LOG_DIR/"
+  fi
+
+  if [ "$backend_rc" -ne 0 ] && [ "$webgui_rc" -ne 0 ]; then
+    return 1
+  fi
   return 0
 }
 
 # ==================== 停止 / 重启 / 状态 / 日志 ====================
 
 do_stop() {
-  local bp fp
+  local bp fp wp
+  resolve_webgui_port
+  # 先停网页端（独立进程，不依赖后端）
+  wp=$(read_pid webgui)
+  [ -n "$wp" ] && kill "$wp" 2>/dev/null
+  kill_port "$WEBGUI_PORT"
+
   bp=$(read_pid backend)
   fp=$(read_pid frontend)
   [ -n "$bp" ] && kill "$bp" 2>/dev/null
@@ -284,6 +418,12 @@ do_status() {
   backend_running="否"
   if [ -n "$bp" ] && kill -0 "$bp" 2>/dev/null; then backend_running="是"; fi
 
+  local wp webgui_running
+  resolve_webgui_port
+  wp=$(read_pid webgui)
+  webgui_running="否"
+  if [ -n "$wp" ] && kill -0 "$wp" 2>/dev/null; then webgui_running="是"; fi
+
   echo "  服务:"
   echo "    配置端口: $BACKEND_PORT"
   echo "    端口监听: $(if port_in_use "$BACKEND_PORT"; then echo 是; else echo 否; fi)"
@@ -291,20 +431,58 @@ do_status() {
     echo "    记录 PID: $bp ($(if [ "$backend_running" = "是" ]; then echo 运行中; else echo 未运行; fi))"
   fi
 
+  if [ -f "$WEBGUI_BIN" ]; then
+    echo "  网页端:"
+    echo "    配置端口: $WEBGUI_PORT"
+    echo "    端口监听: $(if port_in_use "$WEBGUI_PORT"; then echo 是; else echo 否; fi)"
+    echo "    运行状态: $webgui_running"
+    if [ -n "$wp" ]; then
+      echo "    记录 PID: $wp ($(if [ "$webgui_running" = "是" ]; then echo 运行中; else echo 未运行; fi))"
+    fi
+    echo "    地址: http://localhost:$WEBGUI_PORT"
+    if [ -f "$PWD/profile/webgui-password.txt" ]; then
+      echo "    访问密码: $(head -n 1 "$PWD/profile/webgui-password.txt" 2>/dev/null | tr -d '\r\n')"
+    fi
+  else
+    echo "  网页端: 未安装（zviewer-webgui 缺失）"
+  fi
+
   echo "  程序:"
   echo "    后端: $(if [ -f "$BACKEND_BIN" ]; then echo 存在; else echo 缺失; fi)"
+  echo "    网页端: $(if [ -f "$WEBGUI_BIN" ]; then echo 存在; else echo 缺失; fi)"
   echo "    前端: $(if [ -f "$ROOT_DIR/frontend/dist/index.html" ]; then echo 存在; else echo 缺失; fi)"
   echo "    证书: $(if [ -f "$ROOT_DIR/config/ssl/cert.pem" ]; then echo 存在; else echo 缺失; fi)"
 }
 
 do_logs() {
-  # 统一端口后仅保留后端日志（前端静态文件由后端托管，无独立日志）
-  local log_file="$LOG_DIR/backend.log"
-  if [ -f "$log_file" ]; then
-    tail -n 50 "$log_file"
-  else
-    echo "  日志不存在: $log_file"
-  fi
+  # $1: backend（默认）| webgui | all
+  # 统一端口后前端静态文件由后端托管，无独立前端日志；网页端有自己的 webgui.log。
+  local which="${1:-backend}"
+  local log_file
+  case "$which" in
+    webgui|all)
+      if [ "$which" = "all" ] && [ -f "$LOG_DIR/backend.log" ]; then
+        echo "===== backend.log ====="
+        tail -n 50 "$LOG_DIR/backend.log"
+        echo ""
+      fi
+      log_file="$WEBGUI_LOG"
+      if [ -f "$log_file" ]; then
+        echo "===== webgui.log ====="
+        tail -n 50 "$log_file"
+      else
+        echo "  日志不存在: $log_file"
+      fi
+      ;;
+    *)
+      log_file="$LOG_DIR/backend.log"
+      if [ -f "$log_file" ]; then
+        tail -n 50 "$log_file"
+      else
+        echo "  日志不存在: $log_file"
+      fi
+      ;;
+  esac
 }
 
 # ==================== 帮助 / 菜单 ====================
@@ -316,10 +494,10 @@ usage() {
 命令:
   start              启动服务（加 --https 使用 HTTPS）
   backend            仅启动后端（加 --https 使用 HTTPS）
-  stop               停止服务
+  stop               停止服务（含网页端）
   restart            重启服务
   status             查看运行状态
-  logs               查看后端日志
+  logs [类型]        查看日志：backend（默认）| webgui | all
   cert [host]        一键签发 SSL 证书（localhost / 公网域名或公网 IP(Let's Encrypt)）
   https [host]       签发证书后以 HTTPS 启动
   help               显示此帮助
@@ -329,12 +507,15 @@ start/restart/cert/https 选项:
       --https              start 时使用 HTTPS
       --force              证书强制重新签发
 
-端口: 默认取 .env 的 PORT（否则 3333），前后端共用同一端口
+端口: 后端默认取 .env 的 PORT（否则 3333），前后端共用同一端口
+      网页端默认 33345（环境变量 ZVIEWER_WEB_PORT > .env 的 WEBGUI_PORT > 33345）
+      网页端（zviewer-webgui）与后端解耦：后端没启动也能打开
 
 示例:
   ./start.sh                    # 交互菜单
   ./start.sh start              # HTTP 启动
   ./start.sh backend            # 仅启动后端
+  ./start.sh logs webgui        # 查看网页端日志
   ./start.sh https example.com  # 申请 Let's Encrypt 证书后 HTTPS 启动
   ./start.sh cert example.com --force  # 为公网域名或公网 IP 强制重新签发 Let's Encrypt 证书
 EOF
@@ -355,9 +536,10 @@ do_menu() {
     echo "  6) 查看日志"
     echo "  7) 一键签发 SSL 证书"
     echo "  8) HTTPS 启动（自动签发证书）"
+    echo "  9) 查看网页端日志"
     echo "  0) 退出"
     echo ""
-    printf "  请输入编号 (0-8): "
+    printf "  请输入编号 (0-9): "
     read CHOICE
     case "$CHOICE" in
       1) BACKEND_ONLY=0; HTTPS_MODE=0; do_start; wait_key ;;
@@ -372,6 +554,7 @@ do_menu() {
       6) do_logs; wait_key ;;
       7) do_cert; wait_key ;;
       8) BACKEND_ONLY=0; HTTPS_MODE=1; do_start; wait_key ;;
+      9) do_logs webgui; wait_key ;;
       0) return 0 ;;
       *) echo "  无效输入，请重新选择"; sleep 1 ;;
     esac
@@ -441,7 +624,8 @@ case "$CMD" in
     do_status
     ;;
   logs)
-    do_logs
+    shift
+    do_logs "$@"
     ;;
   cert)
     shift
