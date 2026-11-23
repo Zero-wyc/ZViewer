@@ -10,20 +10,21 @@ const desktop = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const directory = path.join(desktop, '.runtime', 'tools', 'zviewer-cli');
 const source = path.join(directory, 'source');
 const repository = 'https://github.com/Zero-wyc/ZViewerCLI';
-const commit = '9599bbef8f041e0755f6c815b16d28d3e2cf72be';
+const commit = 'b6a52e97b77a6aa5da91c2c53be3dde8a40c7c4a';
 const toolchain = 'go1.26.9';
 const executable = 'zviewer-cli-windows-amd64.exe';
-const binarySha256 = '95e296692e1e7815de9b9a62035284537881b046da116c7daa9abccb356a56d1';
+const binarySha256 = '8dc1cfcf3f5cad5e2ce17b8f1352b5836514ad887bd8b2edeab7558debb39113';
 if (patchInfo().sha256 !== '9e5bba199baca8f84b8d0e88855e528abdbf937bf50ff301fe33c50d9effc92b') throw new Error('Local CLI patch checksum mismatch');
-// Upstream dist reports v5.2.1. Build the pinned v5.2.1 source instead.
+// Upstream dist reports v5.2.1. Build the pinned source instead (v5.2.1 + 自有提交：
+// 本地 CDN 探测、/proxy 换节点、/candidates 候选登记）。
 const sources = {
   'bilibili.go':'5b48735196e6eed996dee0142543540385ce85d3',
-  'config.go':'cfe996a8fa764eb4ff6ab211473293b99253f3f6',
-  'main.go':'7960ea0f6d4342ac305081218a3413c64db7e6e8',
+  'config.go':'70101a75ffc273653c94cebc90e2ce44725aaa93',
+  'main.go':'b1591697c777299f42e73a223d477cc237d911fc',
   'mp4box.go':'b4bbebac15d8cc36d54a0f677627b719c3afcf9c',
   'page.go':'d854f908b727bf63276591c97a7df04072c6aa28',
-  'resolver.go':'ebcb72f1dd52bdde930ce1e42eaf4a29804ffdb2',
-  'server.go':'fc89c934c7f828c67c45c83b995fa58d20ad8899',
+  'resolver.go':'72d229e4e0efb3a10cf3501390c1fabb79726cd0',
+  'server.go':'fa49bc4d6efd34665c5bc71604cd60491a521b51',
   'socket.go':'194eff3402e9526782bdd177e327a19cd466a09e',
   'speedlog.go':'75132ec2e56768802dd0a27d7a59ab89ce5f9786',
   'state.go':'3e45d5808e4ca08505835db46e4fb4f282f1d28e',
@@ -93,7 +94,7 @@ for(let i=0;i<licenses.length;i++) {
   notices.push(entry.name+'\n'+'='.repeat(entry.name.length)+'\n'+bytes.toString('utf8'));
 }
 fs.writeFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt'),notices.join('\n\n'));
-fs.writeFileSync(path.join(directory,'provenance.json'),JSON.stringify({repository,commit,version:'5.2.1',toolchain,platform:'windows-amd64',source:'Built from pinned upstream source with local settings security and optional desktop embedded theme patches',patch:patchInfo(),files:[{file:executable,sha256:binarySha256},{file:'LICENSE',sha256:hash(fs.readFileSync(license))},{file:'THIRD-PARTY-NOTICES.txt',sha256:hash(fs.readFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt')))}],sourceBlobs:sources},null,2)+'\n');
+fs.writeFileSync(path.join(directory,'provenance.json'),JSON.stringify({repository,commit,version:'5.2.1+b6a52e9',toolchain,platform:'windows-amd64',source:'Built from pinned upstream source with local settings security and optional desktop embedded theme patches',patch:patchInfo(),files:[{file:executable,sha256:binarySha256},{file:'LICENSE',sha256:hash(fs.readFileSync(license))},{file:'THIRD-PARTY-NOTICES.txt',sha256:hash(fs.readFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt')))}],sourceBlobs:sources},null,2)+'\n');
 console.log('Source-built ZViewerCLI v5.2.1 verified ('+commit+', '+toolchain+')');
 // --publish：把受管构建同步到 frontend/public，作为全项目唯一事实源（网页下载、
 // 单文件运行包与桌面端 runtime/ 都取这一份）。不同步的话桌面包用的是网页里那份
