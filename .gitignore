@@ -75,6 +75,14 @@ crawler/data/
 __pycache__/
 *.pyc
 
+# ---- 桌面端构建产物 ----
+# go build 直接把 19MB 的 Windows 可执行文件吐在 desktop/ 下，
+# 曾经被误提交进仓库（5ba6fac），clone 时白拉一份。
+# 注意 range 只限 desktop/：frontend/public/zviewer-cli-*.exe 是
+# 要分发给用户的 CLI，必须继续入库。
+desktop/desktop.exe
+desktop/*.exe
+
 # ---- 编辑器与 IDE ----
 .vscode/
 .idea/
