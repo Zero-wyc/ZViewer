@@ -15,8 +15,8 @@ const toolchain = 'go1.26.9';
 const executable = 'zviewer-cli-windows-amd64.exe';
 const binarySha256 = '8dc1cfcf3f5cad5e2ce17b8f1352b5836514ad887bd8b2edeab7558debb39113';
 if (patchInfo().sha256 !== '9e5bba199baca8f84b8d0e88855e528abdbf937bf50ff301fe33c50d9effc92b') throw new Error('Local CLI patch checksum mismatch');
-// Upstream dist reports v5.2.1. Build the pinned source instead (v5.2.1 + 自有提交：
-// 本地 CDN 探测、/proxy 换节点、/candidates 候选登记）。
+// 按 tag v5.3.0 构建受管 CLI（本地 CDN 探测、/proxy 换节点、/candidates 候选登记）。
+// 与 GitHub Release 的 UPX 产物不同，这里是未压缩的受管构建，供网页下载与桌面端随包。
 const sources = {
   'bilibili.go':'5b48735196e6eed996dee0142543540385ce85d3',
   'config.go':'70101a75ffc273653c94cebc90e2ce44725aaa93',
@@ -94,7 +94,7 @@ for(let i=0;i<licenses.length;i++) {
   notices.push(entry.name+'\n'+'='.repeat(entry.name.length)+'\n'+bytes.toString('utf8'));
 }
 fs.writeFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt'),notices.join('\n\n'));
-fs.writeFileSync(path.join(directory,'provenance.json'),JSON.stringify({repository,commit,version:'5.2.1+b6a52e9',toolchain,platform:'windows-amd64',source:'Built from pinned upstream source with local settings security and optional desktop embedded theme patches',patch:patchInfo(),files:[{file:executable,sha256:binarySha256},{file:'LICENSE',sha256:hash(fs.readFileSync(license))},{file:'THIRD-PARTY-NOTICES.txt',sha256:hash(fs.readFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt')))}],sourceBlobs:sources},null,2)+'\n');
+fs.writeFileSync(path.join(directory,'provenance.json'),JSON.stringify({repository,commit,version:'5.3.0',toolchain,platform:'windows-amd64',source:'Built from pinned upstream source with local settings security and optional desktop embedded theme patches',patch:patchInfo(),files:[{file:executable,sha256:binarySha256},{file:'LICENSE',sha256:hash(fs.readFileSync(license))},{file:'THIRD-PARTY-NOTICES.txt',sha256:hash(fs.readFileSync(path.join(directory,'THIRD-PARTY-NOTICES.txt')))}],sourceBlobs:sources},null,2)+'\n');
 console.log('Source-built ZViewerCLI v5.2.1 verified ('+commit+', '+toolchain+')');
 // --publish：把受管构建同步到 frontend/public，作为全项目唯一事实源（网页下载、
 // 单文件运行包与桌面端 runtime/ 都取这一份）。不同步的话桌面包用的是网页里那份
