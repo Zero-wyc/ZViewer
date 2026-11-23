@@ -89,6 +89,31 @@ func (s *sink) waitFor(t *testing.T, what string, condition func() bool) {
 	t.Fatalf("等待超时：%s", what)
 }
 
+// waitQuiet 等到消息流静默一段时间后返回。
+//
+// voice.join 之后的 SDP offer 与 ICE candidate 是在 goroutine 里陆续下发的，
+// 只等 ConnectionID 非空就拿「当前消息条数」当下限，会把协商尾巴算进后续
+// 断言里（实测能差 4 条：1 个 offer + 3 个 candidate）。
+func (s *sink) waitQuiet(t *testing.T, quietFor time.Duration) {
+	t.Helper()
+	const totalTimeout = 5 * time.Second
+	deadline := time.Now().Add(totalTimeout)
+	last := len(s.all())
+	stableSince := time.Now()
+	for time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+		if now := len(s.all()); now != last {
+			last = now
+			stableSince = time.Now()
+			continue
+		}
+		if time.Since(stableSince) >= quietFor {
+			return
+		}
+	}
+	t.Fatalf("消息流在 %s 内没有静默", totalTimeout)
+}
+
 // countErrors 返回发给某条连接的错误数。
 func (s *sink) countErrors(socketID string) int {
 	total := 0
@@ -304,6 +329,9 @@ func TestVoiceSignalRequiresOwnConnection(t *testing.T) {
 	})
 	mine := sink.lastState(t, "host").Self.ConnectionID
 
+	// 等协商尾巴（offer + candidate）下发完，否则它们会被算成
+	// 「伪造请求产生的消息」。
+	sink.waitQuiet(t, 150*time.Millisecond)
 	before := len(sink.all())
 	// 拿别人的 connectionId：静默丢弃，连错误都不回（回了等于告诉对方
 	// 「这个 id 存在」，而它本来就不该被猜到）。
