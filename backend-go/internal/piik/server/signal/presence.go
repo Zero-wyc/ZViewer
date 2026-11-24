@@ -56,7 +56,9 @@ func (s *Server) sendViewerPresence(roomID string) {
 		}
 		upstream := s.router.getViewerRouteUpstream(roomID, viewer.PeerID)
 		activeEdge, hasActiveEdge := s.router.resolveActiveViewerMediaEdge(roomID, viewer.PeerID)
-		mediaReady := hasActiveEdge && upstream.Kind != "none"
+		rm, _ := s.router.rooms.Get(roomID)
+		mediaReady := hasActiveEdge && upstream.Kind != "none" &&
+			rm != nil && rm.controller != nil && rm.controller.SourceVideoReady(viewer.PeerID)
 		if mediaReady {
 			if activeEdge.upstream.Kind == "sfu" {
 				mediaReady = upstream.Kind == "sfu"

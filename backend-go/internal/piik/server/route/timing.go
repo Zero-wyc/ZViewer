@@ -109,10 +109,8 @@ func (c *Controller) routeDemandReason(childPeerID string) DemandReason {
 		if parent, ok := c.participants.Get(edge.ParentPeerID); ok && parent.departureConfirmed {
 			return DemandParentDeparted
 		}
-		for _, overflowing := range c.overflowPeerChildren(edge.ParentPeerID) {
-			if overflowing == childPeerID {
-				return DemandCapacityReduction
-			}
+		if edge.PhysicalActive && len(c.overflowPeerChildren(edge.ParentPeerID)) > 0 {
+			return DemandCapacityReduction
 		}
 	}
 	return DemandEdgeUnavailable

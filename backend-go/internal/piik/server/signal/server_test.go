@@ -267,7 +267,10 @@ func TestRejectedPublicationRetainsHostRoomSession(t *testing.T) {
 	host.ignore("viewer-presence")
 	subscribeInteractions(t, host)
 	// Inject the existing route-construction failure, after room admission.
-	h.locked(func() { h.server.router.capacity = 0 })
+	h.locked(func() {
+		h.server.router.room(h.room.RoomID) // Retain the valid room default before injecting an invalid constructor option.
+		h.server.router.capacity = 0
+	})
 	host.sendJSON(map[string]any{"type": "start-sharing", "shareGeneration": "rejected_publication_generation",
 		"routePolicy": protocol.DefaultRoutePolicy})
 	expectMatch(t, host.next("sharing-start-failed").raw,
@@ -2723,7 +2726,7 @@ func TestSignalKeepsMediaIdentityThroughGraceWhilePresenceReturnsOnce(t *testing
 	firstViewer := openClient(t, h)
 	firstViewerAuth := authenticate(t, firstViewer, h.room, protocol.RoleViewer, "viewer-client-grace-roster", 1, "",
 		presenceOptions{displayName: "短线重连"})
-	commitPreparedRoute(t, firstViewer)
+	activeRoute := commitPreparedRoute(t, firstViewer)
 	expectMatch(t, viewerEntriesJSON(t, nextViewerPresenceMatching(t, firstHost, func(message presenceMessage) bool {
 		return slices.ContainsFunc(viewerPresenceEntries(message), func(entry presenceEntry) bool {
 			return entry.Upstream.Kind == "peer"
@@ -2733,6 +2736,17 @@ func TestSignalKeepsMediaIdentityThroughGraceWhilePresenceReturnsOnce(t *testing
 		firstViewerAuth.PeerID, firstHostAuth.PeerID))
 	firstHost.sendJSON(signalDescription(firstViewerAuth.PeerID, "connection-during-grace", "offer"))
 	firstViewer.next("signal")
+	nextViewerPresenceMatching(t, firstHost, func(message presenceMessage) bool {
+		return slices.ContainsFunc(viewerPresenceEntries(message), func(entry presenceEntry) bool {
+			return entry.PeerID == firstViewerAuth.PeerID && entry.Upstream.Kind == "peer" && !isMediaReady(entry)
+		})
+	})
+	firstViewer.sendJSON(viewerQualityEvidenceMessage("connection-during-grace", activeRoute.Revision, 0, 0))
+	nextViewerPresenceMatching(t, firstHost, func(message presenceMessage) bool {
+		return slices.ContainsFunc(viewerPresenceEntries(message), func(entry presenceEntry) bool {
+			return entry.PeerID == firstViewerAuth.PeerID && isMediaReady(entry)
+		})
+	})
 
 	h.closeClient(firstViewer)
 	if entries := viewerPresenceEntries(parsePresence(t, firstHost.next("viewer-presence").raw)); len(entries) != 0 {
@@ -2778,6 +2792,79 @@ func TestSignalKeepsMediaIdentityThroughGraceWhilePresenceReturnsOnce(t *testing
 	})
 	expectMatch(t, secondHost.next("restart-request").raw, fmt.Sprintf(
 		`{"fromPeerId":%q,"connectionId":"connection-during-grace","rebuild":false}`, firstViewerAuth.PeerID))
+}
+
+func TestSignalAllowsRetainedChildRestartWhileSourcePathRecovers(t *testing.T) {
+	h := startHarness(t, harnessOptions{endpointMediaCopyCapacity: 1})
+	host := openClient(t, h)
+	hostAuth := authenticate(t, host, h.room, protocol.RoleHost, "restart-host-client", 0, "", presenceOptions{})
+	relay := openClient(t, h)
+	relayAuth := authenticate(t, relay, h.room, protocol.RoleViewer, "restart-relay-client", 1, "", presenceOptions{})
+	commitPreparedRoute(t, relay)
+	child := openClient(t, h)
+	childAuth := authenticate(t, child, h.room, protocol.RoleViewer, "restart-child-client", 0, "", presenceOptions{})
+	active := commitPreparedRoute(t, child)
+	if active.Assignment.Upstream != protocol.PeerUpstream(relayAuth.PeerID) {
+		t.Fatalf("child upstream = %v, want the relay", active.Assignment.Upstream)
+	}
+	var relayEdge, childEdge activeViewerMediaEdge
+	h.locked(func() {
+		var ok bool
+		relayEdge, ok = h.server.router.resolveActiveViewerMediaEdge(h.room.RoomID, relayAuth.PeerID)
+		if !ok {
+			t.Fatal("relay ingress must be active")
+		}
+		childEdge, ok = h.server.router.resolveActiveViewerMediaEdge(h.room.RoomID, childAuth.PeerID)
+		if !ok {
+			t.Fatal("child ingress must be active")
+		}
+	})
+	relay.sendJSON(map[string]any{
+		"type": "route-failed", "phase": "active", "revision": relayEdge.revision,
+		"connectionId": relayEdge.connectionID,
+	})
+	// A child's earlier prepare is still queued on its relay. Wait for the
+	// committed failure update, not that unrelated preparation message.
+	nextActiveRouteAfter(t, relay, active.Revision)
+	h.locked(func() {
+		rm, _ := h.server.router.rooms.Get(h.room.RoomID)
+		snapshot := rm.controller.Snapshot()
+		edge, ok := snapshot.UpstreamByViewer.Get(childAuth.PeerID)
+		if !ok || !edge.PhysicalActive || !edge.Usable || videoConnectionID(snapshot, edge) != childEdge.connectionID {
+			t.Fatal("relay repair must retain its child's physical connection")
+		}
+		if _, ok := h.server.router.resolveActiveViewerMediaEdge(h.room.RoomID, childAuth.PeerID); ok {
+			t.Fatal("a retained subtree must not claim the repairing source path is ready")
+		}
+	})
+	child.sendJSON(map[string]any{
+		"type": "restart-request", "targetPeerId": relayAuth.PeerID,
+		"connectionId": childEdge.connectionID, "rebuild": false,
+	})
+	forwarded, ok := relay.tryNext("restart-request", defaultWait)
+	if !ok {
+		denial, _ := child.tryNext("error", 0)
+		t.Fatalf("retained child restart was not forwarded: %s", denial.raw)
+	}
+	expectMatch(t, forwarded.raw, fmt.Sprintf(
+		`{"fromPeerId":%q,"connectionId":%q,"rebuild":false}`, childAuth.PeerID, childEdge.connectionID))
+	for _, request := range []map[string]any{
+		{"type": "restart-request", "targetPeerId": hostAuth.PeerID, "connectionId": childEdge.connectionID, "rebuild": true},
+		{"type": "restart-request", "targetPeerId": relayAuth.PeerID, "connectionId": "retired_connection_12345678", "rebuild": true},
+	} {
+		child.sendJSON(request)
+		expectMatch(t, child.next("error").raw, `{"code":"FORBIDDEN"}`)
+	}
+	relay.sendJSON(map[string]any{
+		"type": "restart-request", "targetPeerId": childAuth.PeerID,
+		"connectionId": childEdge.connectionID, "rebuild": true,
+	})
+	expectMatch(t, relay.next("error").raw, `{"code":"FORBIDDEN"}`)
+	relay.sendJSON(map[string]any{
+		"type": "restart-request", "targetPeerId": hostAuth.PeerID,
+		"connectionId": relayEdge.connectionID, "rebuild": true,
+	})
+	expectMatch(t, relay.next("error").raw, `{"code":"FORBIDDEN"}`)
 }
 
 // ---------------------------------------------------------------------------

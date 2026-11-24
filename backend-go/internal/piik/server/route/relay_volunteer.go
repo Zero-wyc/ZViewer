@@ -32,11 +32,34 @@ func (c *Controller) recordCapacityReduction(peerID string, nowMs *int64) {
 }
 
 func (c *Controller) transitionCopyLimit(producer *participant) int {
-	if producer.relayVolunteer && producer.effectiveDownstreamCapacity > c.endpointMediaCopyCapacity {
-		if producer.effectiveDownstreamCapacity > 3 {
-			return producer.effectiveDownstreamCapacity + 1
-		}
-		return 3
+	limit := c.endpointMediaCopyCapacity + 1
+	if producer.relayVolunteer {
+		limit = max(limit, producer.effectiveDownstreamCapacity+1)
 	}
-	return protocol.EndpointMediaCopyLimit(c.endpointMediaCopyCapacity, protocol.EndpointMediaCopyTransition)
+	// Published backends reporting at most three copies cannot reserve a fourth.
+	physicalLimit := protocol.MaxEndpointMediaCopyCapacity
+	if producer.reportedDownstreamCapacity > physicalLimit {
+		physicalLimit = producer.reportedDownstreamCapacity + 1
+	}
+	return min(limit, physicalLimit)
+}
+
+// SetDefaultCapacity applies room policy without replacing endpoint capability
+// or an explicit personal override. Existing overflow uses the serial handoff.
+func (c *Controller) SetDefaultCapacity(capacity int, nowMs *int64) {
+	if capacity < 1 || capacity > protocol.MaxViewersPerRoomLimit {
+		panic("Room capacity is invalid")
+	}
+	if capacity == c.endpointMediaCopyCapacity {
+		return
+	}
+	c.endpointMediaCopyCapacity = capacity
+	for _, current := range c.participants.Values() {
+		if current.departureConfirmed {
+			continue
+		}
+		current.effectiveDownstreamCapacity = c.effectiveCapacity(current.reportedDownstreamCapacity, current.relayVolunteer)
+		c.recordCapacityReduction(current.peerID, nowMs)
+	}
+	c.touchFacts()
 }

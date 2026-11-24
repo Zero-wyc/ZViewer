@@ -245,3 +245,11 @@ func TestLocalRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestFixedHTTPSOriginRejectsExtraURLComponents(t *testing.T) {
+	for _, value := range []string{"http://share.example", "https://user@share.example", "https://@share.example", "https://share.example/path", "https://share.example/%2f", "https://share.example?x", "https://share.example?", "https://share.example#x", "https://share.example#"} {
+		if _, err := publicHTTPSOrigin(value); err == nil {
+			t.Errorf("accepted %q", value)
+		}
+	}
+}

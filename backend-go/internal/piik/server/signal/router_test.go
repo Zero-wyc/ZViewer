@@ -1,22 +1,9 @@
 package signal
 
-// Ported from tests/hybrid-media-router.test.ts (baseline b20fd88). The
-// harness mirrors harness(...) there: a memory room.Store, a real
-// sfu.Admission, sfutest.FakeMedia behind a thin spy (the vi.spyOn
-// cases), a fake token issuer returning "token-<peerId>", recorded hooks and
-// the shared mutex every router call and every assertion takes.
-//
-// Timing model. Node ran each TS test segment between two awaits as one
-// synchronous tick with the router's continuations (the pump, token issues,
-// drains) suspended; they ran at the next microtask checkpoint. Here every
-// such segment is one h.locked block, so the router's goroutines (which take
-// the same mutex) cannot interleave with it, and the TS await points map to
-// waitFor/advance, which let those goroutines settle (router.inflight == 0).
-// The seven fake-timer cases reproduce vitest 4.1 exactly: vi.waitFor ticks
-// the clock 50 ms before every check and gives up after 20 checks,
-// advanceTimersByTimeAsync fires due timers in order at their due time and
-// flushes between them, and setSystemTime jumps the clock while shifting
-// every pending timer by the same amount.
+// The harness exercises real room and route authority with in-memory SFU media.
+// Router calls and state assertions share the router's mutex, so pump goroutines
+// cannot interleave within a locked block. settle and waitFor let asynchronous
+// route work finish; manualClock controls deadline callbacks without wall time.
 
 import (
 	"context"
@@ -116,15 +103,14 @@ func newRouterHarness(t *testing.T, options routerHarnessOptions) *routerHarness
 	return h
 }
 
-// locked runs fn as one synchronous TS segment.
+// locked keeps operations and assertions atomic with respect to the pump.
 func (h *routerHarness) locked(fn func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	fn()
 }
 
-// settle waits for the router's pending continuations (the TS microtask
-// backlog) to finish.
+// settle waits for all in-flight route work to finish.
 func (h *routerHarness) settle() {
 	h.t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -141,8 +127,7 @@ func (h *routerHarness) settle() {
 	}
 }
 
-// close is the signaling server's `await this.hybridMediaRouter.close()`:
-// entered with mu held, released only around the drain waits.
+// close enters with mu held; the router releases it around drain waits.
 func (h *routerHarness) close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -167,7 +152,7 @@ func (h *routerHarness) createRoom() room.CreatedRoom {
 	return created
 }
 
-// connectHost ports connectHost: the store side only, like the TS helper.
+// connectHost registers the Host in the store; complete admits it to routing.
 func (h *routerHarness) connectHost(created room.CreatedRoom, policy *protocol.RoutePolicy, clientID, sessionID string) authenticatedRouteParticipant {
 	h.t.Helper()
 	if clientID == "" {
@@ -199,7 +184,7 @@ func (h *routerHarness) connectHost(created room.CreatedRoom, policy *protocol.R
 	}
 }
 
-// connectViewer ports connectViewer: the store side only.
+// connectViewer registers the Viewer in the store; complete admits it to routing.
 func (h *routerHarness) connectViewer(created room.CreatedRoom, suffix string) authenticatedRouteParticipant {
 	h.t.Helper()
 	sessionID := "viewer_session_" + suffix + "_12345678"
@@ -225,9 +210,8 @@ func (h *routerHarness) connectViewer(created room.CreatedRoom, suffix string) a
 	}
 }
 
-// The do* helpers are the TS router calls; they expect the harness lock to be
-// held by an enclosing locked block. The lock-taking wrappers below serve the
-// single-call segments.
+// The do* helpers require an enclosing locked block. Their wrappers acquire
+// the mutex for a single call.
 
 func (h *routerHarness) doComplete(participant authenticatedRouteParticipant) hybridAuthenticationState {
 	state := h.router.connectParticipant(participant)
@@ -338,7 +322,7 @@ func (h *routerHarness) allMessages() []protocol.ServerMessage {
 	return all
 }
 
-// preparedFor ports preparedFor: the last phase "prepare" route-update.
+// preparedFor returns the latest preparation sent to a session.
 func (h *routerHarness) preparedFor(sessionID string) (protocol.RouteUpdatePrepareMessage, bool) {
 	return lastPrepare(h.messages(sessionID), "")
 }
@@ -359,7 +343,6 @@ func lastPrepare(messages []protocol.ServerMessage, childPeerID string) (protoco
 	return protocol.RouteUpdatePrepareMessage{}, false
 }
 
-// activeAfter ports activeAfter.
 func (h *routerHarness) activeAfter(sessionID string, revision int64) (protocol.RouteUpdateActiveMessage, bool) {
 	messages := h.messages(sessionID)
 	for index := len(messages) - 1; index >= 0; index-- {
@@ -404,9 +387,8 @@ func sfuConfigCount(messages []protocol.ServerMessage) int {
 	return count
 }
 
-// waitFor ports vi.waitFor. With fake timers every check first ticks the
-// clock by the 50 ms poll interval and the 1 s timeout allows 20 checks, as
-// vitest 4.1 does; with real timers it polls.
+// With a manual clock, each check advances 50 ms, for at most 20 checks.
+// Otherwise waitFor polls against wall time.
 func (h *routerHarness) waitFor(description string, condition func() bool) {
 	h.t.Helper()
 	if h.clock != nil {
@@ -495,8 +477,7 @@ func (h *routerHarness) usage() sfu.Usage {
 	return usage
 }
 
-// establishSfuRoom ports establishSfuRoom: a Host, a first Viewer moved to
-// the SFU and a second Viewer joining it.
+// establishSfuRoom commits two Viewers behind one SFU publication.
 func (h *routerHarness) establishSfuRoom(created room.CreatedRoom) (host, first, second authenticatedRouteParticipant) {
 	h.t.Helper()
 	host = h.connectHost(created, nil, "", "")
@@ -518,7 +499,6 @@ func (h *routerHarness) establishSfuRoom(created room.CreatedRoom) (host, first,
 	return host, first, second
 }
 
-// senderDiagnostics ports senderDiagnostics(state).
 func senderDiagnostics(state string) protocol.SenderQualityDiagnostics {
 	var reason *string
 	switch state {
@@ -584,10 +564,8 @@ func hasViewer(fences []sfu.SubscriptionFence, viewerPeerID string) bool {
 	return false
 }
 
-// manualClock is vi.useFakeTimers + vi.setSystemTime over sinon fake-timers:
-// advance fires due timers in due order at their due time and lets the
-// router settle after each (tickAsync); set jumps the clock and shifts every
-// pending timer by the jump so none fires early (setSystemTime).
+// advance fires timers in deadline order and settles the router after each
+// callback. set shifts pending deadlines by the clock jump without firing them.
 type manualClock struct {
 	mu     sync.Mutex
 	nowMs  int64
@@ -666,8 +644,7 @@ func (c *manualClock) advance(ms int64) {
 	}
 }
 
-// debugRecorder is vi.spyOn(router, "debug"): a slog handler that records
-// the sanitised route events while the debug flag is forced on.
+// debugRecorder captures sanitized route events while debug is enabled.
 type debugRecord struct {
 	roomID  string
 	event   string
@@ -713,8 +690,7 @@ func (d *debugRecorder) Handle(_ context.Context, record slog.Record) error {
 func (d *debugRecorder) WithAttrs([]slog.Attr) slog.Handler { return d }
 func (d *debugRecorder) WithGroup(string) slog.Handler      { return d }
 
-// calledWith is expect(debug).toHaveBeenCalledWith(roomId, event,
-// expect.objectContaining(expected)).
+// calledWith matches a recorded event's room, name and expected attributes.
 func (d *debugRecorder) calledWith(roomID, event string, expected map[string]any) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -773,10 +749,9 @@ func normaliseAttr(value slog.Value) any {
 
 var qualityPolicy = &protocol.RoutePolicy{PeerOnly: false, TopologyOptimization: true, NatPrediction: false}
 
-// prepareQualityConvergence ports the shared prefix of "commits P2P quality
-// convergence after client relative approval": two Viewers on the Host, the
-// second advertising relay capacity, and enough sender evidence for the
-// controller to prepare a quality-convergence candidate for the first.
+// prepareQualityConvergence starts two Viewers on the Host, gives the second
+// relay capacity and records enough sender evidence to prepare a quality
+// candidate for the first.
 func prepareQualityConvergence(h *routerHarness, debug *debugRecorder) (created room.CreatedRoom, host, first, second authenticatedRouteParticipant, firstEdge activeViewerMediaEdge, qualityPrepare protocol.RouteUpdatePrepareMessage) {
 	t := h.t
 	t.Helper()
@@ -843,15 +818,7 @@ func prepareQualityConvergence(h *routerHarness, debug *debugRecorder) (created 
 	return created, host, first, second, firstEdge, qualityPrepare
 }
 
-// ---------------------------------------------------------------------------
-// tests, in tests/hybrid-media-router.test.ts order
-// ---------------------------------------------------------------------------
-
-// TS: it.each([undefined, false, true]) with candidateReady mocked. Go cannot
-// monkeypatch the controller and SettleResult.Committed collapses undefined
-// and false, so the two representable outcomes come from a real
-// quality-convergence candidate: ready without relative approval settles
-// accepted-but-uncommitted, ready with approval commits.
+// Readiness without relative approval leaves quality convergence uncommitted.
 func TestRouterPublishesConnectionIdentityOnlyForExplicitCommit(t *testing.T) {
 	for _, committed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "uncommitted", true: "committed"}[committed], func(t *testing.T) {
@@ -1161,6 +1128,170 @@ func TestRouterAcceptsActiveFailureForDirectConnectionAdoptedDuringRebuild(t *te
 	h.waitFailed(viewer.sessionID)
 }
 
+func TestRouterDoesNotAdmitRelayFromUnprovedReplacementVideoConnection(t *testing.T) {
+	h := newRouterHarness(t, routerHarnessOptions{capacity: 1, fakeTimers: true})
+	created := h.createRoom()
+	host := h.connectHost(created, nil, "", "")
+	relay := h.connectViewer(created, "rebuilding-relay")
+	var oldVideoID string
+	h.locked(func() {
+		h.doComplete(host)
+		h.doComplete(relay)
+	})
+	initial := h.waitPrepared(relay.sessionID)
+	h.locked(func() {
+		h.doReady(relay, int64(initial.Revision))
+		h.doRelay(relay, 1)
+		rm, _ := h.router.rooms.Get(created.RoomID)
+		settings, _ := rm.endpointSettings.Get(relay.peerID)
+		if settings.capacity != 1 {
+			t.Fatal("the relay must report its available downstream slot")
+		}
+		// As in the room-media attachment fixtures, retain the committed base
+		// connection and attach its already-proved picture to this publication.
+		rm.roomMedia, rm.mediaGeneration = true, "room_media_12345678"
+		rm.controller.SetVideoPublication(testShareGeneration, false, h.router.now())
+		before, _ := rm.controller.Snapshot().UpstreamByViewer.Get(relay.peerID)
+		oldVideoID = before.VideoConnectionID
+		if !before.VideoReady {
+			t.Fatal("the original picture must have committed before recovery")
+		}
+		authorization := h.router.peerSignalAuthorization(peerSignalInput{
+			roomID: created.RoomID, sourcePeerID: host.peerID, sourceSessionID: host.sessionID,
+			targetPeerID: relay.peerID, targetSessionID: relay.sessionID,
+			connectionID: "rebuilt_video_12345678", signalKind: "description", descriptionType: "offer",
+		})
+		if authorization != signalAuthorizationAllowed {
+			t.Fatal("the exact parent replacement offer must be authorized")
+		}
+		after, _ := rm.controller.Snapshot().UpstreamByViewer.Get(relay.peerID)
+		if after.VideoConnectionID != "rebuilt_video_12345678" || after.VideoConnectionID == before.VideoConnectionID {
+			t.Fatal("the replacement offer must adopt a new physical video identity")
+		}
+		if after.VideoReady || rm.controller.SourceVideoReady(relay.peerID) {
+			t.Fatal("the replacement must wait for its own picture proof")
+		}
+		if active := h.doMustEdge(created.RoomID, relay.peerID); active.connectionID != after.VideoConnectionID {
+			t.Fatal("the unproved replacement must retain its current signaling/observation identity")
+		}
+		if assigned := h.router.getViewerRouteUpstream(created.RoomID, relay.peerID); assigned != protocol.PeerUpstream(host.peerID) {
+			t.Fatal("waiting for picture proof must not withdraw the assigned physical route")
+		}
+		if after.ConnectionID != before.ConnectionID || after.Resource != before.Resource ||
+			!after.Usable || !after.PhysicalActive || after.ParentSessionID != before.ParentSessionID ||
+			after.ChildSessionID != before.ChildSessionID {
+			t.Fatal("picture recovery must retain the logical base/voice edge and its admission")
+		}
+		t.Logf("replacement adopted; logical/base voice identity retained; replacement videoReady=%t; no replacement ready/frame supplied", after.VideoReady)
+	})
+	// No decoded-frame/route-ready report is supplied for the replacement.
+	// The Host's only slot is occupied, so this tests relay eligibility directly.
+	child := h.connectViewer(created, "joins-during-relay-rebuild")
+	h.complete(child)
+	h.settle()
+	if prepared, ok := h.ownPrepare(child); ok && prepared.Assignment.Upstream == protocol.PeerUpstream(relay.peerID) {
+		t.Fatal("new child was prepared on the relay before its replacement video connection had any fresh ready/frame proof")
+	}
+	h.locked(func() {
+		rm, _ := h.router.rooms.Get(created.RoomID)
+		observe := func(connectionID string, frames protocol.Int) route.RouteQualityEvidenceResult {
+			return h.router.observeQualityEvidence(created.RoomID, route.RouteQualityEvidenceInput{
+				ChildPeerID: relay.peerID, ChildSessionID: relay.sessionID,
+				RouteRevision: rm.controller.Revision(), ConnectionID: connectionID,
+				Upstream:          route.QualityUpstream{Kind: route.UpstreamPeer, PeerID: host.peerID},
+				PresentationEpoch: 1, WindowMs: 1_000,
+				Metrics:      protocol.ViewerQualityEvidenceMetrics{FramesDecodedDelta: &frames},
+				AcceptedAtMs: h.router.now(),
+			})
+		}
+		if observe(oldVideoID, 1) != route.QualityEvidenceRejected {
+			t.Fatal("the retired physical connection must not restore picture proof")
+		}
+		if observe("rebuilt_video_12345678", 0) == route.QualityEvidenceRejected || rm.controller.SourceVideoReady(relay.peerID) {
+			t.Fatal("zero decoded progress must leave the replacement unproved")
+		}
+		if observe("rebuilt_video_12345678", 1) == route.QualityEvidenceRejected || !rm.controller.SourceVideoReady(relay.peerID) {
+			t.Fatal("positive current-connection decode must restore picture proof")
+		}
+	})
+	prepared := h.waitPreparedUpstream(child.sessionID, protocol.PeerUpstream(relay.peerID))
+	if prepared.Candidate.ChildPeerID != child.peerID {
+		t.Fatal("restored picture proof must wake the waiting child through the normal pump")
+	}
+}
+
+func TestRouterRestoresChildOpportunityAfterParentVideoCancelsPreparation(t *testing.T) {
+	for _, prediction := range []bool{false, true} {
+		t.Run(fmt.Sprintf("nat=%t", prediction), func(t *testing.T) {
+			h := newRouterHarness(t, routerHarnessOptions{capacity: 1})
+			created := h.createRoom()
+			host := h.connectHost(created, &protocol.RoutePolicy{PeerOnly: true, NatPrediction: prediction}, "", "")
+			parent := h.connectViewer(created, "recovering-parent")
+			h.locked(func() { h.doComplete(host); h.doComplete(parent) })
+			initial := h.waitPrepared(parent.sessionID)
+			h.locked(func() { h.doReady(parent, int64(initial.Revision)); h.doRelay(parent, 1) })
+			child := h.connectViewer(created, "waiting-child")
+			h.complete(child)
+			prepared := h.waitPreparedUpstream(child.sessionID, protocol.PeerUpstream(parent.peerID))
+			if prediction {
+				// Preserve one genuine child failure while canceling later preparations.
+				h.locked(func() {
+					h.doFailed(child, routeFailedMessage(int64(prepared.Revision), "prepare", prepared.Candidate.ConnectionID))
+				})
+				prepared = h.waitPreparedMatching(child.sessionID, "second attempt", func(message protocol.RouteUpdatePrepareMessage) bool {
+					return message.Revision > prepared.Revision
+				})
+			}
+			for recovery := 1; recovery <= 4; recovery++ {
+				previousRevision := prepared.Revision
+				connectionID := fmt.Sprintf("parent_recovery_%d_12345678", recovery)
+				h.locked(func() {
+					if h.router.peerSignalAuthorization(peerSignalInput{
+						roomID: created.RoomID, sourcePeerID: host.peerID, sourceSessionID: host.sessionID,
+						targetPeerID: parent.peerID, targetSessionID: parent.sessionID,
+						connectionID: connectionID, signalKind: "description", descriptionType: "offer",
+					}) != signalAuthorizationAllowed {
+						t.Fatal("the current Host replacement offer must be authorized")
+					}
+				})
+				h.settle()
+				h.locked(func() {
+					rm, _ := h.router.rooms.Get(created.RoomID)
+					if rm.controller.SourceVideoReady(parent.peerID) {
+						t.Fatal("the replacement picture needs its own proof")
+					}
+					if operation := rm.controller.Operation(); operation != nil && operation.Current != nil && operation.Current.ConnectionID == prepared.Candidate.ConnectionID {
+						t.Fatal("the child's preparation must retire while its parent has no proved picture")
+					}
+					frames := protocol.Int(1)
+					if h.router.observeQualityEvidence(created.RoomID, route.RouteQualityEvidenceInput{
+						ChildPeerID: parent.peerID, ChildSessionID: parent.sessionID,
+						RouteRevision: rm.controller.Revision(), ConnectionID: connectionID,
+						Upstream:          route.QualityUpstream{Kind: route.UpstreamPeer, PeerID: host.peerID},
+						PresentationEpoch: 1, WindowMs: 1000,
+						Metrics: protocol.ViewerQualityEvidenceMetrics{FramesDecodedDelta: &frames}, AcceptedAtMs: h.router.now(),
+					}) == route.QualityEvidenceRejected {
+						t.Fatal("the current parent decode must restore picture eligibility")
+					}
+				})
+				// No child SDP, failure, ready or manual Retry accompanies the cancellation.
+				prepared = h.waitPreparedMatching(child.sessionID, "restored parent", func(message protocol.RouteUpdatePrepareMessage) bool {
+					return message.Revision > previousRevision && message.Assignment.Upstream == protocol.PeerUpstream(parent.peerID)
+				})
+				if prediction && (prepared.Candidate.ConnectionAttempt == nil || prepared.Candidate.ConnectionAttempt.Current != 2) {
+					t.Fatal("authority cancellation must retain the one real failure without spending another attempt")
+				}
+			}
+			h.locked(func() {
+				h.doReady(child, int64(prepared.Revision))
+				if h.doMustEdge(created.RoomID, child.peerID).connectionID != prepared.Candidate.ConnectionID {
+					t.Fatal("the restored candidate must commit normally")
+				}
+			})
+		})
+	}
+}
+
 func TestRouterKeepsCommittedEdgeSignalingAuthorizedDuringAnotherPeerCandidate(t *testing.T) {
 	h := newRouterHarness(t, routerHarnessOptions{capacity: 2})
 	created := h.createRoom()
@@ -1171,8 +1302,8 @@ func TestRouterKeepsCommittedEdgeSignalingAuthorizedDuringAnotherPeerCandidate(t
 		h.connectViewer(created, "stable-root-a"),
 		h.connectViewer(created, "stable-root-b"),
 	}
-	// TS: for each root, complete then await; the ready + capacity of one
-	// root share the tick with the next root's complete.
+	// Commit each root's readiness and capacity while admitting the next root
+	// under the same mutex.
 	var pending func()
 	for _, root := range roots {
 		h.locked(func() {
@@ -1205,7 +1336,16 @@ func TestRouterKeepsCommittedEdgeSignalingAuthorizedDuringAnotherPeerCandidate(t
 		}
 	}
 
+	// The admitted candidate has not sent its first offer when another Viewer joins.
+	later := h.connectViewer(created, "later-viewer")
+	h.complete(later)
 	h.locked(func() {
+		rm, _ := h.router.rooms.Get(created.RoomID)
+		op := rm.controller.Operation()
+		if op == nil || op.ChildPeerID != candidateChild.peerID || op.Current == nil ||
+			op.Current.Revision != int64(prepared.Revision) || op.Current.ConnectionID != prepared.Candidate.ConnectionID {
+			t.Fatal("a later join retired the valid availability candidate before its first offer")
+		}
 		activeParentEdge := h.doMustEdge(created.RoomID, candidateParent.peerID)
 		authorize := func(input peerSignalInput) signalAuthorization {
 			input.roomID = created.RoomID
@@ -1233,6 +1373,41 @@ func TestRouterKeepsCommittedEdgeSignalingAuthorizedDuringAnotherPeerCandidate(t
 			connectionID: prepared.Candidate.ConnectionID,
 		}); got != signalAuthorizationUnassigned {
 			t.Fatalf("unrelated authorization = %v, want unassigned", got)
+		}
+	})
+}
+
+func TestRouterPreemptsQualityCandidateForNewViewerWithoutRetiringActiveMedia(t *testing.T) {
+	h := newRouterHarness(t, routerHarnessOptions{capacity: 2})
+	created, _, first, second, firstEdge, qualityPrepare := prepareQualityConvergence(h, nil)
+	later := h.connectViewer(created, "availability-viewer")
+	h.complete(later)
+	prepared := h.waitPrepared(later.sessionID)
+	h.locked(func() {
+		rm, _ := h.router.rooms.Get(created.RoomID)
+		snapshot := rm.controller.Snapshot()
+		op := snapshot.Operation
+		if op == nil || op.Reason != route.DemandJoin || op.ChildPeerID != later.peerID || op.Current == nil ||
+			op.Current.ConnectionID != prepared.Candidate.ConnectionID {
+			t.Fatal("the later Viewer did not acquire the serial availability operation")
+		}
+		edge, ok := snapshot.UpstreamByViewer.Get(first.peerID)
+		if !ok || !edge.Usable || edge.ConnectionID != firstEdge.connectionID {
+			t.Fatal("preempting the background probe retired the working media")
+		}
+		offer := func(parent, child authenticatedRouteParticipant, connectionID string) signalAuthorization {
+			return h.router.peerSignalAuthorization(peerSignalInput{
+				roomID: created.RoomID, sourcePeerID: parent.peerID, sourceSessionID: parent.sessionID,
+				targetPeerID: child.peerID, targetSessionID: child.sessionID, connectionID: connectionID,
+				signalKind: "description", descriptionType: "offer",
+			})
+		}
+		if got := offer(second, first, qualityPrepare.Candidate.ConnectionID); got != signalAuthorizationUnassigned ||
+			h.router.isActivePeerParentOf(created.RoomID, second.peerID, first.peerID) {
+			t.Fatalf("retired quality offer authorization = %v, want unassigned without an active parent capability", got)
+		}
+		if got := offer(second, later, prepared.Candidate.ConnectionID); got != signalAuthorizationProbe {
+			t.Fatalf("availability offer authorization = %v, want probe", got)
 		}
 	})
 }
@@ -1834,8 +2009,7 @@ func TestRouterReportsTypedExhaustionWhenExactCandidateFails(t *testing.T) {
 	h.waitFailed(viewer.sessionID)
 }
 
-func noCandidateExhaustion(t *testing.T) {
-	t.Helper()
+func TestRouterReportsTypedExhaustionWhenReconciliationHasNoCandidate(t *testing.T) {
 	h := newRouterHarness(t, routerHarnessOptions{capacity: 1})
 	created := h.createRoom()
 	host := h.connectHost(created, nil, "", "")
@@ -1851,10 +2025,6 @@ func noCandidateExhaustion(t *testing.T) {
 		h.doComplete(blocked)
 	})
 	h.waitFailed(blocked.sessionID)
-}
-
-func TestRouterReportsTypedExhaustionWhenReconciliationHasNoCandidate(t *testing.T) {
-	noCandidateExhaustion(t)
 }
 
 func TestRouterReportsOnlySfuAdmissionWaitingWhileBoundedCapacityIsUnavailable(t *testing.T) {
@@ -1890,9 +2060,6 @@ func TestRouterReportsOnlySfuAdmissionWaitingWhileBoundedCapacityIsUnavailable(t
 	})
 }
 
-// TS asserted admission.reservePublication was not called again through a
-// spy; here the observable is the waiting status count, which a woken
-// waiter would re-send (map 7.2 step 9c), plus the unchanged usage.
 func TestRouterReleasesExactSubscriptionChargeAfterPhysicalClose(t *testing.T) {
 	h := newRouterHarness(t, routerHarnessOptions{capacity: 1, withSfu: true, sfuIngressCapacity: 2})
 	activeRoom := h.createRoom()
@@ -2166,11 +2333,6 @@ func TestRouterSerializesFreshSfuConfigurationWithoutMakingRefreshOneShot(t *tes
 	h.waitFor("the second refresh", func() bool { return configCount() == initialCount+2 })
 }
 
-// hybrid-media-router.ts:1129-1132: a throw from media or tokenIssuer
-// rejected the pump promise and its .catch told the Host. In Go the throw is a
-// panic raised while mu is released for the token issue, so the pump must come
-// back holding mu; otherwise drivePump's deferred Unlock aborts the process.
-
 func TestRouterEmitsTypedExhaustionAndClearsDiagnosticsOnDepartureAndRoomDeletion(t *testing.T) {
 	h := newRouterHarness(t, routerHarnessOptions{capacity: 1})
 	created := h.createRoom()
@@ -2246,16 +2408,6 @@ func TestRouterPreservesConnectedViewerCapacityAcrossSharingGenerations(t *testi
 		t.Fatalf("child upstream = %v, want the retained root", childPrepare.Assignment.Upstream)
 	}
 }
-
-// TS declared this scenario twice under two names; both are kept.
-func TestRouterEmitsTypedExhaustionWhenReconciliationHasNoCandidate(t *testing.T) {
-	noCandidateExhaustion(t)
-}
-
-// ---------------------------------------------------------------------------
-// Go-only coverage of the concurrency seams the TS runtime did not have:
-// the per-room-name FIFO keeps LiveKit calls in decision order.
-// ---------------------------------------------------------------------------
 
 func TestRouterDebugFlagParsesLikeNodeDebug(t *testing.T) {
 	previous := slog.Default()

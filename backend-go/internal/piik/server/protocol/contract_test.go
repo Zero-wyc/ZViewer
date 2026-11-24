@@ -15,6 +15,7 @@ func TestRuntimeCapabilities(t *testing.T) {
 		want RuntimeCapabilities
 	}{
 		{`{}`, RuntimeCapabilities{}},
+		{`{"relayVolunteer":true,"roomRelayCapacity":true}`, RuntimeCapabilities{RelayVolunteer: true, RoomRelayCapacity: true}},
 		{`{"sfu":true,"extra":{"enabled":true}}`, RuntimeCapabilities{Sfu: true}},
 		{`{"sfu":true,"sfuOnly":true}`, RuntimeCapabilities{Sfu: true, SfuOnly: true}},
 		{`{"natPrediction":true,"SFU":true}`, RuntimeCapabilities{NatPrediction: true}},
@@ -31,6 +32,7 @@ func TestRuntimeCapabilities(t *testing.T) {
 	for _, data := range []string{
 		`null`, `[]`, `true`, `{"sfu":null}`, `{"sfu":"true"}`, `{"sfuOnly":null}`, `{"sfuOnly":"true"}`,
 		`{"natPrediction":null}`, `{"natPrediction":1}`,
+		`{"roomRelayCapacity":null}`, `{"roomRelayCapacity":"true"}`,
 		`{"roomReactionIds":null}`, `{"roomReactionIds":"heart"}`, `{"roomReactionIds":["bad id"]}`,
 		`{"roomReactionIds":[true]}`, `{"roomReactionIds":[""]}`,
 	} {
@@ -38,6 +40,38 @@ func TestRuntimeCapabilities(t *testing.T) {
 		if err := json.Unmarshal([]byte(data), &got); err == nil {
 			t.Errorf("expected %s to be rejected", data)
 		}
+	}
+}
+
+func TestRelayCapacitySettingsAreExplicitAndOptional(t *testing.T) {
+	for _, sample := range []struct {
+		data  string
+		valid bool
+	}{
+		{`{"type":"set-relay-volunteer","enabled":true,"capacity":20}`, true},
+		{`{"type":"set-relay-volunteer","enabled":true,"capacity":0,"settings":true,"physicalCapacity":20}`, true},
+		{`{"type":"set-relay-volunteer","enabled":false,"capacity":12,"settings":true,"physicalCapacity":3}`, true},
+		{`{"type":"set-relay-volunteer","enabled":true,"capacity":20,"settings":true}`, false},
+		{`{"type":"set-relay-volunteer","enabled":true,"capacity":20,"physicalCapacity":20}`, false},
+		{`{"type":"set-relay-volunteer","enabled":true,"capacity":20,"settings":true,"physicalCapacity":21}`, false},
+		{`{"type":"set-relay-volunteer","enabled":true,"capacity":20,"settings":true,"physicalCapacity":null}`, false},
+	} {
+		_, err := DecodeClientMessage([]byte(sample.data))
+		if (err == nil) != sample.valid {
+			t.Errorf("decode %s: %v", sample.data, err)
+		}
+	}
+	encoded, err := EncodeServerMessage(RelayVolunteerMessage{Type: "relay-volunteer", Enabled: false, Capacity: 2})
+	if err != nil || string(encoded) != `{"type":"relay-volunteer","enabled":false,"capacity":2}` {
+		t.Fatalf("published acknowledgement changed: %s, %v", encoded, err)
+	}
+	room := Int(20)
+	encoded, err = EncodeServerMessage(RelayVolunteerMessage{Type: "relay-volunteer", Capacity: 3, RoomCapacity: &room})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = DecodeServerMessage(encoded); err != nil {
+		t.Fatal(err)
 	}
 }
 

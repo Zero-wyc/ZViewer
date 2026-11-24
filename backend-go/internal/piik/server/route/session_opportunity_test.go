@@ -5,6 +5,48 @@ import (
 	"testing"
 )
 
+func TestCanceledNatPreparationPreservesPreviousOpportunity(t *testing.T) {
+	routes := newController(1, Options{NatPredictionEnabled: true})
+	addViewer(routes, A, 0, nil)
+	plan := routes.buildCandidates(A, false)[0]
+	key := routes.candidateOpportunityBase(A, plan)
+	child, _ := routes.participants.Get(A)
+	previous := candidateOpportunity{rank: endpointTransitionRank(plan.EndpointTransition) + 1, chargedAttempts: 4, exhausted: true}
+	child.consumedCandidateOpportunities.Set(key, previous)
+	for attempt := 0; attempt < 2; attempt++ {
+		now := int64(attempt * 4)
+		must(t, routes.Reconcile(now).Operation)
+		prepared := beginOperation(t, routes, BeginInput{NowMs: now + 1, ConnectionID: "canceled_preparation", Reservation: direct()})
+		eq(t, attemptCurrent(t, prepared), 1)
+		eq(t, routes.peerAttemptsStarted(A, HOST), 1)
+		eq(t, routes.viewerAttemptsStarted(A), 1)
+		routes.SetPaused(true, ms(now+2))
+		retained, _ := child.consumedCandidateOpportunities.Get(key)
+		eq(t, retained, previous)
+		routes.SetPaused(false, ms(now+3))
+	}
+}
+
+func TestNatDeadlineChargesOriginalSessionAfterParentDisconnect(t *testing.T) {
+	routes := newController(1, Options{NatPredictionEnabled: true, OperationTimeoutMs: 1000})
+	addViewer(routes, A, 0, nil)
+	operation := must(t, routes.Reconcile(0).Operation)
+	key := routes.candidateOpportunityBase(A, operation.Candidates[operation.Cursor])
+	beginOperation(t, routes, BeginInput{NowMs: 1, ConnectionID: "deadline_at_disconnect", Reservation: direct()})
+	host, _ := routes.participants.Get(HOST)
+	routes.DisconnectSession(HOST, host.sessionID)
+	routes.OperationExpired(operation.DeadlineAtMs)
+	child, _ := routes.participants.Get(A)
+	charged, ok := child.consumedCandidateOpportunities.Get(key)
+	eq(t, ok, true)
+	eq(t, charged.chargedAttempts, 1)
+	eq(t, child.consumedCandidateOpportunities.Len(), 1)
+	routes.UpsertParticipant(hostInput("replacement_host_session", 1), ms(operation.DeadlineAtMs+1))
+	must(t, routes.Reconcile(operation.DeadlineAtMs+1).Operation)
+	prepared := beginOperation(t, routes, BeginInput{NowMs: operation.DeadlineAtMs + 2, ConnectionID: "replacement_attempt", Reservation: direct()})
+	eq(t, attemptCurrent(t, prepared), 1)
+}
+
 func TestRetainedEdgeFailurePreservesNewSessionOpportunity(t *testing.T) {
 	for _, upstream := range []UpstreamKind{UpstreamPeer, UpstreamSfu} {
 		for _, changed := range []string{"none", "child", "host"} {

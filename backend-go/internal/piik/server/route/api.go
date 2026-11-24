@@ -224,7 +224,7 @@ type CommittedEdge struct {
 	ConnectionID          string
 	Usable                bool
 	PhysicalActive        bool
-	// Video attachment belongs to a publication, independently of room transport.
+	// Picture identity and proof are independent of the logical room/voice transport.
 	VideoGeneration   string
 	VideoConnectionID string
 	VideoReady        bool

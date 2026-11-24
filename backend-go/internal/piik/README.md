@@ -1,7 +1,7 @@
 # internal/piik —— Piik 服务端媒体面（原样搬迁）
 
 本目录是 [Piik](https://github.com/TNTcraftHIM/Piik)（MIT）服务端共享链路的
-**完整子树**，上游提交 `72ca6f2bc97df88e216a392721250309aa53bc39`。
+**完整子树**，上游提交 `e79e658d5f2430e2b40534b1dfe20b2d20d344b0`（2026-11-25 同步）。
 目标是把 ZViewer 屏幕共享的控制面从「照语义重写」换成「就跑 Piik 这份」。
 
 ## 收录范围
@@ -48,10 +48,21 @@
 脚本会重新拷贝、重写 import、修正夹具路径、落位上面第 4 条的新增文件，
 然后你可以直接 `go test ./internal/piik/...` 看是否还对得上。
 
+### 同步记录
+
+| 日期 | 上游 commit | 带进来的东西 |
+|---|---|---|
+| 2026-11-25 | `e79e658d` | 中继志愿容量语义（`roomCapacity`、`settings`/`physicalCapacity`）、`SourceVideoReady` 参与观众 presence 与候选判定、中继断开后的房间重建、`peerRestartAuthorized` 收紧换父重启授权、UDP 媒体套接字 2 MB 收缓冲、pacing 余量常量化、候选淘汰的 debug 原因、超载子节点优先迁走 |
+
+本次同步后与上游的差异仍是上面四条，没有新增（`AdditionalProbeDemand` 的形状
+未变，`recovery_test.go` 仍被脚本删除）。协议版本保持 `piik-v24`，`wire-samples.json`
+未变，前端 `piik-signal` 的下行是宽松解码，新增字段不会打断现有链路。
+
 ## 注意
 
-- 这是**并行存在**的子树：旧的 `internal/share/*` 仍在服务当前线上链路，
-  两边会同时编译。迁移完成后再删旧实现，别提前互相引用。
+- 桥接层（`internal/share/piikbridge`）只通过 `server/signal` 的公开面驱动本子树，
+  不要反过来让本目录 import 桥接层——同步脚本会整目录覆盖，任何写在这里的
+  本地逻辑都会在下次同步时丢掉。
 - 上游 Piik 的 `route` / `signal` 是围绕它自己的 `room`、`config`、WebSocket
   会话设计的，接进 ZViewer 需要一层适配（房间映射、身份、事件桥），
   适配代码不要写进本目录，放在 `internal/share/piikbridge`。

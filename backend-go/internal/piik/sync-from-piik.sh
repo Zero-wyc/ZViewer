@@ -33,8 +33,8 @@ for pkg in "${PACKAGES[@]}"; do
   cp -r "$SRC/internal/$pkg/." "$HERE/$pkg/"
 done
 
-mkdir -p "$HERE/../tests/fixtures"
-cp "$SRC/tests/fixtures/"*.json "$HERE/../tests/fixtures/"
+mkdir -p "$HERE/../../tests/fixtures"
+cp "$SRC/tests/fixtures/"*.json "$HERE/../../tests/fixtures/"
 
 python3 - "$HERE" <<'PY'
 import os, sys

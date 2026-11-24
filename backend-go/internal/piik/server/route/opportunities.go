@@ -19,13 +19,17 @@ func (c *Controller) candidateOpportunityBase(childPeerID string, plan Candidate
 		if parent, ok := c.participants.Get(plan.Tuple.ParentPeerID); ok {
 			parentSessionID = parent.sessionID
 		}
-		return tupleKey(plan.Tuple) + "\x00" + childSessionID + "\x00" + parentSessionID
+		return peerOpportunityKey(plan.Tuple, childSessionID, parentSessionID)
 	}
 	hostSessionID := ""
 	if host, ok := c.participants.Get(c.hostPeerID); ok {
 		hostSessionID = host.sessionID
 	}
 	return sfuOpportunityPrefix + childSessionID + "\x00" + hostSessionID
+}
+
+func peerOpportunityKey(tuple CandidateTuple, childSessionID, parentSessionID string) string {
+	return tupleKey(tuple) + "\x00" + childSessionID + "\x00" + parentSessionID
 }
 
 func (c *Controller) candidateOpportunityAvailable(childPeerID string, plan CandidatePlan) bool {
@@ -39,11 +43,11 @@ func (c *Controller) candidateOpportunityAvailable(childPeerID string, plan Cand
 		(c.natPredictionEnabled &&
 			plan.Tuple.Kind == UpstreamPeer &&
 			!consumed.exhausted &&
-			consumed.startedAttempts < maxNatConnectionAttempts)
+			consumed.chargedAttempts < maxNatConnectionAttempts)
 }
 
-// startCandidateOpportunity counts one NAT attempt for a peer
-// candidate of an availability or direct-convergence operation.
+// startCandidateOpportunity numbers the in-flight NAT attempt without charging
+// it. Authority cancellation preserves the previous opportunity unchanged.
 func (c *Controller) startCandidateOpportunity(op *operation, plan CandidatePlan) *ConnectionAttemptProgress {
 	if !c.natPredictionEnabled ||
 		plan.Tuple.Kind != UpstreamPeer ||
@@ -57,15 +61,39 @@ func (c *Controller) startCandidateOpportunity(op *operation, plan CandidatePlan
 	previous, ok := opportunities.Get(key)
 	startedAttempts := 1
 	if ok && previous.rank <= rank {
-		startedAttempts = previous.startedAttempts + 1
+		startedAttempts = previous.chargedAttempts + 1
 	}
-	newRank := rank
-	if ok {
-		newRank = min(previous.rank, rank)
-	}
-	opportunities.Set(key, candidateOpportunity{rank: newRank, startedAttempts: startedAttempts})
 	op.peerAttemptStarted = true
 	return &ConnectionAttemptProgress{Current: startedAttempts, Total: maxNatConnectionAttempts}
+}
+
+// settleCandidateOpportunity charges only success, failure or timeout, before
+// retirement/continuation selection. Stale facts and aborts never call it.
+func (c *Controller) settleCandidateOpportunity(op *operation) {
+	att := op.current
+	if att == nil || att.connectionAttempt == nil {
+		return
+	}
+	child, _ := c.participants.Get(op.childPeerID)
+	plan := op.planAt(op.cursor)
+	key := peerOpportunityKey(att.tuple, att.childSessionID, att.parentSessionID)
+	previous, ok := child.consumedCandidateOpportunities.Get(key)
+	rank := endpointTransitionRank(plan.EndpointTransition)
+	if ok {
+		rank = min(previous.rank, rank)
+	}
+	child.consumedCandidateOpportunities.Set(key, candidateOpportunity{
+		rank: rank, chargedAttempts: att.connectionAttempt.Current,
+	})
+}
+
+func (c *Controller) currentPeerOpportunity(childPeerID string) (string, *attempt) {
+	op := c.operation
+	if op == nil || op.childPeerID != childPeerID || op.current == nil || op.current.connectionAttempt == nil {
+		return "", nil
+	}
+	att := op.current
+	return peerOpportunityKey(att.tuple, att.childSessionID, att.parentSessionID), att
 }
 
 func (c *Controller) peerAttemptsStarted(childPeerID, parentPeerID string) int {
@@ -80,9 +108,13 @@ func (c *Controller) peerAttemptsStarted(childPeerID, parentPeerID string) int {
 	if child == nil {
 		return 0
 	}
-	opportunity, ok := child.consumedCandidateOpportunities.Get(c.candidateOpportunityBase(childPeerID, *plan))
+	key := c.candidateOpportunityBase(childPeerID, *plan)
+	if currentKey, att := c.currentPeerOpportunity(childPeerID); att != nil && currentKey == key {
+		return att.connectionAttempt.Current
+	}
+	opportunity, ok := child.consumedCandidateOpportunities.Get(key)
 	if ok && opportunity.rank <= endpointTransitionRank(plan.EndpointTransition) {
-		return opportunity.startedAttempts
+		return opportunity.chargedAttempts
 	}
 	return 0
 }
@@ -96,11 +128,19 @@ func (c *Controller) viewerAttemptsStarted(peerID string) int {
 	if current == nil {
 		return 0
 	}
+	currentKey, att := c.currentPeerOpportunity(peerID)
 	started := 0
 	for key, opportunity := range current.consumedCandidateOpportunities.All() {
 		if strings.HasPrefix(key, "peer:") {
-			started += opportunity.startedAttempts
+			if att != nil && key == currentKey {
+				started += att.connectionAttempt.Current
+			} else {
+				started += opportunity.chargedAttempts
+			}
 		}
+	}
+	if att != nil && !current.consumedCandidateOpportunities.Has(currentKey) {
+		started += att.connectionAttempt.Current
 	}
 	return started
 }
@@ -121,7 +161,7 @@ func (c *Controller) consumeCandidateOpportunity(childPeerID string, plan Candid
 	entry := candidateOpportunity{rank: rank, exhausted: true}
 	if ok {
 		entry.rank = min(previous.rank, rank)
-		entry.startedAttempts = previous.startedAttempts
+		entry.chargedAttempts = previous.chargedAttempts
 	}
 	child.consumedCandidateOpportunities.Set(key, entry)
 }
@@ -168,7 +208,7 @@ func (c *Controller) consumeActiveEdgeOpportunity(child *participant, edge *Comm
 	previous, _ := child.consumedCandidateOpportunities.Get(key)
 	child.consumedCandidateOpportunities.Set(key, candidateOpportunity{
 		rank:            0,
-		startedAttempts: previous.startedAttempts,
+		chargedAttempts: previous.chargedAttempts,
 		exhausted:       true,
 	})
 }
@@ -188,8 +228,8 @@ func (c *Controller) consumeAvailabilityOperation(op *operation) {
 	}
 }
 
-func (c *Controller) consumeCurrentAvailabilityOpportunity(op *operation) {
-	if !isAvailabilityOperation(op.reason) {
+func (c *Controller) consumeCurrentCandidateOpportunity(op *operation) {
+	if !isAvailabilityOperation(op.reason) && op.reason != DemandDirectConvergence {
 		return
 	}
 	plan := op.planAt(op.cursor)

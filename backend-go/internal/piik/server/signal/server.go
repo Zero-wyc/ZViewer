@@ -1176,10 +1176,10 @@ func (s *Server) connectRouteParticipant(participant authenticatedRouteParticipa
 	if participant.role == protocol.RoleHost && participant.routePolicy != nil {
 		if rm, _ := s.router.rooms.Get(participant.roomID); rm != nil && rm.roomMedia && rm.controller != nil {
 			s.router.releaseResources(rm.controller.SetRoutePolicy(*participant.routePolicy, s.now()))
-			for peerID, settings := range rm.viewerSettings.All() {
+			for peerID, settings := range rm.endpointSettings.All() {
 				if settings.preference != "" && !rm.controller.AllowsViewerRoutePreference(settings.preference) {
 					settings.preference = protocol.ViewerRouteAuto
-					rm.viewerSettings.Set(peerID, settings)
+					rm.endpointSettings.Set(peerID, settings)
 					s.router.sendViewerRoutePreference(participant.roomID, peerID, true)
 				}
 			}
@@ -1779,13 +1779,16 @@ func (s *Server) routePeerAssistedSignal(sess *session, source *authenticatedSes
 
 func (s *Server) routePeerAssistedRestart(sess *session, source *authenticatedSession, message protocol.ClientRestartRequestMessage) {
 	targetPeerID := message.TargetPeerID
-	if targetPeerID == "" || !s.router.isActivePeerParentOf(source.roomID, targetPeerID, source.peerID) {
-		s.sendError(sess, "FORBIDDEN", "Restart target is not the assigned media parent")
-		return
-	}
 	parent, hasParent := s.connectedPeer(source.roomID, targetPeerID)
 	if !hasParent {
 		s.sendError(sess, "PEER_NOT_FOUND", "Media parent is not connected")
+		return
+	}
+	if !s.router.peerRestartAuthorized(peerSignalInput{
+		roomID: source.roomID, sourcePeerID: source.peerID, sourceSessionID: sess.sessionID,
+		targetPeerID: targetPeerID, targetSessionID: parent.SessionID, connectionID: message.ConnectionID,
+	}) {
+		s.sendError(sess, "FORBIDDEN", "Restart target is not the assigned media parent")
 		return
 	}
 	s.sendToSession(parent.SessionID, protocol.ServerRestartRequestMessage{

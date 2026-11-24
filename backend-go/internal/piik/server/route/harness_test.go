@@ -241,6 +241,7 @@ func (c *Controller) hydrateEdge(childPeerID string, edge committedEdgeSeed) {
 		ConnectionID:          edge.ConnectionID,
 		Usable:                edge.Usable,
 		PhysicalActive:        edge.PhysicalActive,
+		VideoReady:            edge.Usable && edge.PhysicalActive,
 		Resource:              edge.Resource,
 		opportunityKey: c.candidateOpportunityBase(childPeerID, CandidatePlan{
 			Tuple: CandidateTuple{Kind: edge.Kind, ParentPeerID: edge.ParentPeerID},

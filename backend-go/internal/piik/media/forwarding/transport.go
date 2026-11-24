@@ -488,6 +488,8 @@ type EgressStats struct {
 	Packets, RTPBytes, DroppedPackets uint64
 }
 
+const pacingHeadroom = 1.5
+
 // The SDK owns packet timing; bounded tickets keep original packet ownership
 // here until a ticket sends or Stop retires it. SFU's unpaced writer assumes
 // already-paced input, which does not hold for locally encoded whole frames.
@@ -512,7 +514,7 @@ func newPacedQueue(log logger.Logger, limit, bitrate int) *boundedPacer {
 	// prevents a stale low estimate from trapping already encoded frames for
 	// seconds; this is not a network latency promise.
 	queue := newBoundedPacer(packetpacer.NewPacerLeakyBucket(3*time.Millisecond,
-		int(float64(bitrate)*1.5), 200*time.Millisecond, log), log, limit)
+		int(float64(bitrate)*pacingHeadroom), 200*time.Millisecond, log), log, limit)
 	queue.bitrate.Store(int64(bitrate))
 	return queue
 }
@@ -525,7 +527,7 @@ func newBoundedPacer(packetPacer packetpacer.Pacer, log logger.Logger, limit int
 
 func (queue *boundedPacer) SetBitrate(bitrate int) {
 	queue.bitrate.Store(int64(bitrate))
-	queue.Pacer.SetBitrate(int(float64(bitrate) * 1.5))
+	queue.Pacer.SetBitrate(int(float64(bitrate) * pacingHeadroom))
 }
 
 func (queue *boundedPacer) Enqueue(packet *pacer.Packet) {
@@ -582,11 +584,11 @@ func (queue *boundedPacer) SetPacerProbeObserverListener(listener pacer.PacerPro
 
 func (queue *boundedPacer) StartProbeCluster(info ccutils.ProbeClusterInfo) {
 	queue.sender.StartProbeCluster(info)
-	queue.Pacer.SetBitrate(int(float64(info.Goal.DesiredBps) * 1.5))
+	queue.Pacer.SetBitrate(int(float64(info.Goal.DesiredBps) * pacingHeadroom))
 }
 
 func (queue *boundedPacer) EndProbeCluster(id ccutils.ProbeClusterId) ccutils.ProbeClusterInfo {
-	queue.Pacer.SetBitrate(int(float64(queue.bitrate.Load()) * 1.5))
+	queue.Pacer.SetBitrate(int(float64(queue.bitrate.Load()) * pacingHeadroom))
 	return queue.sender.EndProbeCluster(id)
 }
 

@@ -137,8 +137,8 @@ func allValidStunURLs(values []string) bool {
 func publicHTTPSOrigin(value string) (*url.URL, error) {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" ||
-		hasUserinfo(parsed) || (parsed.Path != "" && parsed.Path != "/") ||
-		parsed.RawQuery != "" || parsed.Fragment != "" {
+		parsed.User != nil || (parsed.EscapedPath() != "" && parsed.EscapedPath() != "/") ||
+		parsed.ForceQuery || parsed.RawQuery != "" || strings.Contains(value, "#") {
 		return nil, errors.New("Local public origin must be an HTTPS origin")
 	}
 	host := normalizedHost(parsed)

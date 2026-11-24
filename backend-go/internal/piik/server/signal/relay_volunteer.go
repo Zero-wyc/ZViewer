@@ -3,22 +3,52 @@ package signal
 import "zviewer/backend/internal/piik/server/protocol"
 
 func (s *Server) setRelayVolunteer(sess *session, auth *authenticatedSession, message protocol.SetRelayVolunteerMessage) {
-	if auth.role != protocol.RoleViewer {
-		s.sendError(sess, "FORBIDDEN", "Only viewers may volunteer relay capacity")
+	if auth.role == protocol.RoleHost && !message.Settings {
+		s.sendError(sess, "FORBIDDEN", "Host capacity settings require room capacity support")
 		return
 	}
 	rm := s.router.room(auth.roomID)
-	settings, _ := rm.viewerSettings.Get(auth.peerID)
+	settings, _ := rm.endpointSettings.Get(auth.peerID)
 	settings.capacity, settings.volunteer, settings.sessionID = int(message.Capacity), message.Enabled, sess.sessionID
-	rm.viewerSettings.Set(auth.peerID, settings)
-	capacity := min(settings.capacity, s.endpointMediaCopyCapacity)
-	if settings.volunteer {
-		capacity = settings.capacity
+	if message.Settings {
+		if message.PhysicalCapacity == nil || (auth.role == protocol.RoleHost && (message.Enabled && message.Capacity < 1)) {
+			s.sendError(sess, "INVALID_CAPACITY", "Room capacity must be at least one")
+			return
+		}
+		settings.settings, settings.physicalCapacity = true, int(*message.PhysicalCapacity)
+		if auth.role == protocol.RoleHost {
+			settings.volunteer = false
+			if message.Enabled {
+				rm.roomCapacity = int(message.Capacity)
+			}
+		}
 	}
+	rm.endpointSettings.Set(auth.peerID, settings)
 	if rm.controller != nil {
-		rm.controller.SetRelayVolunteer(auth.peerID, sess.sessionID, settings.volunteer, s.router.nowPtr())
-		rm.controller.SetEffectiveCapacity(auth.peerID, sess.sessionID, settings.capacity, s.router.nowPtr())
+		rm.controller.SetDefaultCapacity(rm.roomCapacity, s.router.nowPtr())
+		rm.controller.SetRelayVolunteer(auth.peerID, sess.sessionID, settings.capacityOverride(), s.router.nowPtr())
+		rm.controller.SetEffectiveCapacity(auth.peerID, sess.sessionID, settings.reportedCapacity(s.endpointMediaCopyCapacity), s.router.nowPtr())
 		s.router.requestPump(auth.roomID)
 	}
-	s.send(sess, protocol.RelayVolunteerMessage{Type: "relay-volunteer", Enabled: settings.volunteer, Capacity: protocol.Int(capacity)})
+	s.send(sess, s.relayCapacityAck(rm, settings, auth.role == protocol.RoleHost))
+	if auth.role == protocol.RoleHost && message.Enabled {
+		for peerID, other := range rm.endpointSettings.All() {
+			if peerID != auth.peerID && other.settings && other.sessionID != "" {
+				s.router.hooks.sendToSession(other.sessionID, s.relayCapacityAck(rm, other, false))
+			}
+		}
+	}
+}
+
+func (s *Server) relayCapacityAck(rm *roomRuntime, settings endpointRouteSettings, host bool) protocol.RelayVolunteerMessage {
+	ack := protocol.RelayVolunteerMessage{Type: "relay-volunteer", Enabled: settings.volunteer,
+		Capacity: protocol.Int(settings.effectiveCapacity(rm.roomCapacity, s.endpointMediaCopyCapacity))}
+	if settings.settings {
+		roomCapacity := protocol.Int(rm.roomCapacity)
+		ack.RoomCapacity = &roomCapacity
+		if host {
+			ack.Enabled = rm.roomCapacity != s.endpointMediaCopyCapacity
+		}
+	}
+	return ack
 }

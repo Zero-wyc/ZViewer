@@ -30,11 +30,11 @@ func (c *Controller) SetVideoPublication(generation string, paused bool, nowMs i
 	c.roomMedia, c.videoGeneration, c.videoPaused, c.paused = true, generation, paused, false
 	if changed {
 		for _, edge := range c.upstreamByViewer.Values() {
+			provedPicture := edge.VideoReady
 			edge.VideoGeneration, edge.VideoConnectionID, edge.VideoReady = "", "", false
-			// Enabling voice during an accepted share must not reconstruct its
-			// already-proven video transports.
+			// Enabling voice preserves the current picture connection and its proof.
 			if first && generation != "" && edge.Usable && edge.PhysicalActive {
-				edge.VideoGeneration, edge.VideoConnectionID, edge.VideoReady = generation, edge.ConnectionID, true
+				edge.VideoGeneration, edge.VideoConnectionID, edge.VideoReady = generation, edge.ConnectionID, provedPicture
 			}
 		}
 	}
@@ -62,7 +62,7 @@ func (c *Controller) requiredVideoGeneration() string {
 
 func (c *Controller) qualityConnectionID(edge *CommittedEdge) string {
 	if c.roomMedia {
-		if edge.VideoReady && edge.VideoGeneration == c.videoGeneration {
+		if c.videoGeneration != "" && edge.VideoGeneration == c.videoGeneration {
 			return edge.VideoConnectionID
 		}
 		return ""
@@ -70,13 +70,25 @@ func (c *Controller) qualityConnectionID(edge *CommittedEdge) string {
 	return edge.ConnectionID
 }
 
-// sourceVideoReady is additional publication evidence, never room reachability.
-func (c *Controller) sourceVideoReady(peerID string) bool {
-	if c.requiredVideoGeneration() == "" || peerID == c.hostPeerID {
-		return true
+// SourceVideoReady proves the current picture path, independently of room/voice reachability.
+func (c *Controller) SourceVideoReady(peerID string) bool {
+	if !c.sourceUsable(peerID) {
+		return false
 	}
-	edge, ok := c.upstreamByViewer.Get(peerID)
-	return ok && edge.VideoGeneration == c.videoGeneration && edge.VideoReady
+	if c.roomMedia && c.videoGeneration == "" {
+		return false
+	}
+	for peerID != c.hostPeerID {
+		edge, _ := c.upstreamByViewer.Get(peerID)
+		if !edge.VideoReady || c.roomMedia && edge.VideoGeneration != c.videoGeneration {
+			return false
+		}
+		if edge.Kind == UpstreamSfu {
+			return true
+		}
+		peerID = edge.ParentPeerID
+	}
+	return true
 }
 
 func (c *Controller) startPublicationAttach(nowMs int64) bool {
@@ -92,7 +104,7 @@ func (c *Controller) startPublicationAttach(nowMs int64) bool {
 		}
 		tuple := CandidateTuple{Kind: edge.Kind, Transport: edge.Transport}
 		if edge.Kind == UpstreamPeer {
-			if !c.sourceUsable(edge.ParentPeerID) || !c.sourceVideoReady(edge.ParentPeerID) {
+			if !c.sourceUsable(edge.ParentPeerID) || !c.SourceVideoReady(edge.ParentPeerID) {
 				continue
 			}
 			tuple.ParentPeerID = edge.ParentPeerID
@@ -103,7 +115,7 @@ func (c *Controller) startPublicationAttach(nowMs int64) bool {
 			}
 			tuple.Publication = PublicationReuse
 		}
-		c.operation = &operation{
+		op := &operation{
 			childPeerID: childID, childSessionID: child.sessionID,
 			demandPeerID: childID, demandSessionID: child.sessionID,
 			reason: DemandPublicationAttach, baseRevision: c.revision,
@@ -111,6 +123,12 @@ func (c *Controller) startPublicationAttach(nowMs int64) bool {
 			videoGeneration: c.videoGeneration, attachConnectionID: edge.ConnectionID,
 			candidates: []CandidatePlan{{Tuple: tuple, EndpointTransition: EndpointTransition{Kind: TransitionNone}}},
 		}
+		// A retained physical path may outlive its parent's signaling session.
+		// Select only attachments that can pass the same ownership check at begin.
+		if !c.publicationAttachOwned(op) {
+			continue
+		}
+		c.operation = op
 		return true
 	}
 	return false
@@ -132,7 +150,7 @@ func (c *Controller) publicationAttachOwned(op *operation) bool {
 		parent, _ := c.participants.Get(tuple.ParentPeerID)
 		return edge.Kind == UpstreamPeer && edge.ParentPeerID == tuple.ParentPeerID &&
 			parent != nil && parent.sessionIs(edge.ParentSessionID) &&
-			c.sourceUsable(tuple.ParentPeerID) && c.sourceVideoReady(tuple.ParentPeerID)
+			c.sourceUsable(tuple.ParentPeerID) && c.SourceVideoReady(tuple.ParentPeerID)
 	}
 	return edge.Kind == UpstreamSfu && c.hostPublication != nil &&
 		c.hostPublication.Generation == edge.PublicationGeneration &&
@@ -184,7 +202,7 @@ func (c *Controller) finishPublicationAttach(op *operation, ready bool) []string
 			child, _ := c.participants.Get(peerID)
 			edge, _ := c.upstreamByViewer.Get(peerID)
 			if child != nil && child.sessionIs(edge.ChildSessionID) && !child.departureConfirmed &&
-				edge.Usable && edge.PhysicalActive && !c.sourceVideoReady(peerID) {
+				edge.Usable && edge.PhysicalActive && !c.SourceVideoReady(peerID) {
 				failed = append(failed, peerID)
 			}
 		}
@@ -195,6 +213,7 @@ func (c *Controller) finishPublicationAttach(op *operation, ready bool) []string
 func (c *Controller) validatePublicationAttach(op *operation, nowMs int64, failed *CandidateGuard) validation {
 	result := validation{}
 	if !c.publicationAttachOwned(op) {
+		c.debugOperation("operation-stale", op, &nowMs, "reason", "publication-owner")
 		c.advanceActiveRevision(op)
 		c.operation = nil
 		return result
@@ -202,6 +221,11 @@ func (c *Controller) validatePublicationAttach(op *operation, nowMs int64, faile
 	result.consumedGuard = failed != nil && op.current != nil && c.guardMatches(*failed, op, op.current)
 	result.expired = nowMs >= op.deadlineAtMs
 	if result.expired || result.consumedGuard {
+		event := "candidate-failed"
+		if result.expired {
+			event = "operation-deadline"
+		}
+		c.debugOperation(event, op, &nowMs)
 		result.exhaustedPeerIDs = c.finishPublicationAttach(op, false)
 	}
 	return result

@@ -33,6 +33,25 @@ func (c *Controller) debug(event string, details ...any) {
 	c.debugLog("piik-route", args...)
 }
 
+func (c *Controller) debugOperation(event string, op *operation, nowMs *int64, details ...any) {
+	if !c.debugEnabled() {
+		return
+	}
+	fields := []any{"child", c.debugPeer(op.childPeerID), "operationReason", op.reason,
+		"cursor", op.cursor, "candidateCount", len(op.candidates)}
+	if nowMs != nil {
+		fields = append(fields, "remainingMs", op.deadlineAtMs-*nowMs)
+	}
+	if att := op.current; att != nil {
+		fields = append(fields, "candidate", c.debugTuple(att.tuple),
+			"candidateRevision", att.revision, "transportConnected", att.transportConnected)
+		if nowMs != nil {
+			fields = append(fields, "elapsedMs", *nowMs-att.startedAtMs)
+		}
+	}
+	c.debug(event, append(fields, details...)...)
+}
+
 // debugPeer returns "host", "viewer-<joinOrder>" or "viewer-unknown".
 func (c *Controller) debugPeer(peerID string) string {
 	current, _ := c.participants.Get(peerID)

@@ -572,6 +572,30 @@ localStorage。这套开关在 S5 已随旧链路一起删除，本节保留的�
 | 一起看 | 播放/暂停/seek 三项同步，进度差 < 5s |
 | 语音 | 双方「2 人在线」、观众收到远端音轨；停播后语音不断；停播后能重新开播 |
 
+### S8：同步上游 main（2026-11-25）
+
+基线从 `72ca6f2b` 抬到 `e79e658d`（29 个提交，收录包内 37 个文件、+1579/−286），
+用 `internal/piik/sync-from-piik.sh` 整体覆盖，没有手工合任何代码。
+
+| 上游改动 | 对 ZViewer 的影响 |
+|---|---|
+| 中继志愿新增 `roomCapacity`，客户端消息新增 `settings` / `physicalCapacity` | 协议兼容：ZViewer 只发 `relay-capacity`，上游 `capacityOverride()` 在 `settings=false` 时仍走旧路径，等效于 `min(capacity, 普通容量)` |
+| `SourceVideoReady` 进入 presence 的 `mediaReady` 与候选父节点判定 | 自动生效：观众「播放中」状态改为以首帧为准，候选不会挂到还没出帧的父节点 |
+| `peerRestartAuthorized` 替代单纯的父子关系判断 | 自动生效：换父重启要用当前边的 connectionId + 会话身份，ZViewer 的 `restart` 请求原样通过 |
+| UDP 媒体套接字 `SetReadBuffer(2MB)`、pacing 余量提取为常量 | 纯服务端，转发与带宽估计口径不变 |
+| 候选淘汰带 debug 原因（`routeDebugEnabled`）、超载子节点优先迁到有余量的父节点 | 分配更稳，ZViewer 侧无需改协议 |
+
+**没接的部分**：relay volunteer 的「物理容量」语义是给 Piik 自己客户端用的
+（页面声明愿意当中继、能带几条下游）。ZViewer 的树容量仍由
+`relay-capacity { downstreamEdges }` 表达，与上游新语义不冲突；要用上
+`roomCapacity` 得先有「房间级中继预算」的产品定义，不在本次同步范围。
+
+**验证**：`go build ./...`、`go test ./internal/...` 全绿；前端 399 项测试全绿；
+另做了一次保真核对（逐文件比对上游，只做脚本规定的 import 改写），除
+`publication.go` 的 `AdditionalProbeDemand` 外没有非 import 差异，说明没有
+被 gofmt 或手工改动夹带进无关修改。协议版本仍是 `piik-v24`，
+`tests/fixtures` 无变化。
+
 ## 6. 待定
 
 - 走 A（已定：S0/S1 按 A 推进）。

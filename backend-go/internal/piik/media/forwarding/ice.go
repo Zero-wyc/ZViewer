@@ -42,6 +42,11 @@ func AddICECandidate(connection *webrtc.PeerConnection, candidate webrtc.ICECand
 // addresses at each gathering. Its default stdnet snapshot otherwise survives
 // ICE restart (and every new SFU connection sharing that mux).
 func NewUDPMux(params ice.UDPMuxParams) *ice.UDPMuxDefault {
+	// Size the actual media socket before Pion starts reading. Preparation's
+	// unused candidate sockets keep their ordinary OS buffers.
+	if connection, ok := params.UDPConn.(interface{ SetReadBuffer(int) error }); ok {
+		_ = connection.SetReadBuffer(2 * 1024 * 1024)
+	}
 	if params.Net == nil {
 		params.Net = &muxNetwork{}
 	}

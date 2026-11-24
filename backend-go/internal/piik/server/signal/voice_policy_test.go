@@ -52,7 +52,7 @@ func TestRoomVoicePolicyFollowsNewShareOnStartAndHostAuthentication(t *testing.T
 				if rm.controller != previous || rm.controller.AllowsViewerRoutePreference(protocol.ViewerRouteSfu) {
 					t.Fatal("new share failed to update policy on retained room controller")
 				}
-				settings, _ := rm.viewerSettings.Get(viewerID.PeerID)
+				settings, _ := rm.endpointSettings.Get(viewerID.PeerID)
 				if settings.preference != protocol.ViewerRouteAuto {
 					t.Fatal("new peer-only policy retained incompatible Viewer SFU preference")
 				}

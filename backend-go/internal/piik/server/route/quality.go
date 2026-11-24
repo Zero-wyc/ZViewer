@@ -63,6 +63,10 @@ func (c *Controller) ObserveQualityEvidence(input RouteQualityEvidenceInput) Rou
 	if metrics.FramesDecodedDelta == nil || *metrics.FramesDecodedDelta <= 0 {
 		return QualityEvidenceAccepted
 	}
+	if !edge.VideoReady {
+		edge.VideoReady = true
+		c.touchFacts()
+	}
 	hadFreshDecodedProgress := observation.lastDecodedProgressAtMs != nil &&
 		input.AcceptedAtMs < *observation.lastDecodedProgressAtMs+qualityEvidenceExpiryMs
 	decodedAt := input.AcceptedAtMs

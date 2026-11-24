@@ -20,10 +20,10 @@ const (
 	persistentDegradedWindows       = int64(protocol.PersistentNativeEdgeDegradedWindows)
 )
 
-// candidateOpportunity records the attempts consumed at one candidate rank.
+// candidateOpportunity records charged attempts at one candidate rank.
 type candidateOpportunity struct {
 	rank            int
-	startedAttempts int
+	chargedAttempts int
 	exhausted       bool
 }
 
@@ -778,7 +778,7 @@ func (c *Controller) AdoptDirectConnection(input AdoptDirectConnectionInput, now
 	}
 	activeConnectionID := edge.ConnectionID
 	if c.roomMedia {
-		if !edge.VideoReady || edge.VideoGeneration != c.videoGeneration || c.videoGeneration == "" {
+		if edge.VideoConnectionID == "" || edge.VideoGeneration != c.videoGeneration || c.videoGeneration == "" {
 			return result
 		}
 		activeConnectionID = edge.VideoConnectionID
@@ -802,6 +802,7 @@ func (c *Controller) AdoptDirectConnection(input AdoptDirectConnectionInput, now
 			Tuple: CandidateTuple{Kind: edge.Kind, ParentPeerID: edge.ParentPeerID},
 		})
 	}
+	edge.VideoReady = false
 	if child, ok := c.participants.Get(input.ChildPeerID); ok {
 		child.availabilityExhausted = false
 	}
@@ -878,6 +879,9 @@ func (c *Controller) SetPaused(paused bool, nowMs *int64) []*Resource {
 func (c *Controller) Dispose() []*Resource {
 	// Reservation first, then committed resources.
 	resources := &resourceSet{}
+	if c.operation != nil {
+		c.debugOperation("operation-disposed", c.operation, nil)
+	}
 	if c.operation != nil && c.operation.current != nil {
 		resources.add(reservationResources(c.operation.current.reservation)...)
 	}
@@ -913,6 +917,7 @@ func (c *Controller) abortOperation(nowMs *int64, bucket RejectionBucket) []*Res
 		c.finishTiming(c.operation.demandPeerID, *nowMs, c.currentFinalRoute(c.operation.demandPeerID), bucket, false)
 	}
 	op := c.operation
+	c.debugOperation("operation-aborted", op, nowMs, "reason", bucket)
 	released := []*Resource{}
 	if op.current != nil {
 		released = reservationResources(op.current.reservation)
