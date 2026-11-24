@@ -8,7 +8,10 @@ services:
       - "3333:3333/udp" # 语音与屏幕共享的媒体面（与页面 HTTP 同号，协议不同）
       - "3334:3334"     # RTMP 推流 (OBS)
       - "3337:3337"     # 媒体 TCP（UDP 被防火墙/代理拦截时客户端自动回退到此端口）
+      - "3332:3332"     # 网页控制台（zviewer-webgui，独立进程；不需要可删掉这行）
     environment:
+      # 网页控制台端口（容器内监听，与上面的映射对应）
+      - WEBGUI_PORT=${WEBGUI_PORT:-3332}
       # 访问/刷新令牌有效期；Cookie 的 Max-Age 跟着它走（改小会让已登录用户被登出）
       - JWT_ACCESS_EXPIRES_IN=${JWT_ACCESS_EXPIRES_IN:-24h}
       - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-30d}

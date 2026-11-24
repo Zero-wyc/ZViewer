@@ -323,16 +323,17 @@ function appVersion() {
   return '0.0.0';
 }
 
-// 交叉编译网页端控制台（仅 Linux 包需要）。
+// 交叉编译网页端控制台（Windows / Linux 运行包都要）。
 //
-// Windows 分发包里桌面 exe（Wails 壳）自己就是控制台，不需要独立网页端；
-// Linux 没有 Wails GUI，靠 zviewer-webgui 提供网页控制台，并且它与后端解耦
-// （后端没启动时网页端也能打开，只是功能不可用），所以要单独构建成可执行文件。
+// 它与后端解耦：后端没启动时网页端也能打开，只是功能不可用，所以要单独构建。
+// Windows 桌面版（Wails 壳）自己内嵌控制台，不需要这个文件；但 Windows
+// 「单文件」运行包只有 start.bat + zviewer-backend.exe，控制台得靠它。
 function buildGoWebgui(target, outputPath) {
+  const isWin = target.includes('win');
   const isArm = target.includes('arm64');
   const env = {
     ...process.env,
-    GOOS: 'linux',
+    GOOS: isWin ? 'windows' : 'linux',
     GOARCH: isArm ? 'arm64' : 'amd64',
     CGO_ENABLED: '0',
   };
@@ -424,23 +425,18 @@ function packageBackend(targetPlatforms, frontendDist) {
   return results;
 }
 
-// 打包 Linux 网页端（zviewer-webgui）到 dist/linux/，与后端同目录。
-// Windows 目标不需要：桌面 exe 已内置控制台。
+// 打包网页端（zviewer-webgui）到每个平台的产物目录，与后端同目录。
+// Windows 桌面版（Wails 壳）内嵌控制台，但「单文件」运行包没有壳，同样需要它。
 function packageWebgui(targetPlatforms) {
-  const linuxPlatforms = targetPlatforms.filter((p) => p.folder === 'linux');
-  if (linuxPlatforms.length === 0) {
-    log('Windows 包不需要独立网页端（桌面 exe 内置控制台），跳过 zviewer-webgui');
-    return [];
-  }
-
   console.log('');
   console.log('>>> 打包网页端 (go build ./cmd/zviewer-webgui)...');
 
   const results = [];
-  for (const platform of linuxPlatforms) {
+  for (const platform of targetPlatforms) {
     for (const target of platform.targets) {
+      const isWin = platform.folder === 'win';
       const outputFolder = path.join(DIST_EXE, platform.folder);
-      const outputPath = path.join(outputFolder, 'zviewer-webgui');
+      const outputPath = path.join(outputFolder, `zviewer-webgui${isWin ? '.exe' : ''}`);
       fs.mkdirSync(outputFolder, { recursive: true });
 
       log(`打包网页端 → ${target} (${platform.label})...`);
@@ -468,6 +464,33 @@ function packageWebgui(targetPlatforms) {
   }
 
   return results;
+}
+
+// Windows 网页控制台要启停后端，就必须有进程监管宿主（Job Object 回收）。
+// controller 在 Windows 上找不到它时直接拒绝启动后端，所以这里尽力编译；
+// 非 Windows 构建机没有 csc.exe，只告警不失败（产物里就没有该文件）。
+function packageProcessHost(outputFolder) {
+  const hostSource = path.join(ROOT, 'desktop', 'native', 'ProcessHost.cs');
+  if (!fs.existsSync(hostSource)) {
+    warn('ProcessHost: 缺少 desktop/native/ProcessHost.cs，跳过');
+    return false;
+  }
+  const windir = process.env.WINDIR || 'C:\\Windows';
+  const compiler = path.join(windir, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  if (!fs.existsSync(compiler)) {
+    warn('ProcessHost: 找不到 .NET Framework 4.x 编译器，跳过（Windows 控制台将无法启停后端）');
+    return false;
+  }
+  const hostExe = path.join(outputFolder, 'ZViewer.ProcessHost.exe');
+  fs.mkdirSync(outputFolder, { recursive: true });
+  execFileSync(compiler, [
+    '/nologo', '/target:exe', '/platform:x64', '/optimize+', '/debug-',
+    `/out:${hostExe}`,
+    `/win32icon:${path.join(ROOT, 'desktop', 'assets', 'app.ico')}`,
+    hostSource,
+  ], { stdio: 'inherit', windowsHide: true });
+  success(`ProcessHost: ${hostExe} (${formatBytes(fs.statSync(hostExe).size)})`);
+  return true;
 }
 
 // 计算终端显示宽度：CJK 等宽字符占 2 列，用来对齐汇总表。
@@ -663,9 +686,14 @@ async function main() {
     const backendResults = packageBackend(targetPlatforms, frontendDist);
     allResults.push(...backendResults);
 
-    // 3.1 Linux 包额外产出独立网页端 zviewer-webgui（与后端同目录）
+    // 3.1 各平台产出独立网页端 zviewer-webgui（与后端同目录）
     const webguiResults = packageWebgui(targetPlatforms);
     allResults.push(...webguiResults);
+
+    // 3.2 Windows 单文件包的网页控制台靠 ProcessHost 启停后端
+    if (targetPlatforms.some((p) => p.folder === 'win')) {
+      packageProcessHost(path.join(DIST_EXE, 'win'));
+    }
   }
 
   // 4. 输出汇总

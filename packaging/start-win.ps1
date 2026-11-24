@@ -6,6 +6,9 @@
 #
 # 统一端口：前后端共用同一端口（默认 3333），由后端 exe 托管 frontend/dist 静态文件，
 # 无需独立的前端 exe。
+#
+# 网页控制台：zviewer-webgui.exe（默认 3332）与后端解耦 —— 后端没起来时页面照样
+# 能打开，点「启动服务」才拉起后端。运行包里没有该文件时行为与旧版一致。
 
 param(
     [Parameter(Position = 0)]
@@ -27,6 +30,7 @@ $ErrorActionPreference = "Stop"
 $rootDir = $PSScriptRoot
 if (-not $rootDir) { $rootDir = (Get-Location).Path }
 $backendExe = Join-Path $rootDir "zviewer-backend.exe"
+$webguiExe = Join-Path $rootDir "zviewer-webgui.exe"
 $logDir = Join-Path $rootDir "log"
 $pidsFile = Join-Path $rootDir ".prod.pids.json"
 $envFile = Join-Path $rootDir ".env"
@@ -38,9 +42,13 @@ function Read-PidsFile {
     try { return Get-Content $pidsFile -Raw | ConvertFrom-Json } catch { return $null }
 }
 
-function Write-PidsFile($backendPid) {
+function Write-PidsFile($backendPid, $webguiPid) {
+    # 网页端 PID 可空：运行包里没有 zviewer-webgui.exe 时保持旧格式（字段为 null）
+    $webguiEntry = $null
+    if ($webguiPid) { $webguiEntry = @{ pid = $webguiPid } }
     @{
         backend  = @{ pid = $backendPid }
+        webgui   = $webguiEntry
         frontend = $null
     } | ConvertTo-Json -Depth 3 | Set-Content -Path $pidsFile -Encoding UTF8
 }
@@ -88,6 +96,16 @@ function Set-Ports {
     # 统一端口：前后端共用同一端口（默认 3333），由后端托管前端静态文件
     $portEnv = Read-PortValue -Key 'PORT'
     $script:Port = if ($portEnv) { $portEnv } else { 3333 }
+
+    # 网页控制台端口：环境变量 ZVIEWER_WEB_PORT > .env 的 WEBGUI_PORT > 3332
+    $guiPort = $null
+    $guiEnv = [Environment]::GetEnvironmentVariable('ZVIEWER_WEB_PORT')
+    if ($guiEnv -match '^\d+$') {
+        $guiPort = [int]$guiEnv
+    } else {
+        $guiPort = Read-PortValue -Key 'WEBGUI_PORT'
+    }
+    $script:WebguiPort = if ($guiPort) { $guiPort } else { 3332 }
 }
 
 function Test-Exe([string]$Exe, [string]$Name) {
@@ -184,20 +202,80 @@ function Invoke-Cert {
 # ==================== 启动 ====================
 
 # 以指定环境变量启动 exe（兼容 Windows PowerShell 5.1，启动后恢复原环境）
-function Start-ExeWithEnv([string]$FilePath, [hashtable]$EnvVars, [string]$OutFile, [string]$ErrFile) {
+function Start-ExeWithEnv([string]$FilePath, [hashtable]$EnvVars, [string]$OutFile, [string]$ErrFile, [string[]]$Arguments = $null) {
     $saved = @{}
     foreach ($k in $EnvVars.Keys) {
         $saved[$k] = [Environment]::GetEnvironmentVariable($k, 'Process')
         [Environment]::SetEnvironmentVariable($k, [string]$EnvVars[$k], 'Process')
     }
     try {
-        return Start-Process -FilePath $FilePath -WorkingDirectory $rootDir -WindowStyle Hidden  `
-            -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
+        $startParams = @{
+            FilePath               = $FilePath
+            WorkingDirectory       = $rootDir
+            WindowStyle            = 'Hidden'
+            RedirectStandardOutput = $OutFile
+            RedirectStandardError  = $ErrFile
+            PassThru               = $true
+        }
+        if ($Arguments -and $Arguments.Count -gt 0) {
+            $startParams['ArgumentList'] = $Arguments
+        }
+        return Start-Process @startParams
     } finally {
         foreach ($k in $saved.Keys) {
             [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process')
         }
     }
+}
+
+# 打印网页控制台地址与登录口径（后端库未初始化时用 root / root 兜底）
+function Write-WebguiUrls {
+    Write-Host ""
+    Write-Host "  GUI 网页端：http://localhost:$WebguiPort"
+    $dbFile = Join-Path $rootDir "config\dev.sqlite"
+    if (Test-Path $dbFile) {
+        Write-Host "  登录账号：ZViewer 超级管理员（与后台是同一个账号）"
+    } else {
+        Write-Host "  登录账号：数据库尚未初始化，首次请用 root / root"
+    }
+}
+
+# 启动网页控制台（zviewer-webgui.exe）。成功返回 $true，未安装/端口占用/启动失败返回 $false。
+# 注意：没有该二进制时保持旧版行为 —— 不启动、不报错。
+function Invoke-StartWebgui {
+    $script:WebguiPid = $null
+    if (-not (Test-Path $webguiExe)) { return $false }
+
+    if (Test-PortInUse $WebguiPort) {
+        Write-Host "  [网页端] 端口 $WebguiPort 已被占用，跳过启动（可能已有网页端在运行）"
+        Write-WebguiUrls
+        return $false
+    }
+
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    "" | Set-Content "$logDir/webgui.log" -Encoding UTF8
+    "" | Set-Content "$logDir/webgui.err.log" -Encoding UTF8
+
+    Write-Host "  启动网页端..."
+    # 路径可能含空格：PowerShell 5.1 的 ArgumentList 不会自动加引号，这里显式包一层
+    $stateDir = Join-Path $rootDir 'profile'
+    $gui = Start-ExeWithEnv -FilePath $webguiExe -EnvVars @{} `
+        -OutFile "$logDir/webgui.log" -ErrFile "$logDir/webgui.err.log" `
+        -Arguments @('--root', "`"$rootDir`"", '--state-dir', "`"$stateDir`"", '--port', "$WebguiPort", '--bind', '0.0.0.0')
+
+    # 网页端只是静态壳 + 本机进程管理，通常 1-2 秒就绪
+    if (-not (Wait-PortReady $WebguiPort 30)) {
+        Write-Host "  GUI 网页端启动失败，请查看 $logDir\webgui.log" -ForegroundColor Red
+        Write-Host "  （后端仍可用，不影响后端功能）"
+        if ($gui) { Stop-Process -Id $gui.Id -Force -ErrorAction SilentlyContinue }
+        return $false
+    }
+
+    $script:WebguiPid = $gui.Id
+    Write-WebguiUrls
+    Write-Host "  网页端 PID: $($gui.Id)"
+    Write-Host "  网页端日志: $logDir\webgui.log"
+    return $true
 }
 
 function Invoke-Start([switch]$BackendOnly) {
@@ -212,6 +290,9 @@ function Invoke-Start([switch]$BackendOnly) {
       Write-Host "  模式: 仅后端（不校验前端产物）"
     } else {
       Write-Host "  模式: HTTP（后端统一提供 API + 前端静态文件）"
+    }
+    if (Test-Path $webguiExe) {
+      Write-Host "  网页端: 端口 $WebguiPort（独立进程，后端未启动也可访问）"
     }
     Write-Host "========================================"
 
@@ -265,13 +346,20 @@ function Invoke-Start([switch]$BackendOnly) {
     if (-not (Wait-PortReady $Port)) {
         Write-Host "  错误：后端在 30 秒内未就绪，请检查日志: $logDir\backend.err.log" -ForegroundColor Red
         Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
-        exit 1
+        Write-Host "  [提示] 后端未启动，网页端仍可打开（部分功能不可用）"
+        [void](Invoke-StartWebgui)
+        return 1
     }
 
-    Write-PidsFile -backendPid $backend.Id
     Write-Host "  后端 PID: $($backend.Id)"
     $protocol = if ($Https) { 'https' } else { 'http' }
     Write-Host "  访问  : ${protocol}://localhost:$Port"
+
+    # 网页控制台与后端解耦：起不来只提示，不改变后端的成功状态
+    $webguiPid = $null
+    if (Invoke-StartWebgui) { $webguiPid = $script:WebguiPid }
+
+    Write-PidsFile -backendPid $backend.Id -webguiPid $webguiPid
     Write-Host "  日志  : $logDir/"
     return 0
 }
@@ -284,15 +372,19 @@ function Invoke-Stop {
         if ($existing.backend -and $existing.backend.pid) {
             Stop-Process -Id $existing.backend.pid -Force -ErrorAction SilentlyContinue
         }
+        if ($existing.webgui -and $existing.webgui.pid) {
+            Stop-Process -Id $existing.webgui.pid -Force -ErrorAction SilentlyContinue
+        }
         # 兼容旧版 pids 文件中可能记录的前端进程
         if ($existing.frontend -and $existing.frontend.pid) {
             Stop-Process -Id $existing.frontend.pid -Force -ErrorAction SilentlyContinue
         }
         Remove-Item $pidsFile -Force -ErrorAction SilentlyContinue
     }
-    # 兜底：按统一端口清理
+    # 兜底：按端口清理（网页端端口与后端端口分开）
     Set-Ports
     Stop-ProcessByPort $Port
+    Stop-ProcessByPort $WebguiPort
     Write-Host "  已停止"
 }
 
@@ -315,6 +407,7 @@ function Invoke-Status {
     }
 
     $backendListen = Test-PortInUse $Port
+    $webguiListen = Test-PortInUse $WebguiPort
 
     Write-Host "  服务:"
     Write-Host "    配置端口: $Port"
@@ -322,10 +415,19 @@ function Invoke-Status {
     if ($existing -and $existing.backend -and $existing.backend.pid) {
         Write-Host "    记录 PID: $($existing.backend.pid) ($(if ($backendRunning) { '运行中' } else { '未运行' }))"
     }
+    Write-Host "  网页控制台:"
+    Write-Host "    端口: $WebguiPort"
+    Write-Host "    端口监听: $(if ($webguiListen) { '是' } else { '否' })"
+    Write-Host "    地址: http://localhost:$WebguiPort"
+    if ($existing -and $existing.webgui -and $existing.webgui.pid) {
+        $webguiRunning = $null -ne (Get-Process -Id $existing.webgui.pid -ErrorAction SilentlyContinue)
+        Write-Host "    记录 PID: $($existing.webgui.pid) ($(if ($webguiRunning) { '运行中' } else { '未运行' }))"
+    }
 
     $frontendArtifact = Join-Path $rootDir "frontend\dist\index.html"
     Write-Host "  程序:"
     Write-Host "    后端: $(if (Test-Path $backendExe) { '存在' } else { '缺失' })"
+    Write-Host "    网页端: $(if (Test-Path $webguiExe) { '存在' } else { '缺失' })"
     Write-Host "    前端: $(if (Test-Path $frontendArtifact) { '存在' } else { '缺失' })"
     Write-Host "    证书: $(if (Test-Path (Join-Path $rootDir 'config\ssl\cert.pem')) { '存在' } else { '缺失' })"
 }
@@ -362,6 +464,7 @@ function Show-Help {
     Write-Host "  -Force                    证书强制重新签发"
     Write-Host ""
     Write-Host "端口: 默认取 .env 的 PORT（否则 3333），前后端共用同一端口"
+    Write-Host "      网页控制台默认取 .env 的 WEBGUI_PORT（否则 3332），日志在 log\webgui.log"
     Write-Host ""
     Write-Host "示例:"
     Write-Host "  start.bat                  # 交互菜单"

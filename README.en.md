@@ -64,14 +64,20 @@ Download [`zviewer-windows-x64-GUI.zip`](https://github.com/Zero-wyc/ZViewer/rel
 
 Then open `http://localhost:3333`. For stable versions, pick one from [Releases](https://github.com/Zero-wyc/ZViewer/releases).
 
+The single-file builds also ship `zviewer-webgui`, a separate control console on `3332` (start/stop the
+backend, read logs, set up remote access). It does not depend on the backend, so the page opens even when
+the backend is down. Sign in with the ZViewer super admin account (`root` / `root` until the database is initialized).
+
 ### Docker
 
 ```bash
 docker run -d --name zviewer --restart unless-stopped \
-  -p 3333:3333 -p 3333:3333/udp -p 3334:3334 -p 3337:3337 \
+  -p 3333:3333 -p 3333:3333/udp -p 3334:3334 -p 3337:3337 -p 3332:3332 \
   -v zviewer-data:/app/config \
   zerowyc0721/zviewer:latest
 ```
+
+`3332` is the control console; drop that mapping if you do not need it.
 
 ### From source
 
@@ -204,7 +210,7 @@ Optional: OBS (streaming), `sqlite3`, WebView2 (desktop shell development).
 | `npm run lint` / `npm test -w frontend` | eslint (0 error 0 warning) / frontend unit tests |
 | `npm run test:regression` | Full regression, about 1 min 45 s |
 
-Change the backend port with `PORT`, point the frontend at it with `VITE_API_TARGET`. Port map: 3333 backend + web + media UDP, 3337 media TCP, 5174 Vite, 3334 RTMP (HTTP-FLV streaming is served in-process under `/live`, no extra port).
+Change the backend port with `PORT`, point the frontend at it with `VITE_API_TARGET`, and move the console with `WEBGUI_PORT` (`ZVIEWER_WEB_PORT` wins). Port map: 3333 backend + web + media UDP, 3337 media TCP, 5174 Vite, 3334 RTMP (HTTP-FLV streaming is served in-process under `/live`, no extra port), 3332 control console.
 
 Regression scripts each cover one area (`route-parity`, `events-parity`, `bilibili-smoke`, `frontend-smoke`, `soak`, …) and always work on a database copy, never `config/dev.sqlite`. Run one alone: `bash backend-go/scripts/profile-smoke.sh`.
 

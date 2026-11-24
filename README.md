@@ -68,7 +68,7 @@
 
 ```bash
 docker run -d --name zviewer --restart unless-stopped \
-  -p 3333:3333 -p 3333:3333/udp -p 3334:3334 -p 3337:3337 \
+  -p 3333:3333 -p 3333:3333/udp -p 3334:3334 -p 3337:3337 -p 3332:3332 \
   -v zviewer-data:/app/config \
   zerowyc0721/zviewer:latest
 ```
@@ -76,6 +76,7 @@ docker run -d --name zviewer --restart unless-stopped \
 - HTTPS证书配置建议使用 ACME / Cloudflare / ESA / EdgeOne / 宝塔 / 1Panel 配置
 - 数据位于 `/app/config`（数据库、证书、上传文件）
 - 从4版本升到5版本建议重新安装
+- `3332` 是网页控制台（与页面是两套东西）；不需要时删掉这条端口映射即可
 
 ## 端口
 
@@ -85,6 +86,7 @@ docker run -d --name zviewer --restart unless-stopped \
 | 3333/udp | 语音媒体（UDP） |
 | 3337/tcp | 语音媒体（TCP，UDP 受限时自动切换） |
 | 3334/tcp | OBS RTMP 推流 |
+| 3332/tcp | 网页控制台（`zviewer-webgui`，独立进程，可不开） |
 
 主要的环境变量：
 
@@ -99,12 +101,25 @@ docker run -d --name zviewer --restart unless-stopped \
 | `SHARE_MEDIA_PORT` | 媒体 UDP 端口 | `3333` |
 | `SHARE_MEDIA_TCP_PORT` | 媒体 TCP 端口。**不能与 `PORT` 相同**（会抢走网页端口）；留空用 3337 | `3337` |
 | `SHARE_MEDIA_PUBLIC_IP` | NAT 1:1 下的公网地址（云主机 / FRP 场景必填） | 自动 |
+| `WEBGUI_PORT` | 网页控制台端口（运行包 / 容器）；`ZVIEWER_WEB_PORT` 优先 | `3332` |
 
 其余变量（推流、Emby 等）见 `backend-go/internal/config`。
 
 ## 语音（采用Piik的语音链路）
 
 语音在房间成员之间直连，房主是树根，后端只负责信令（`/signal`）与禁言、踢人等权限，音频不经过服务器。浏览器自动在 UDP 与 TCP 之间择优。
+
+## 网页控制台
+
+`zviewer-webgui` 是与主服务解耦的控制台（默认 `3332`）：启停后端、看日志、配外网接入。
+后端没启动时页面照样能打开，点「启动服务」才拉起后端。登录用 ZViewer 超级管理员账号；
+库还没初始化时用 `root` / `root`。
+
+| 分发形态 | 控制台 |
+| --- | --- |
+| Docker / Linux 包 | 容器入口与 `start.sh` 自动拉起；没带该文件时跳过，行为与旧版一致 |
+| Windows 单文件 | `start.bat` 自动拉起同目录的 `zviewer-webgui.exe` |
+| Windows 桌面版 | 内置在桌面进程里，同样是 `3332` |
 
 ## 桌面端
 

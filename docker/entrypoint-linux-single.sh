@@ -14,6 +14,9 @@ mkdir -p config/ssl config/uploads config/media log
 PORT="${PORT:-3333}"
 RTMP_PORT="${RTMP_PORT:-3334}"
 HTTP_FLV_PORT="${HTTP_FLV_PORT:-3335}"
+# 网页控制台（zviewer-webgui）端口：WEBGUI_PORT > ZVIEWER_WEB_PORT > 3332
+WEBGUI_PORT="${WEBGUI_PORT:-${ZVIEWER_WEB_PORT:-3332}}"
+WEBGUI_BIN="/app/zviewer-webgui"
 
 # 后端环境变量
 export PORT="$PORT"
@@ -28,6 +31,28 @@ RESTART_MARKER="/app/.restart-backend"
 rm -f "$RESTART_MARKER"
 
 BACKEND_PID=""
+WEBGUI_PID=""
+
+# ==================== 网页控制台 ====================
+# 与后端解耦：起不来只影响控制台，后端照常运行；没有该二进制时整段跳过。
+start_webgui() {
+  WEBGUI_PID=""
+  [ -x "$WEBGUI_BIN" ] || return 0
+  mkdir -p /app/log
+  echo "  启动网页控制台 (端口: $WEBGUI_PORT)..."
+  # state-dir 放在数据卷里：容器重建后下载缓存/日志还在，鉴权仍读 /app/config 的主库
+  "$WEBGUI_BIN" --root /app --state-dir /app/config/webgui \
+    --port "$WEBGUI_PORT" --bind 0.0.0.0 >> /app/log/webgui.log 2>&1 &
+  WEBGUI_PID=$!
+}
+
+stop_webgui() {
+  if [ -n "$WEBGUI_PID" ]; then
+    kill "$WEBGUI_PID" 2>/dev/null || true
+    wait "$WEBGUI_PID" 2>/dev/null || true
+    WEBGUI_PID=""
+  fi
+}
 
 # ==================== 信号处理 ====================
 # SIGTERM/SIGINT 时停止后端并退出容器（正常关闭流程，不触发重启）
@@ -38,11 +63,15 @@ cleanup() {
     kill "$BACKEND_PID" 2>/dev/null || true
     wait "$BACKEND_PID" 2>/dev/null || true
   fi
+  stop_webgui
   echo "  服务已停止"
   exit 0
 }
 
 trap cleanup SIGTERM SIGINT
+
+# 网页控制台先起来：后端还没就绪时页面也能打开（状态面板显示「未运行」）
+start_webgui
 
 # ==================== 后端进程监控循环 ====================
 # 后端退出后，检查是否为更新触发的重启：
@@ -61,15 +90,26 @@ while true; do
     echo "========================================"
     echo "  ZViewer 已启动"
     echo "  访问页面 : http://localhost:$PORT"
+    if [ -x "$WEBGUI_BIN" ]; then
+      echo "  网页控制台: http://localhost:$WEBGUI_PORT （登录用超级管理员账号）"
+    fi
     echo "  RTMP 推流: rtmp://localhost:$RTMP_PORT/live （由后端进程内监听）"
     echo "  HTTP-FLV : http://localhost:$PORT/live/ （后端反代到进程内 $HTTP_FLV_PORT）"
     echo "  一起听   : 后端自带网易云接口，无需额外服务"
     echo "========================================"
   fi
 
-  # 等待后端进程退出
+  # 等待后端进程退出；顺带每 10 秒确认网页控制台还活着（它崩了不影响后端，
+  # 但重建容器才能找回来，代价太大，这里直接拉起）
+  TICK=0
   while kill -0 "$BACKEND_PID" 2>/dev/null; do
     sleep 1
+    TICK=$((TICK + 1))
+    if [ $((TICK % 10)) -eq 0 ] && [ -x "$WEBGUI_BIN" ] &&
+      { [ -z "$WEBGUI_PID" ] || ! kill -0 "$WEBGUI_PID" 2>/dev/null; }; then
+      echo "  [entrypoint] 网页控制台已退出，正在重新拉起..."
+      start_webgui
+    fi
   done
 
   # 后端已退出，检查是否为更新触发的重启
@@ -92,6 +132,10 @@ while true; do
       fi
     done
     echo "  [entrypoint] 更新脚本已完成，正在重启后端..."
+
+    # 更新包可能同时替换了网页端二进制：重启一次让它跑新版本
+    stop_webgui
+    start_webgui
 
     # 短暂等待，确保端口释放（旧进程可能处于 TIME_WAIT）
     sleep 2

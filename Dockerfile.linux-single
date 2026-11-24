@@ -27,6 +27,7 @@ WORKDIR /app
 # 注意：二进制来自 build-all.js 产物（CI 下缺失会硬失败），直接 docker
 # build 前需先跑 node build-all.js --linux
 COPY dist/linux/zviewer-backend .
+COPY dist/linux/zviewer-webgui .
 COPY dist/linux/start.sh .
 COPY dist/linux/.env .
 COPY dist/linux/package.json .
@@ -34,17 +35,18 @@ COPY dist/linux/frontend/dist ./frontend/dist/
 
 # 创建运行时数据目录
 RUN mkdir -p config/ssl config/uploads config/media log \
-    && chmod +x zviewer-backend start.sh
+    && chmod +x zviewer-backend start.sh zviewer-webgui
 
 # 暴露端口
 # 3333/tcp: 统一端口 - 后端 REST API + WebSocket (Socket.IO) + 前端静态文件 + /live HTTP-FLV 代理
 # 3333/udp: 语音与屏幕共享的媒体面（后端进程内，与页面同号不同协议）
 # 3334/tcp: RTMP 推流端口 (OBS 连接，由后端进程内监听)
 # 3337/tcp: 媒体 TCP（UDP 被防火墙/代理拦截时客户端自动回退到这里）
+# 3332/tcp: 网页控制台（zviewer-webgui，独立进程；管启停/日志/网络接入，与 3333 页面是两套东西）
 # 拉流不需要额外端口：/live 由后端进程内直接写出 FLV，不占监听。
 # 注意：媒体 TCP 必须与网页端口分开（SHARE_MEDIA_TCP_PORT，默认 3337），
 # 与网页同号会让媒体面先把网页端口绑走，后端自己起不来。
-EXPOSE 3333/tcp 3333/udp 3334/tcp 3337/tcp
+EXPOSE 3333/tcp 3333/udp 3334/tcp 3337/tcp 3332/tcp
 
 # Entrypoint（HTTP 模式，仅启动后端，由后端统一提供 API + 前端静态文件）
 COPY docker/entrypoint-linux-single.sh /app/entrypoint.sh
