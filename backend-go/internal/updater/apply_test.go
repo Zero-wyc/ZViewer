@@ -57,18 +57,37 @@ func makeTarGz(t *testing.T, entries map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// spawnRecord 记录一次「拉起脚本」的实参，供用例断言。
+type spawnRecord struct {
+	script string
+	root   string
+	env    []string
+}
+
+// envValue 从注入的环境变量里取值（找不到返回空串）。
+func (r *spawnRecord) envValue(key string) string {
+	for _, entry := range r.env {
+		if name, value, ok := strings.Cut(entry, "="); ok && name == key {
+			return value
+		}
+	}
+	return ""
+}
+
 // newApplyService 造一个不会真的拉起脚本的更新器。
-func newApplyService(t *testing.T, goos string) (*Service, *string) {
+func newApplyService(t *testing.T, goos string) (*Service, *spawnRecord) {
 	t.Helper()
 	svc := New(t.TempDir(), nil)
 	svc.GOOS = goos
-	spawned := ""
-	svc.spawnFn = func(isWindows bool, scriptPath, root string) error {
-		spawned = scriptPath
+	record := &spawnRecord{}
+	svc.spawnFn = func(isWindows bool, scriptPath, root string, env []string) error {
+		record.script = scriptPath
+		record.root = root
+		record.env = env
 		return nil
 	}
 	svc.dockerFn = func() bool { return false }
-	return svc, &spawned
+	return svc, record
 }
 
 func stageNames(events []StageEvent) []string {
@@ -102,8 +121,8 @@ func TestApplyUpdateFromFileWindows(t *testing.T) {
 	}
 
 	wantScript := filepath.Join(root, "apply-update.bat")
-	if *spawned != wantScript {
-		t.Fatalf("应拉起 %q，实际 %q", wantScript, *spawned)
+	if spawned.script != wantScript {
+		t.Fatalf("应拉起 %q，实际 %q", wantScript, spawned.script)
 	}
 	if got := stageNames(events); strings.Join(got, ",") != "extracting,starting,done" {
 		t.Fatalf("阶段序列不对: %v", got)
@@ -143,7 +162,7 @@ func TestApplyUpdateFromFileNestedDir(t *testing.T) {
 	if _, err := svc.ApplyUpdateFromFile(context.Background(), archive, "x.zip", nil); err != nil {
 		t.Fatalf("应用更新失败: %v", err)
 	}
-	raw, err := os.ReadFile(*spawned)
+	raw, err := os.ReadFile(spawned.script)
 	if err != nil {
 		t.Fatalf("读脚本失败: %v", err)
 	}
@@ -164,11 +183,11 @@ func TestApplyUpdateFromFileLinux(t *testing.T) {
 	if _, err := svc.ApplyUpdateFromFile(context.Background(), archive, "update.tar.gz", nil); err != nil {
 		t.Fatalf("应用更新失败: %v", err)
 	}
-	if want := filepath.Join(svc.Root, "apply-update.sh"); *spawned != want {
-		t.Fatalf("应拉起 %q，实际 %q", want, *spawned)
+	if want := filepath.Join(svc.Root, "apply-update.sh"); spawned.script != want {
+		t.Fatalf("应拉起 %q，实际 %q", want, spawned.script)
 	}
 
-	raw, err := os.ReadFile(*spawned)
+	raw, err := os.ReadFile(spawned.script)
 	if err != nil {
 		t.Fatalf("读脚本失败: %v", err)
 	}
@@ -201,7 +220,7 @@ func TestApplyUpdateFromFileDocker(t *testing.T) {
 		t.Fatalf("容器版文案不对: %q", result.Message)
 	}
 
-	raw, err := os.ReadFile(*spawned)
+	raw, err := os.ReadFile(spawned.script)
 	if err != nil {
 		t.Fatalf("读脚本失败: %v", err)
 	}
@@ -250,7 +269,7 @@ func TestApplyUpdateFromFileRejectsExtension(t *testing.T) {
 	if err == nil || err.Error() != "仅支持 .zip 或 .tar.gz 格式的压缩包" {
 		t.Fatalf("扩展名校验不对: %v", err)
 	}
-	if *spawned != "" {
+	if spawned.script != "" {
 		t.Fatalf("校验失败时不该拉起脚本")
 	}
 }

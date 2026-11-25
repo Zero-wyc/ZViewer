@@ -5,9 +5,14 @@
 //
 //   - 版本判定走 GitHub Releases（正式版 / 预发布版两条分支），下载走可选的
 //     CDN 前缀；检查更新本身**不走** CDN（避免共享 IP 触发 GitHub 限流）。
-//   - 真正落地文件不靠本进程，而是生成一份平台脚本（bat / sh）后 detached
+//   - 真正落地文件不靠本进程，而是拿到一份平台脚本（bat / sh）后 detached
 //     启动它：脚本负责停服 → 备份 config → 覆盖文件 → 恢复 config → 重启。
 //     本进程随后就被脚本杀掉，因此「更新成功」只能表示脚本已拉起。
+//   - **安装策略跟着发行包走**：优先执行更新包自带的 install-update.sh /
+//     install-update.bat（契约见 installer.go），本进程只负责发现、校验、
+//     注入环境变量。内嵌模板只用于不认识这套约定的旧包。这样新增一个二进制
+//     时只改打包脚本，不必指望用户先跑到含新清单的版本——zviewer-webgui
+//     当初就是这么漏掉的。
 //   - 桌面 GUI 托管（ZVIEWER_DESKTOP=1）时整套端点由 handler 层拦成 409，
 //     本包不做该判断。
 package updater

@@ -510,12 +510,19 @@ function padDisplay(text, width) {
 // Copy per-platform one-click start scripts into the output folders.
 function copyStartScripts(targetPlatforms) {
   // 每个平台可复制多个文件（Windows: bat 转发器 + ps1 主逻辑）
+  //
+  // install-update.* 是「随包发布的安装策略」：更新时由更新器优先执行包内这份，
+  // 于是新增二进制只改打包脚本，不必再指望用户先跑到含新清单的旧版本。
   const scriptMap = {
     win: [
       { src: 'start-win.bat', dest: 'start.bat' },
       { src: 'start-win.ps1', dest: 'start.ps1' },
+      { src: 'install-update.bat', dest: 'install-update.bat' },
     ],
-    linux: [{ src: 'start-linux.sh', dest: 'start.sh' }],
+    linux: [
+      { src: 'start-linux.sh', dest: 'start.sh' },
+      { src: 'install-update.sh', dest: 'install-update.sh' },
+    ],
   };
 
   const folders = [];
@@ -539,7 +546,14 @@ function copyStartScripts(targetPlatforms) {
         continue;
       }
       const destPath = path.join(outputFolder, mapping.dest);
-      fs.copyFileSync(srcPath, destPath);
+      if (mapping.dest.endsWith('.bat')) {
+        // cmd.exe 只认 CRLF：源文件在 git 里是 LF，这里统一转一次，
+        // 否则 Windows 上会报 "'xxx' 不是内部或外部命令" 直接跑不动。
+        const text = fs.readFileSync(srcPath, 'utf8').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+        fs.writeFileSync(destPath, text);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
       // Set executable permission on Unix-like build hosts (no-op on Windows)
       if (mapping.dest.endsWith('.sh') || mapping.dest.endsWith('.command')) {
         try { fs.chmodSync(destPath, 0o755); } catch { /* ignore on non-Unix hosts */ }

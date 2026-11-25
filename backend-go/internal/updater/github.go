@@ -61,7 +61,7 @@ type Service struct {
 	settingsOverride func(ctx context.Context) (enabled bool, proxyURL string, err error)
 	// spawnFn 仅供测试替换「拉起更新脚本」。真实实现会 detached 启动
 	// bat/sh，测试里必须拦住——那个脚本第一件事是杀掉本进程。
-	spawnFn func(isWindows bool, scriptPath, root string) error
+	spawnFn func(isWindows bool, scriptPath, root string, env []string) error
 	// dockerFn 仅供测试替换容器探测：CI 本身就跑在容器里，
 	// 不注入的话 Linux 分支会随运行环境漂移。
 	dockerFn func() bool

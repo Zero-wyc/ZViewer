@@ -63,9 +63,12 @@ func (s *Service) ApplyUpdateFromFile(
 // downloadURL 非空时走流式下载（带进度），否则把 data 直接落盘。
 //
 // 关键设计：本函数**不替换任何运行中的文件**。它只负责准备 `.update-temp`
-// 与一份平台脚本，然后 detached 拉起脚本就返回。脚本会先停掉本进程再覆盖
+// 与一份脚本，然后 detached 拉起脚本就返回。脚本会先停掉本进程再覆盖
 // 文件——在 Windows 上覆盖运行中的 exe 本来就会被拒绝，在 Linux 上覆盖运行中
 // 的 ELF 会直接把进程打成 SIGBUS。
+//
+// 脚本来源见 installScript：优先用更新包自带的（安装策略由新版本决定），
+// 包内没有才回退内嵌模板。
 func (s *Service) applyArchive(
 	ctx context.Context,
 	data []byte,
@@ -130,18 +133,13 @@ func (s *Service) applyArchive(
 	// Docker 用专用脚本：不重启进程，而是留标记后退出，由 entrypoint 拉起。
 	dockerMode := !isWindows && s.inDocker()
 
-	var (
-		scriptPath string
-		err        error
-	)
-	switch {
-	case isWindows:
-		scriptPath, err = writeApplyUpdateBat(root, tempDir, extractedDir)
-	case dockerMode:
-		scriptPath, err = writeDockerUpdateSh(root, tempDir, extractedDir)
-	default:
-		scriptPath, err = writeApplyUpdateSh(root, tempDir, extractedDir)
+	// 安装策略由发行包决定，这里只负责把运行环境告诉它。
+	mode, tag := "native", "[更新脚本]"
+	if dockerMode {
+		mode, tag = "docker", "[Docker 更新脚本]"
 	}
+
+	scriptPath, err := s.installScript(root, tempDir, extractedDir, isWindows, mode, tag)
 	if err != nil {
 		emit(StageEvent{Stage: StageError, Message: err.Error()})
 		return nil, err
@@ -150,7 +148,8 @@ func (s *Service) applyArchive(
 	if spawn == nil {
 		spawn = spawnScript
 	}
-	if err := spawn(isWindows, scriptPath, root); err != nil {
+	env := installerEnv(root, tempDir, extractedDir, mode, tag, LocalVersion(root))
+	if err := spawn(isWindows, scriptPath, root, env); err != nil {
 		emit(StageEvent{Stage: StageError, Message: err.Error()})
 		return nil, err
 	}

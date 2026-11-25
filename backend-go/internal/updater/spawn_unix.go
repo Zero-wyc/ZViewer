@@ -12,9 +12,13 @@ import (
 // Setsid 新建会话与进程组：脚本的 STOP_SECTION 会用 pgrep -f 找
 // zviewer-backend 逐个 kill，同组的话脚本自己也会被匹配到（部署路径里
 // 常带 zviewer-backend 字样），SELF_PID 那层排除只是第二道保险。
-func spawnScript(isWindows bool, scriptPath, root string) error {
+func spawnScript(isWindows bool, scriptPath, root string, env []string) error {
 	cmd := exec.Command("bash", scriptPath)
 	cmd.Dir = root
+	if len(env) > 0 {
+		// 包内安装脚本靠这批变量拿安装目录 / 临时目录 / 模式；不继承会直接退出。
+		cmd.Env = env
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err

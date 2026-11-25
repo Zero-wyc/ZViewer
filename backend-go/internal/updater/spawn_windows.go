@@ -18,9 +18,13 @@ import (
 //
 // 不走 cmd /c start：start 会再包一层中转进程，taskkill /IM cmd.exe 之类的
 // 兜底逻辑容易误伤，而且拿不到退出码。
-func spawnScript(isWindows bool, scriptPath, root string) error {
+func spawnScript(isWindows bool, scriptPath, root string, env []string) error {
 	cmd := exec.Command("cmd", "/c", scriptPath)
 	cmd.Dir = root
+	if len(env) > 0 {
+		// 包内安装脚本靠这批变量拿安装目录 / 临时目录 / 模式；不继承会直接退出。
+		cmd.Env = env
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS,
 		HideWindow:    true,
