@@ -13,6 +13,7 @@ import {
   probeMkvSubtitleTracks,
   streamMkvSubtitleTrack,
 } from '@/modules/subtitles/mkv-embedded'
+import { matchEmbyTrackToMkvTrack } from '@/modules/subtitles/emby-mkv-match'
 import { appendAuthToken } from '@/modules/player/services/url-proxy'
 import { t as translate } from '@/i18n'
 
@@ -33,6 +34,9 @@ export interface EmbeddedTrackInfo {
   trackNumber?: number
   /** 前端 MKV demux 提取的轨道为 true；Emby/Jellyfin 轨道为 false */
   frontend?: boolean
+  isExternal?: boolean
+  embeddedOrdinal?: number
+  fileSize?: number
 }
 
 /**
@@ -47,8 +51,20 @@ export type EmbeddedSource =
   | { kind: 'server-files'; path: string; url?: string }
   | { kind: 'webdav'; movieId: number; url?: string; directLink?: boolean }
   | { kind: 'openlist'; movieId: number; url?: string; directLink?: boolean }
-  | { kind: 'emby'; movieId: number }
-  | { kind: 'jellyfin'; movieId: number }
+  | {
+      kind: 'emby'
+      movieId: number
+      url?: string
+      mediaSourceId?: string
+      directLink?: boolean
+    }
+  | {
+      kind: 'jellyfin'
+      movieId: number
+      url?: string
+      mediaSourceId?: string
+      directLink?: boolean
+    }
 
 /** Emby/Jellyfin 字幕接口返回的格式 → subtitleParser 的 SubtitleFormat（'webvtt' → 'vtt'）。 */
 function mapOutputFormat(format: string): SubtitleFormat {
@@ -157,6 +173,8 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
    * 的流式提取继续 append 污染新影片的字幕轨道。
    */
   const embeddedEpochRef = useRef(0)
+  const extractedTracksRef = useRef(new Map<string, number>())
+  const pendingTracksRef = useRef(new Set<string>())
   const embeddedAbortRef = useRef<AbortController | null>(null)
   /**
    * 内嵌字幕自动加载防重入标记：
@@ -337,6 +355,8 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
     // 使进行中的内嵌提取流失效：abort 网络拉流 + 世代递增丢弃
     // in-flight chunk，防止旧影片的流继续 append 污染新轨道列表
     embeddedEpochRef.current++
+    extractedTracksRef.current.clear()
+    pendingTracksRef.current = new Set()
     embeddedAbortRef.current?.abort()
     embeddedAbortRef.current = null
     // 清理自动加载的 URL 标记：done（已加载完）允许下次重新加载；
@@ -369,6 +389,8 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
    */
   const cancelEmbeddedExtraction = useCallback(() => {
     embeddedEpochRef.current++
+    extractedTracksRef.current.clear()
+    pendingTracksRef.current = new Set()
     embeddedAbortRef.current?.abort()
     embeddedAbortRef.current = null
     // loading 标记同步清空：被取消的流不会走到 finish()，残留的 loading
@@ -444,77 +466,62 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
       track: { trackNumber: number; label: string; language: string | null },
       activate: boolean,
       getPriorityTime?: () => number | null,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      knownSize?: number,
+      key?: string
     ): Promise<void> => {
       // 捕获提取世代：clearTracks/切影片递增后，本流的所有 chunk 丢弃
       const epoch = embeddedEpochRef.current
+      const trackKey = key ?? JSON.stringify(['mkv', url, track.trackNumber])
       return new Promise<void>((resolve, reject) => {
-        let trackIndex = -1
         let settled = false
         let broadcastDone = false
         streamMkvSubtitleTrack(url, track.trackNumber, {
           getPriorityTime,
           signal,
+          knownSize,
           onChunk: (chunk) => {
-            if (embeddedEpochRef.current !== epoch) return
+            if (embeddedEpochRef.current !== epoch || signal?.aborted) return
             const cues = chunk.cues ?? parseSubtitle(chunk.text, chunk.format)
             if (cues.length === 0) return
             setState((prev) => {
-              if (trackIndex < 0) {
-                // 去重：相同 label 的轨道已存在（手动重复提取 / 并行流）
-                // 时复用它，避免重复建轨（如 2 条字幕轨变 4 条）
-                const existing = prev.subtitleTracks.findIndex(
-                  (t) => t.label === track.label
-                )
-                if (existing >= 0) {
-                  trackIndex = existing
-                  // 时间戳去重：观众本地提取与房主广播全量数据并存时，
-                  // 同一轨的 cue（start 相同）只保留一份，避免重复字幕
-                  const starts = new Set(
-                    prev.subtitleTracks[existing]!.cues.map(
-                      (c) =>
-                        `${c.start}:${c.bitmap?.x ?? ''}:${c.bitmap?.y ?? ''}`
-                    )
-                  )
-                  const deduped = cues.filter(
-                    (c) =>
-                      !starts.has(
-                        `${c.start}:${c.bitmap?.x ?? ''}:${c.bitmap?.y ?? ''}`
-                      )
-                  )
-                  if (deduped.length === 0) return prev
-                  return {
-                    ...prev,
-                    subtitleTracks: prev.subtitleTracks.map((t, i) =>
-                      i === existing
-                        ? { ...t, cues: [...t.cues, ...deduped] }
-                        : t
-                    ),
-                  }
+              if (embeddedEpochRef.current !== epoch || signal?.aborted)
+                return prev
+              const index =
+                extractedTracksRef.current.get(trackKey) ??
+                prev.subtitleTracks.length
+              const existing = prev.subtitleTracks[index]
+              const cueKey = (c: ParsedCue) =>
+                `${c.start}:${c.text}:${c.bitmap?.x ?? ''}:${c.bitmap?.y ?? ''}`
+              const seen = new Set(existing?.cues.map(cueKey))
+              const unique = cues.filter((cue) => {
+                const id = cueKey(cue)
+                if (seen.has(id)) return false
+                seen.add(id)
+                return true
+              })
+              if (existing) {
+                if (unique.length === 0) return prev
+                const subtitleTracks = [...prev.subtitleTracks]
+                subtitleTracks[index] = {
+                  ...existing,
+                  cues: [...existing.cues, ...unique],
                 }
-                trackIndex = prev.subtitleTracks.length
-                const next: SubtitleState = {
-                  ...prev,
-                  subtitleTracks: [
-                    ...prev.subtitleTracks,
-                    {
-                      cues,
-                      label: track.label,
-                      lang: track.language || undefined,
-                    },
-                  ],
-                  subtitleEnabled: true,
-                  activeTrackIndex: activate
-                    ? trackIndex
-                    : prev.activeTrackIndex,
-                }
-                return next
+                return { ...prev, subtitleTracks }
               }
+              extractedTracksRef.current.set(trackKey, index)
               return {
                 ...prev,
-                subtitleTracks: prev.subtitleTracks.map((t, i) =>
-                  i === trackIndex ? { ...t, cues: [...t.cues, ...cues] } : t
-                ),
+                subtitleTracks: [
+                  ...prev.subtitleTracks,
+                  {
+                    cues: unique,
+                    label: track.label,
+                    lang: track.language || undefined,
+                  },
+                ],
+                subtitleEnabled: true,
+                activeTrackIndex: activate ? index : prev.activeTrackIndex,
               }
             })
             if (!settled) {
@@ -535,7 +542,11 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
             }
             // 提取完成：广播全量同步观众（updater 返回原引用不触发渲染）
             setState((prev) => {
-              if (!broadcastDone) {
+              if (
+                embeddedEpochRef.current === epoch &&
+                !signal?.aborted &&
+                !broadcastDone
+              ) {
                 broadcastDone = true
                 broadcast(prev)
               }
@@ -556,7 +567,11 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
                 err instanceof Error ? err.message : err
               )
               setState((prev) => {
-                if (!broadcastDone) {
+                if (
+                  embeddedEpochRef.current === epoch &&
+                  !signal?.aborted &&
+                  !broadcastDone
+                ) {
                   broadcastDone = true
                   broadcast(prev)
                 }
@@ -589,9 +604,8 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
       // mkv-embedded 的 fetch 无法携带 Authorization 头，
       // 本站 /api/ URL 必须附加 token query（与播放引擎 appendAuthToken 一致），
       // 否则 401 → 探测失败显示「未检测到内嵌字幕」。直链 URL 原样返回。
-      const url = appendAuthToken(
-        sourceUrl ?? buildServerFileProxyUrl(filePath)
-      )
+      const rawUrl = sourceUrl ?? buildServerFileProxyUrl(filePath)
+      const url = appendAuthToken(rawUrl)
 
       // 防并行重入：同一 URL 加载中（首路还在探测）或已完成时，
       // StrictMode/effect 重跑的二次调用直接跳过，避免重复建轨
@@ -628,7 +642,9 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
               },
               started === 0, // 首条成功轨激活；后续轨保持当前激活不变
               getPriorityTime,
-              controller.signal
+              controller.signal,
+              undefined,
+              JSON.stringify(['mkv', rawUrl, track.trackNumber])
             )
             started++
           } catch (err) {
@@ -703,22 +719,63 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
       }
       try {
         // Emby/Jellyfin：后端调用其 PlaybackInfo 接口
-        const res = await apiFetch(
-          `/api/subtitles/embedded-tracks?movieId=${source.movieId}`
-        )
+        const query = new URLSearchParams({ movieId: String(source.movieId) })
+        if (source.mediaSourceId) query.set('ms', source.mediaSourceId)
+        const res = await apiFetch(`/api/subtitles/embedded-tracks?${query}`)
         const data = (await res.json()) as {
           success: boolean
           tracks?: EmbeddedTrackInfo[]
+          fileSize?: number
           message?: string
         }
         if (!res.ok || !data.success || !data.tracks) {
           throw new Error(data.message || translate('获取内嵌字幕轨道失败'))
         }
-        return data.tracks
+        if (data.tracks.length > 0) {
+          let ordinal = 0
+          return data.tracks.map((track) => {
+            const isExternal = track.isExternal === true
+            const next = {
+              ...track,
+              fileSize: data.fileSize,
+              ...(track.embeddedOrdinal == null && !isExternal
+                ? { embeddedOrdinal: ordinal }
+                : {}),
+            }
+            if (!isExternal) ordinal++
+            return next
+          })
+        }
+        console.info(
+          '[useSubtitles] Emby returned no tracks; probing playback URL'
+        )
       } catch (err) {
-        console.error('[useSubtitles] list embedded tracks failed:', err)
-        return []
+        console.info(
+          '[useSubtitles] Emby track listing failed; probing playback URL:',
+          err
+        )
       }
+      if (source.url) {
+        try {
+          return (
+            await probeMkvSubtitleTracks(appendAuthToken(source.url))
+          ).map((track, i) => ({
+            index: i,
+            codecName: track.codecId,
+            language: track.language,
+            title: track.title,
+            label: track.label,
+            trackNumber: track.trackNumber,
+            frontend: true,
+          }))
+        } catch (probeErr) {
+          console.info(
+            '[useSubtitles] Emby MKV subtitle probe failed:',
+            probeErr
+          )
+        }
+      }
+      return []
     },
     [isHost]
   )
@@ -731,99 +788,170 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
   const extractEmbeddedTrack = useCallback(
     async (
       source: EmbeddedSource,
-      track: EmbeddedTrackInfo
+      track: EmbeddedTrackInfo,
+      getPriorityTime?: () => number | null
     ): Promise<number> => {
       if (!isHost) return 0
-
-      // 前端提取路径：探测阶段标记的 MKV 轨道
-      if (track.frontend && track.trackNumber != null) {
-        // /api/ URL 需附加 token query（同播放引擎），否则 401 提取失败
-        const rawUrl =
-          source.kind === 'server-files'
-            ? source.url || buildServerFileProxyUrl(source.path)
-            : source.kind === 'webdav' || source.kind === 'openlist'
-              ? source.url
-              : undefined
-        const url = rawUrl ? appendAuthToken(rawUrl) : undefined
-        if (url) {
-          try {
-            // 流式提取：首段到达即建轨生效（秒级可播），后台补齐
-            const controller = embeddedAbortRef.current ?? new AbortController()
-            embeddedAbortRef.current = controller
-            await streamEmbeddedTrack(
-              url,
-              {
-                trackNumber: track.trackNumber,
-                label: track.label,
-                language: track.language,
-              },
-              true,
-              undefined,
-              controller.signal
-            )
-            return 1
-          } catch (err) {
-            console.error(
-              '[useSubtitles] frontend extract embedded track failed:',
-              track.trackNumber,
-              err
-            )
-            return 0 // 唯一路径失败，无后端回退
-          }
-        }
+      const epoch = embeddedEpochRef.current
+      const controller = embeddedAbortRef.current ?? new AbortController()
+      embeddedAbortRef.current = controller
+      const { signal } = controller
+      const isCurrent = () =>
+        embeddedEpochRef.current === epoch && !signal.aborted
+      const rawUrl =
+        source.kind === 'server-files'
+          ? source.url || buildServerFileProxyUrl(source.path)
+          : source.url
+      let key: string
+      if (track.frontend) {
+        if (!rawUrl || track.trackNumber == null) return 0
+        key = JSON.stringify(['mkv', rawUrl, track.trackNumber])
+      } else {
+        if (source.kind !== 'emby' && source.kind !== 'jellyfin') return 0
+        key = JSON.stringify([
+          source.kind,
+          source.movieId,
+          source.mediaSourceId ?? '',
+          track.index,
+        ])
       }
 
-      // Emby/Jellyfin：后端调用其自带 Subtitles Stream 端点
-      if (source.kind !== 'emby' && source.kind !== 'jellyfin') return 0
-      try {
-        const res = await apiFetch(
-          `/api/subtitles/embedded-extract?movieId=${source.movieId}&index=${track.index}`
-        )
-        const data = (await res.json()) as {
-          success: boolean
-          content?: string
-          format?: string
-          label?: string
-          language?: string | null
-          message?: string
-        }
-        if (!res.ok || !data.success || !data.content) {
-          throw new Error(data.message || translate('提取内嵌字幕失败'))
-        }
-        const cues = parseSubtitle(
-          data.content,
-          mapOutputFormat(data.format || 'srt')
-        )
-        const newTrack: SubtitleTrack = {
-          cues,
-          label: track.label || data.label || embeddedTrackLabel(track),
-          lang: data.language ?? track.language ?? undefined,
+      const activateExisting = () => {
+        const index = extractedTracksRef.current.get(key)
+        if (index == null) return false
+        if (!stateRef.current.subtitleTracks[index]) {
+          extractedTracksRef.current.delete(key)
+          return false
         }
         setState((prev) => {
-          // 去重：相同 label 的轨道已存在（重复手动提取）时激活它而非重复建轨
-          const existing = prev.subtitleTracks.findIndex(
-            (t) => t.label === newTrack.label
-          )
-          if (existing >= 0) {
-            return prev
-          }
-          const next: SubtitleState = {
+          if (!isCurrent() || !prev.subtitleTracks[index]) return prev
+          const next = {
             ...prev,
-            subtitleTracks: [...prev.subtitleTracks, newTrack],
+            activeTrackIndex: index,
             subtitleEnabled: true,
-            activeTrackIndex: prev.subtitleTracks.length,
           }
           broadcast(next)
           return next
         })
-        return 1
-      } catch (err) {
-        console.error(
-          '[useSubtitles] extract embedded track failed:',
-          track.index,
-          err
+        return true
+      }
+      if (activateExisting()) return 1
+      const pending = pendingTracksRef.current
+      if (pending.has(key)) return 0
+      pending.add(key)
+
+      const streamTrack = async (
+        trackNumber: number,
+        label: string,
+        language: string | null
+      ) => {
+        if (!isCurrent() || !rawUrl) return 0
+        await streamEmbeddedTrack(
+          appendAuthToken(rawUrl),
+          { trackNumber, label, language },
+          true,
+          getPriorityTime,
+          signal,
+          track.fileSize,
+          key
         )
+        return isCurrent() ? 1 : 0
+      }
+      try {
+        // 合成的 MKV 轨道索引不能用于服务端取轨。
+        if (track.frontend)
+          return await streamTrack(
+            track.trackNumber!,
+            track.label,
+            track.language
+          )
+        if (source.kind !== 'emby' && source.kind !== 'jellyfin') return 0
+        try {
+          const query = new URLSearchParams({
+            movieId: String(source.movieId),
+            index: String(track.index),
+          })
+          if (source.mediaSourceId) query.set('ms', source.mediaSourceId)
+          const res = await apiFetch(
+            `/api/subtitles/embedded-extract?${query}`,
+            { signal }
+          )
+          if (!isCurrent()) return 0
+          const data = (await res.json()) as {
+            success: boolean
+            content?: string
+            format?: string
+            label?: string
+            language?: string | null
+            message?: string
+          }
+          if (!isCurrent()) return 0
+          if (!res.ok || !data.success || !data.content) {
+            throw new Error(data.message || translate('提取内嵌字幕失败'))
+          }
+          const cues = parseSubtitle(
+            data.content,
+            mapOutputFormat(data.format || 'srt')
+          )
+          if (cues.length === 0)
+            throw new Error('Subtitle response contains no cues')
+          const newTrack: SubtitleTrack = {
+            cues,
+            label: track.label || data.label || embeddedTrackLabel(track),
+            lang: data.language ?? track.language ?? undefined,
+          }
+          setState((prev) => {
+            if (!isCurrent()) return prev
+            const index =
+              extractedTracksRef.current.get(key) ?? prev.subtitleTracks.length
+            extractedTracksRef.current.set(key, index)
+            const next: SubtitleState = {
+              ...prev,
+              subtitleTracks: prev.subtitleTracks[index]
+                ? prev.subtitleTracks
+                : [...prev.subtitleTracks, newTrack],
+              subtitleEnabled: true,
+              activeTrackIndex: index,
+            }
+            broadcast(next)
+            return next
+          })
+          return 1
+        } catch (err) {
+          if (!isCurrent()) return 0
+          if (track.isExternal || !rawUrl) throw err
+          console.info(
+            '[useSubtitles] Emby subtitle extraction failed; trying MKV:',
+            err
+          )
+          const probed = await probeMkvSubtitleTracks(
+            appendAuthToken(rawUrl),
+            undefined,
+            signal
+          )
+          if (!isCurrent()) return 0
+          const matched = matchEmbyTrackToMkvTrack(track, probed)
+          if (!matched?.supported) return 0
+          return await streamTrack(
+            matched.trackNumber,
+            track.label || matched.label,
+            track.language ?? matched.language
+          )
+        }
+      } catch (err) {
+        if (isCurrent())
+          console.info(
+            '[useSubtitles] extract embedded track failed:',
+            track.index,
+            err
+          )
         return 0
+      } finally {
+        // React 可能尚未处理首批数据的状态更新，等同一更新队列提交轨道后解除防重入。
+        setState((prev) => {
+          pending.delete(key)
+          return prev
+        })
       }
     },
     [isHost, broadcast, streamEmbeddedTrack]
@@ -934,6 +1062,8 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
       // 防止旧影片的流继续 append 重建轨道
       if (Array.isArray(payload.tracks) && payload.tracks.length === 0) {
         embeddedEpochRef.current++
+        extractedTracksRef.current.clear()
+        pendingTracksRef.current = new Set()
         embeddedAbortRef.current?.abort()
         embeddedAbortRef.current = null
       }

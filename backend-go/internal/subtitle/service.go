@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"path/filepath"
 	"sort"
@@ -743,11 +744,13 @@ func (s *Service) embeddedMediaSources(
 
 // Track 是一条内嵌字幕轨道的描述。
 type Track struct {
-	Index     int    `json:"index"`
-	CodecName string `json:"codecName"`
-	Language  any    `json:"language"`
-	Title     any    `json:"title"`
-	Label     string `json:"label"`
+	Index           int    `json:"index"`
+	CodecName       string `json:"codecName"`
+	Language        any    `json:"language"`
+	Title           any    `json:"title"`
+	Label           string `json:"label"`
+	IsExternal      bool   `json:"isExternal,omitempty"`
+	EmbeddedOrdinal *int   `json:"embeddedOrdinal,omitempty"`
 }
 
 // ExtractResult 是内嵌字幕提取结果。
@@ -773,21 +776,56 @@ func MapEmbySubtitleFormat(codec string) (ext string, format string) {
 	}
 }
 
-// ListEmbyEmbeddedTracks 列出视频的内嵌字幕轨道。
-func (s *Service) ListEmbyEmbeddedTracks(ctx context.Context, movie *store.Movie) ([]Track, error) {
+func selectEmbyMediaSource(sources []emby.EmbyMediaSrc, movie *store.Movie, requestedMS string) *emby.EmbyMediaSrc {
+	if len(sources) == 0 {
+		return nil
+	}
+	var query url.Values
+	if u, err := url.Parse(movie.URL); err == nil {
+		query = u.Query()
+	}
+	for _, id := range []string{requestedMS, query.Get("ms"), query.Get("MediaSourceId")} {
+		for i := range sources {
+			if id != "" && sources[i].ID == id {
+				return &sources[i]
+			}
+		}
+	}
+	return &sources[0]
+}
+
+func embySubtitleTitleAndLabel(stream emby.EmbyMediaStream, index int) (title, label string) {
+	title = stream.DisplayTitle
+	if stream.Title != "" && !strings.Contains(title, stream.Title) {
+		title = stream.Title
+	}
+	label = title
+	if label == "" {
+		label = stream.Language
+	}
+	if label == "" {
+		label = fmt.Sprintf("轨道 %d", index)
+	}
+	return title, label
+}
+
+// ListEmbyEmbeddedTracks 列出所选媒体版本的字幕轨道和文件大小。
+func (s *Service) ListEmbyEmbeddedTracks(ctx context.Context, movie *store.Movie, requestedMS string) ([]Track, *int64, error) {
 	ectx, err := s.resolveEmbyContext(ctx, movie)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sources, err := s.embeddedMediaSources(ctx, ectx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if len(sources) == 0 {
-		return nil, nil
+	mediaSource := selectEmbyMediaSource(sources, movie, requestedMS)
+	if mediaSource == nil {
+		return nil, nil, nil
 	}
 	tracks := make([]Track, 0, 4)
-	for _, stream := range sources[0].MediaStreams {
+	embeddedOrdinal := 0
+	for _, stream := range mediaSource.MediaStreams {
 		if stream.Type != "Subtitle" {
 			continue
 		}
@@ -795,22 +833,27 @@ func (s *Service) ListEmbyEmbeddedTracks(ctx context.Context, movie *store.Movie
 		if codec == "" {
 			codec = "unknown"
 		}
-		label := stream.DisplayTitle
-		if label == "" {
-			label = stream.Language
+		title, label := embySubtitleTitleAndLabel(stream, stream.Index)
+		track := Track{
+			Index:      stream.Index,
+			CodecName:  codec,
+			Language:   nullIfEmpty(stream.Language),
+			Title:      nullIfEmpty(title),
+			Label:      label,
+			IsExternal: stream.IsExternal != nil && *stream.IsExternal,
 		}
-		if label == "" {
-			label = fmt.Sprintf("轨道 %d", stream.Index)
+		if !track.IsExternal {
+			ordinal := embeddedOrdinal
+			track.EmbeddedOrdinal = &ordinal
+			embeddedOrdinal++
 		}
-		tracks = append(tracks, Track{
-			Index:     stream.Index,
-			CodecName: codec,
-			Language:  nullIfEmpty(stream.Language),
-			Title:     nullIfEmpty(stream.DisplayTitle),
-			Label:     label,
-		})
+		tracks = append(tracks, track)
 	}
-	return tracks, nil
+	var fileSize *int64
+	if mediaSource.Size != nil && *mediaSource.Size > 0 {
+		fileSize = mediaSource.Size
+	}
+	return tracks, fileSize, nil
 }
 
 // ExtractEmbyEmbeddedTrack 提取指定内嵌字幕轨道内容。
@@ -819,7 +862,7 @@ func (s *Service) ListEmbyEmbeddedTracks(ctx context.Context, movie *store.Movie
 // 后直接 `s.Index === streamIndex` 比较，`index=1.5` 会「查不到轨道」而不是
 // 被截断成 1 命中。用 float64 才能保住这条语义。
 func (s *Service) ExtractEmbyEmbeddedTrack(
-	ctx context.Context, movie *store.Movie, streamIndex float64,
+	ctx context.Context, movie *store.Movie, streamIndex float64, requestedMS string,
 ) (*ExtractResult, error) {
 	ectx, err := s.resolveEmbyContext(ctx, movie)
 	if err != nil {
@@ -829,10 +872,7 @@ func (s *Service) ExtractEmbyEmbeddedTrack(
 	if err != nil {
 		return nil, err
 	}
-	var mediaSource *emby.EmbyMediaSrc
-	if len(sources) > 0 {
-		mediaSource = &sources[0]
-	}
+	mediaSource := selectEmbyMediaSource(sources, movie, requestedMS)
 
 	var target *emby.EmbyMediaStream
 	if mediaSource != nil {
@@ -850,17 +890,23 @@ func (s *Service) ExtractEmbyEmbeddedTrack(
 
 	index := int(streamIndex)
 	ext, format := MapEmbySubtitleFormat(deref(target.Codec))
-	content, err := ectx.Client.SubtitleContent(ctx, ectx.ItemID, mediaSource.ID, index, ext)
-	if err != nil {
-		return nil, err
+	var content string
+	if target.DeliveryURL != "" {
+		content, err = ectx.Client.SubtitleByDeliveryURL(ctx, target.DeliveryURL)
 	}
-	label := target.DisplayTitle
-	if label == "" {
-		label = target.Language
+	if target.DeliveryURL == "" || err != nil {
+		content, err = ectx.Client.SubtitleContent(ctx, ectx.ItemID, mediaSource.ID, index, ext)
+		var upstream *emby.Error
+		if mediaSource.ID != "" && errors.As(err, &upstream) && upstream.Status == http.StatusNotFound {
+			if retry, retryErr := ectx.Client.SubtitleContentFromStart(ctx, ectx.ItemID, mediaSource.ID, index, ext); retryErr == nil {
+				content, err = retry, nil
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
-	if label == "" {
-		label = fmt.Sprintf("轨道 %d", index)
-	}
+	_, label := embySubtitleTitleAndLabel(*target, index)
 	return &ExtractResult{
 		Content:  content,
 		Format:   format,

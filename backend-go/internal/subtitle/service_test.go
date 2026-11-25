@@ -10,9 +10,33 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"zviewer/backend/internal/emby"
 	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/store"
 )
+
+func TestEmbyMediaSourceAndSubtitleTitleSelection(t *testing.T) {
+	sources := []emby.EmbyMediaSrc{{ID: "first"}, {ID: "second"}}
+	movie := &store.Movie{URL: "https://play.invalid/video?MediaSourceId=second"}
+	if got := selectEmbyMediaSource(sources, movie, "missing"); got != &sources[1] {
+		t.Fatalf("movie MediaSourceId selection = %#v", got)
+	}
+	if got := selectEmbyMediaSource(sources, movie, "first"); got != &sources[0] {
+		t.Fatalf("requested media source selection = %#v", got)
+	}
+	movie.URL = "/play?ms=missing"
+	if got := selectEmbyMediaSource(sources, movie, ""); got != &sources[0] {
+		t.Fatalf("unmatched media source fallback = %#v", got)
+	}
+	title, label := embySubtitleTitleAndLabel(emby.EmbyMediaStream{DisplayTitle: "中文", Title: "中文（简体）"}, 0)
+	if title != "中文（简体）" || label != title {
+		t.Fatalf("title/label = %q/%q", title, label)
+	}
+	_, label = embySubtitleTitleAndLabel(emby.EmbyMediaStream{Language: "eng"}, 4)
+	if label != "eng" {
+		t.Fatalf("language label = %q", label)
+	}
+}
 
 const testServerFolderDDL = `
 CREATE TABLE "server_folder" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "name" varchar NOT NULL, "absPath" varchar NOT NULL, "readonly" boolean NOT NULL DEFAULT (0), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')));
