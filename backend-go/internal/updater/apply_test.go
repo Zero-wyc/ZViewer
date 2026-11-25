@@ -215,6 +215,11 @@ func TestApplyUpdateFromFileDocker(t *testing.T) {
 	if !strings.Contains(content, "kill -TERM") {
 		t.Fatalf("容器版应先发 SIGTERM")
 	}
+	// 容器版是逐文件白名单拷贝，漏一个就等于该文件永远停在镜像里的旧版本。
+	// zviewer-webgui 就漏过一次：5.3.3 升级后 /app 里仍然没有控制台二进制。
+	if !strings.Contains(content, `"$EXTRACTED_DIR/zviewer-webgui"`) {
+		t.Fatalf("容器版应拷贝 zviewer-webgui（网页控制台）")
+	}
 }
 
 // TestApplyUpdateFromFileCleansTempOnFailure 解压失败要清掉 .update-temp。

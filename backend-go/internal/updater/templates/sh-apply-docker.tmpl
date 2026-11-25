@@ -8,6 +8,12 @@ if [ -f "$EXTRACTED_DIR/livekit-server" ]; then
 else
   echo "{{TAG}} 警告：更新包中未包含 livekit-server，语音二进制保持原状"
 fi
+# 网页控制台：5.3.3 及更早的镜像不含这个二进制，缺失时保留原状由新版 entrypoint 决定
+if [ -f "$EXTRACTED_DIR/zviewer-webgui" ]; then
+  cp -f "$EXTRACTED_DIR/zviewer-webgui" "$ROOT/zviewer-webgui" 2>/dev/null || true
+  chmod +x "$ROOT/zviewer-webgui" 2>/dev/null || true
+  echo "{{TAG}} zviewer-webgui 已更新"
+fi
 cp -f "$EXTRACTED_DIR/start.sh" "$ROOT/start.sh" 2>/dev/null || true
 cp -f "$EXTRACTED_DIR/package.json" "$ROOT/package.json" 2>/dev/null || true
 cp -f "$EXTRACTED_DIR/.env" "$ROOT/.env" 2>/dev/null || true
