@@ -135,6 +135,67 @@ func TestPackagedInstallerScriptRuns(t *testing.T) {
 	}
 }
 
+// TestPackagedInstallerNativeSkipsArchive 平铺包（解压目录 == 临时目录）时，
+// 下载的压缩包不能被整包铺进安装目录。
+func TestPackagedInstallerNativeSkipsArchive(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("当前环境没有 bash")
+	}
+	repoScript := filepath.Join("..", "..", "..", "packaging", "install-update.sh")
+	scriptBody, err := os.ReadFile(repoScript)
+	if err != nil {
+		t.Skipf("找不到发行包脚本: %v", err)
+	}
+
+	root := t.TempDir()
+	tempDir := filepath.Join(root, ".update-temp")
+	writeFile := func(path, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("建目录失败: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatalf("写文件失败: %v", err)
+		}
+	}
+	writeFile(filepath.Join(root, "zviewer-backend"), "OLD")
+	writeFile(filepath.Join(root, "start.sh"), "#!/bin/bash\nexit 0\n")
+	// 平铺包：产物与压缩包同在临时目录
+	writeFile(filepath.Join(tempDir, "zviewer-backend"), "NEW")
+	writeFile(filepath.Join(tempDir, "update.tar.gz"), "not-really-an-archive")
+	writeFile(filepath.Join(tempDir, "start.sh"), "#!/bin/bash\nexit 0\n")
+
+	runner := filepath.Join(root, "apply-update.sh")
+	if err := os.WriteFile(runner, scriptBody, 0o755); err != nil {
+		t.Fatalf("写脚本失败: %v", err)
+	}
+	fakeBin := filepath.Join(root, "fakebin")
+	writeFile(filepath.Join(fakeBin, "pgrep"), "#!/bin/bash\nexit 1\n")
+
+	cmd := exec.Command(bash, runner)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"ZVIEWER_UPDATE_ROOT="+root,
+		"ZVIEWER_UPDATE_TEMP="+tempDir,
+		"ZVIEWER_UPDATE_EXTRACTED="+tempDir,
+		"ZVIEWER_UPDATE_MODE=native",
+		"ZVIEWER_UPDATE_FROM=0.0.1",
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		logRaw, _ := os.ReadFile(filepath.Join(root, "update.log"))
+		t.Fatalf("脚本执行失败: %v\n%s\n%s", err, output, logRaw)
+	}
+
+	if got, err := os.ReadFile(filepath.Join(root, "zviewer-backend")); err != nil || string(got) != "NEW" {
+		t.Fatalf("后端未更新: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "update.tar.gz")); !os.IsNotExist(err) {
+		t.Fatal("压缩包不该被铺进安装目录")
+	}
+}
+
 // TestPackagedInstallerScriptRejectsMissingEnv 环境变量缺失时必须以 2 退出，
 // 不能默默按默认值去动一个不存在的目录。
 func TestPackagedInstallerScriptRejectsMissingEnv(t *testing.T) {

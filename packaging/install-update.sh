@@ -172,6 +172,13 @@ restore_config() {
 say "应用新文件..."
 if [ "$MODE" = "native" ]; then
   # 裸机：整包铺开。包就是真相，旧版本多出来的文件由上面的目录级替换兜住。
+  #
+  # 平铺包（无外层目录）时 EXTRACTED_DIR 就是临时目录，里面还躺着刚下载的
+  # 压缩包，直接 cp -rf 会把 50 MB 的包一起铺进安装目录。先清掉。
+  for archive in "$EXTRACTED_DIR"/*.zip "$EXTRACTED_DIR"/*.tar.gz; do
+    [ -e "$archive" ] || continue
+    rm -f "$archive"
+  done
   cp -rf "$EXTRACTED_DIR/." "$ROOT/" 2>/dev/null || true
 else
   # 容器：按清单精确覆盖。这里只写「要什么」，不写「不要什么」——
