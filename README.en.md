@@ -68,6 +68,12 @@ The single-file builds also ship `zviewer-webgui`, a separate control console on
 backend, read logs, set up remote access). It does not depend on the backend, so the page opens even when
 the backend is down. Sign in with the ZViewer super admin account (`root` / `root` until the database is initialized).
 
+The console discovers the backend through `.runtime.json` in the runtime directory, no matter who started
+it (the console itself, `start.sh`, `start.ps1`, or the container entrypoint), and shows its PID and origin.
+Stop behaves differently per form: a console-managed backend is really stopped; a script-started one is
+stopped and the console takes over on the next start; inside Docker the button reads **Restart**, because
+stopping the backend also ends the container.
+
 ### Docker
 
 ```bash

@@ -14,13 +14,24 @@
   function overview() {
     const s = state.server, c = current();
     const card = (title, text, name, status, info, pid = s.pid) => `<article class="service-card"><div class="service-top"><span class="icon-box">${icon(name)}</span>${pill(status)}</div><div><h3>${title}</h3><p>${text}</p></div><div class="service-meta"><span>${info}</span><code>${status === 'running' && pid ? `PID ${pid}` : labels[status] || status}</code></div></article>`;
+    // 外部托管：后端由 start.sh / start.ps1 / 容器入口拉起，控制台只负责发现
+    // 与转发停止请求。容器里停后端会连带停容器，所以按钮只说「重启服务」。
+    const external = s.backendSource === 'external';
+    const container = Boolean(s.container);
+    const restartOnly = Boolean(s.pid) && external && container;
+    const runLabel = restartOnly ? '重启服务' : s.pid ? '停止服务' : '启动服务';
+    const runAction = restartOnly ? 'restart' : 'toggle-run';
+    const runIcon = restartOnly ? 'refresh' : s.pid ? 'stop' : 'play';
+    const health = s.backend === 'running'
+      ? (external ? (container ? '容器入口托管' : '启动脚本托管') : '健康检查通过')
+      : '等待启动';
     // 第三张卡展示内置 CLI（高画质代理）：可用性取自运行包里是否带 ZViewerCLI，
     // 端口优先用实际监听端口，进程未起来时退回配置里的端口。
     const cli = s.cli || { state: 'stopped', available: false };
     const cliPort = cli.activePort || (c.cli && c.cli.port) || 9333;
     const cliInfo = cli.available === false ? '未检测到 CLI' : `127.0.0.1:${cliPort}`;
     return heading('服务总览', '本机服务的运行状态。') +
-      `<section class="hero"><div class="hero-copy"><h2>${s.backend === 'running' ? '服务运行中' : s.backend === 'starting' ? '服务启动中' : '服务未启动'}</h2><p>${c.https ? 'https' : 'http'}://localhost:${esc(c.port)}<br>${c.bindHost === '127.0.0.1' ? '仅本机访问' : c.bindHost === '0.0.0.0' ? '局域网 IPv4' : '所有地址 · IPv4 + IPv6'} · ${s.backend === 'running' ? '健康检查通过' : '等待启动'}</p><div class="hero-actions">${button(s.pid ? '停止服务' : '启动服务', 'toggle-run', s.pid ? 'stop' : 'play', 'primary')}${button('打开网页端','open-web','globe','primary')}<button class="text-button" data-action="open-manager">打开管理页面 ${icon('external')}</button></div></div></section>` +
+      `<section class="hero"><div class="hero-copy"><h2>${s.backend === 'running' ? '服务运行中' : s.backend === 'starting' ? '服务启动中' : '服务未启动'}</h2><p>${c.https ? 'https' : 'http'}://localhost:${esc(c.port)}<br>${c.bindHost === '127.0.0.1' ? '仅本机访问' : c.bindHost === '0.0.0.0' ? '局域网 IPv4' : '所有地址 · IPv4 + IPv6'} · ${health}</p><div class="hero-actions">${button(runLabel, runAction, runIcon, 'primary')}${button('打开网页端','open-web','globe','primary')}<button class="text-button" data-action="open-manager">打开管理页面 ${icon('external')}</button></div></div></section>` +
       `<div class="section-title"><h2>服务状态</h2><button class="text-button" data-nav="settings">监听端口 ${esc(c.port)} · 修改设置 ${icon('arrow')}</button></div><div class="service-grid">${card('ZViewer 主服务','网页与 API','server',s.backend,`${c.port} / TCP`)}${card('语音与推流','媒体服务','mic',s.voice,`媒体 UDP ${c.port} / RTMP ${c.rtmpPort}`)}${card('高画质代理','ZViewerCLI 代理','terminal',cli.state,cliInfo,cli.pid)}</div>` +
       `<div class="bottom-grid"><section><div class="section-title"><h2>常用操作</h2><small>快捷入口</small></div><div class="setup-list"><button class="setup-row" data-nav="cert"><span class="step">${icon('lock')}</span><div><strong>签发本机 HTTPS 证书</strong><p>localhost</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="connect"><span class="step">${icon('cloud')}</span><div><strong>新手推荐：Cloudflare Tunnel</strong><p>一键启动，无需额外配置</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="settings"><span class="step">${icon('settings')}</span><div><strong>修改监听端口</strong><p>下次启动生效</p></div>${icon('arrow')}</button></div></section><section><div class="section-title"><h2>最近活动</h2><button class="text-button" data-nav="logs">全部日志 ${icon('arrow')}</button></div><div class="activity-list">${activity()}</div></section></div><div class="footnote">${icon('info')}显示本地进程状态。</div>`;
   }
@@ -259,7 +270,18 @@
   }
   window.addEventListener('zviewer-cli-visible', () => setTimeout(ensureCliEmbed, 0));
   async function act(action) {
-    if (action === 'toggle-run') { await command(state.server.pid ? 'stop' : 'start'); ui.toast(state.server.backend === 'running' ? '服务已启动' : '服务已停止'); }
+    if (action === 'toggle-run') {
+      const s = state.server;
+      // 容器里停后端会连带结束 PID 1，restart policy 又把它拉回来；这里把
+      // 「停止」的意图翻译成「重启」——用户点它的目的通常是让新配置生效。
+      if (s?.pid && s.backendSource === 'external' && s.container) {
+        await command('restart');
+        ui.toast('已请求重启后端，容器入口会重新拉起');
+        return;
+      }
+      await command(s.pid ? 'stop' : 'start');
+      ui.toast(state.server.backend === 'running' ? '服务已启动' : '服务已停止');
+    }
     else if (action === 'restart') { await command('restart'); ui.toast('服务已使用保存的配置重启'); }
     else if (action === 'open-manager') await command('open-manager');
     else if (action === 'open-web') await command('open-web');

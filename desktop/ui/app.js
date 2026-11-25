@@ -745,15 +745,21 @@
     const running = backend === 'running';
     const busy = backend === 'starting' || backend === 'stopping';
     const port = state.live ? state.server?.active?.port || state.config?.port : '';
-    const text = running ? `运行中${port ? ` · ${port}` : ''}` : ({ starting: '启动中', stopping: '停止中', error: '运行异常' })[backend] || '未启动';
+    // 外部托管（启动脚本 / 容器入口拉起）时后端不在控制台的进程表里：
+    // 容器里点「停止」等于停掉整个容器，只能重启，所以按钮改成「重启」。
+    const external = state.live && state.server?.backendSource === 'external';
+    const container = state.live && Boolean(state.server?.container);
+    const restartOnly = running && external && container;
+    const origin = external ? (container ? '容器托管' : '脚本托管') : '';
+    const text = running ? `运行中${port ? ` · ${port}` : ''}${origin ? ` · ${origin}` : ''}` : ({ starting: '启动中', stopping: '停止中', error: '运行异常' })[backend] || '未启动';
     label.textContent = text;
     if (dot) {
       dot.dataset.state = running ? 'running' : 'stopped';
       dot.setAttribute('aria-label', running ? 'ZViewer 运行中' : 'ZViewer 未启动');
     }
-    button.textContent = running ? '停止' : '启动';
+    button.textContent = running ? (restartOnly ? '重启' : '停止') : '启动';
     button.disabled = busy;
-    button.setAttribute('aria-label', running ? '停止 ZViewer 服务' : '启动 ZViewer 服务');
+    button.setAttribute('aria-label', running ? (restartOnly ? '重启 ZViewer 服务' : '停止 ZViewer 服务') : '启动 ZViewer 服务');
   }
   function render() {
     const main = $('#main'), pageView = $('#page-view'), cliView = $('#cli-view');

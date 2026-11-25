@@ -33,6 +33,7 @@ import (
 	"zviewer/backend/internal/crawler"
 	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/db"
+	"zviewer/backend/internal/instance"
 	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/netproxy"
@@ -484,6 +485,26 @@ func main() {
 	log.Printf("[start] 出站网络=%s（番剧源 / 订阅 / 弹幕）", netproxy.Describe())
 	log.Printf("[start] 监听 %s", httpServer.Addr)
 
+	// 先试绑一次端口：只有真能监听才登记运行信息。否则端口冲突的第二个实例
+	// 会把自己的 PID 写进 .runtime.json，把正在运行的那个实例「顶掉」，
+	// 网页控制台就会对着一个起不来的进程做启停。
+	if probe, err := net.Listen("tcp", httpServer.Addr); err != nil {
+		log.Fatalf("[http] 监听失败: %v", err)
+	} else {
+		_ = probe.Close()
+	}
+	// 自描述运行信息：不管谁拉起这个进程（start.sh / entrypoint / 手敲 /
+	// 控制台），写的是进程自己，控制台据此发现「外部托管」的后端。
+	if err := instance.Write(cfg.ProjectRoot, instance.Info{
+		PID:   os.Getpid(),
+		Port:  cfg.Port,
+		HTTPS: cfg.UseTLS,
+		Root:  cfg.ProjectRoot,
+	}); err != nil {
+		log.Printf("[runtime] 写入 %s 失败（网页控制台将无法发现本进程）: %v", instance.FileName, err)
+	}
+	defer instance.Remove(cfg.ProjectRoot, os.Getpid())
+
 	errCh := make(chan error, 1)
 	go func() {
 		var err error
@@ -526,6 +547,8 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case err := <-errCh:
+		// 监听没跑起来：立刻撤掉运行信息，别让控制台对着一个死进程做启停。
+		_ = instance.Remove(cfg.ProjectRoot, os.Getpid())
 		log.Fatalf("[http] 监听失败: %v", err)
 	case sig := <-stop:
 		log.Printf("[shutdown] 收到信号 %s，开始优雅退出", sig)

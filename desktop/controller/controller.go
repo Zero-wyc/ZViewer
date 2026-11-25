@@ -60,8 +60,17 @@ type Snapshot struct {
 	WebURLs []string `json:"webUrls"`
 	// EmbedURL 是控制台内嵌浏览器（WebView2）该加载的地址：
 	// HTTPS 模式下是 127.0.0.1 的回环 HTTP 地址（免证书），其余情况等于 WebURL。
-	EmbedURL   string       `json:"embedUrl"`
-	Backend    string       `json:"backend"`
+	EmbedURL string `json:"embedUrl"`
+	Backend  string `json:"backend"`
+	// BackendSource 说明后端归谁管：managed（控制台自己拉起）/ external（启动
+	// 脚本、容器入口或用户手工拉起）。外部托管时界面要改文案，不能再把
+	// 「停止」当成停一个子进程。
+	BackendSource string `json:"backendSource"`
+	// External 仅在外部托管时非空：PID、端口、来源与启动时刻。
+	External *ExternalBackend `json:"external,omitempty"`
+	// Container 为 true 时「停止」在界面上显示为「重启」：容器里停后端会连带
+	// 结束 PID 1，restart policy 又把它拉回来，停不下来也停不干净。
+	Container  bool         `json:"container"`
 	Voice      string       `json:"voice"`
 	Frp        string       `json:"frp"`
 	Cli        CliSnapshot  `json:"cli"`
@@ -128,6 +137,9 @@ type Controller struct {
 	redactions []string
 	backend    *Proc
 	frp        *Proc
+	// external 是「不是本控制台拉起」的后端快照（读 .runtime.json 得来）。
+	// 受 mu 保护，由 RefreshExternal 定期刷新。
+	external *ExternalBackend
 	// 语音不再有独立进程：媒体面跑在后端里，语音状态跟随后端状态。
 	tunnel             *Proc
 	backendState       string
@@ -381,14 +393,32 @@ func (c *Controller) Snapshot() Snapshot {
 	events := make([]Event, len(c.events))
 	copy(events, c.events)
 	backend, voice, frp := c.backendState, c.voiceState, c.frpState
+	managed := c.backend
+	external := c.external
 	var active *Config
 	if c.active != nil {
 		clone := c.active.Clone()
 		active = &clone
 	}
-	backendPid := processPid(c.backend)
+	backendPid := processPid(managed)
 	frpPid := processPid(c.frp)
 	c.mu.RUnlock()
+
+	// 外部托管：控制台手里没有子进程，但 .runtime.json 证明有个后端在跑。
+	// 只有 managed 确实为空时才认外部，避免停止瞬间两边都显示运行。
+	source := ""
+	if managed != nil {
+		source = "managed"
+	}
+	var externalOut *ExternalBackend
+	if managed == nil && external != nil && external.Alive {
+		backend = "running"
+		source = "external"
+		pid := external.PID
+		backendPid = &pid
+		clone := *external
+		externalOut = &clone
+	}
 
 	config := c.store.Value
 	// 公共中继候选来自内置列表，随快照下发，界面不用再单独请求一次。
@@ -397,6 +427,7 @@ func (c *Controller) Snapshot() Snapshot {
 	out := Snapshot{
 		Config: config, Active: active,
 		WebURL: c.WebURL(), WebURLs: c.WebURLs(), EmbedURL: c.EmbedURL(), Backend: backend, Voice: voice, Frp: frp,
+		BackendSource: source, External: externalOut, Container: isContainer(),
 		Cli:  c.cli.Snapshot(),
 		Mesh: mesh,
 		Pid:  backendPid, FrpPid: frpPid,
@@ -829,11 +860,22 @@ func (c *Controller) stopBackend() error {
 }
 
 func (c *Controller) Start() (any, error) {
-	return c.exclusive(func() (any, error) { return c.startBackend() })
+	return c.exclusive(func() (any, error) {
+		// 外部托管的后端已经在跑：再拉一个只会撞端口，把现有服务搞挂。
+		// 让用户知道是谁在管，比丢一句「端口占用」有用。
+		if ext := c.externalAlive(); ext != nil {
+			return nil, fmt.Errorf("主服务已由%s启动（PID %d，端口 %d），无需重复启动",
+				externalOriginLabel(ext.Origin), ext.PID, ext.Port)
+		}
+		return c.startBackend()
+	})
 }
 
 func (c *Controller) Stop() (any, error) {
 	return c.exclusive(func() (any, error) {
+		if ext := c.externalAlive(); ext != nil {
+			return c.stopExternal(ext)
+		}
 		if err := c.stopBackend(); err != nil {
 			return nil, err
 		}
@@ -843,6 +885,17 @@ func (c *Controller) Stop() (any, error) {
 
 func (c *Controller) Restart() (any, error) {
 	return c.exclusive(func() (any, error) {
+		if ext := c.externalAlive(); ext != nil {
+			// 容器里「重启」就是把请求转给入口脚本，控制器不参与拉起；
+			// 裸机上先停外部进程，再由控制台接管（后续启停就都归它了）。
+			if ext.Origin == "container" {
+				return c.restartExternal(ext)
+			}
+			if _, err := c.stopExternal(ext); err != nil {
+				return nil, err
+			}
+			return c.startBackend()
+		}
 		if err := c.stopBackend(); err != nil {
 			return nil, err
 		}

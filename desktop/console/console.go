@@ -164,6 +164,9 @@ func (c *Console) StartBackground() {
 	}
 	// 组网与主服务解耦：即使主服务没自动启动，配过自动入网的也会自己起来。
 	go c.ctrl.AutoStartMesh()
+	// 外部托管的后端（start.sh / start.ps1 / 容器入口拉起）不在 controller
+	// 的进程表里，靠 .runtime.json 定期发现；状态变化时推一次快照。
+	go c.watchExternalBackend()
 	if !c.disableUpdateCheck {
 		go c.checkUpdatesPeriodically()
 	}
@@ -182,6 +185,28 @@ func (c *Console) StartBackground() {
 		}
 		go c.watchChallenges()
 	}()
+}
+
+// watchExternalBackend 每 2 秒重新发现一次外部托管的后端。
+//
+// 为什么不是事件驱动：脚本/容器入口起后端时不会通知控制台，两边唯一的
+// 交汇点是运行根目录下的 .runtime.json。轮询一个小文件（外加一次 /proc
+// 读取）成本可以忽略，换来的是状态最多晚 2 秒、且不依赖启动顺序。
+func (c *Console) watchExternalBackend() {
+	// 先同步刷一次：网页一打开就该看到真实状态，而不是等两秒。
+	if c.ctrl.RefreshExternal() {
+		c.emitUpdate()
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		if c.quitting.Load() {
+			return
+		}
+		if c.ctrl.RefreshExternal() {
+			c.emitUpdate()
+		}
+	}
 }
 
 // checkUpdatesPeriodically 启动后延迟检查一次，此后每 6 小时复检；只检查，不自动下载。
