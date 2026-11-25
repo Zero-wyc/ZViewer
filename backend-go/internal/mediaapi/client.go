@@ -27,11 +27,13 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"zviewer/backend/internal/netutil"
 	"zviewer/backend/internal/store"
@@ -94,6 +96,7 @@ type MediaStream struct {
 	Type           string  `json:"Type"` // Video / Audio / Subtitle
 	Codec          *string `json:"Codec"`
 	Language       string  `json:"Language"`
+	Title          string  `json:"Title"`
 	DisplayTitle   string  `json:"DisplayTitle"`
 	IsExternal     *bool   `json:"IsExternal"`
 	DeliveryMethod string  `json:"DeliveryMethod"`
@@ -242,12 +245,15 @@ func buildAuthHeader(clientName string) string {
 
 // requestOptions 是一次请求的差异项。
 type requestOptions struct {
-	method       string
-	path         string
-	query        []Query
-	body         any
-	useAuthQuery bool   // GET 时把令牌放进 query（默认 true）
-	responseType string // "" | text | buffer
+	method             string
+	path               string
+	deliveryURL        *url.URL
+	query              []Query
+	body               any
+	useAuthQuery       bool   // GET 时把令牌放进 query（默认 true）
+	responseType       string // "" | text | buffer
+	sameOriginRedirect bool
+	maxBytes           int64
 }
 
 // do 发起请求并按 responseType 解码。
@@ -269,25 +275,49 @@ func (c *Client) doOnce(
 		method = http.MethodGet
 	}
 	target := c.BaseURL + c.proto.Path(opts.path)
+	var deliveryURL *url.URL
+	if opts.deliveryURL != nil {
+		copyURL := *opts.deliveryURL
+		deliveryURL = &copyURL
+		target = deliveryURL.String()
+	}
 
 	q := make([]Query, 0, len(opts.query)+1)
 	q = append(q, opts.query...)
 	token := c.AccessToken()
 	if token != "" && method == http.MethodGet && opts.useAuthQuery {
-		q = append(q, Query{c.proto.TokenQuery, token})
+		alreadyPresent := false
+		if deliveryURL != nil {
+			alreadyPresent = deliveryURL.Query().Has(c.proto.TokenQuery)
+		}
+		if !alreadyPresent {
+			q = append(q, Query{c.proto.TokenQuery, token})
+		}
 	}
 	if len(q) > 0 {
-		var b strings.Builder
-		b.WriteByte('?')
-		for i, pair := range q {
-			if i > 0 {
-				b.WriteByte('&')
+		if deliveryURL != nil {
+			for _, pair := range q {
+				if !deliveryURL.Query().Has(pair.Key) {
+					if deliveryURL.RawQuery != "" {
+						deliveryURL.RawQuery += "&"
+					}
+					deliveryURL.RawQuery += netutil.EncodeURIComponent(pair.Key) + "=" + netutil.EncodeURIComponent(pair.Value)
+				}
 			}
-			b.WriteString(netutil.EncodeURIComponent(pair.Key))
-			b.WriteByte('=')
-			b.WriteString(netutil.EncodeURIComponent(pair.Value))
+			target = deliveryURL.String()
+		} else {
+			var b strings.Builder
+			b.WriteByte('?')
+			for i, pair := range q {
+				if i > 0 {
+					b.WriteByte('&')
+				}
+				b.WriteString(netutil.EncodeURIComponent(pair.Key))
+				b.WriteByte('=')
+				b.WriteString(netutil.EncodeURIComponent(pair.Value))
+			}
+			target += b.String()
 		}
-		target += b.String()
 	}
 
 	var bodyReader io.Reader
@@ -311,13 +341,28 @@ func (c *Client) doOnce(
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client := http.DefaultClient
+	if opts.sameOriginRedirect || opts.deliveryURL != nil {
+		// 防止上游字幕 URL 借重定向越过同源限制或带出鉴权头。
+		restricted := *client
+		restricted.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+			if !sameSubtitleOrigin(next.URL, req.URL) || next.URL.User != nil || len(via) > 10 {
+				return errors.New("不允许的字幕重定向")
+			}
+			return nil
+		}
+		client = &restricted
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(reqCtx.Err(), context.DeadlineExceeded) {
 			return opts, nil, "", &Error{
 				Message: fmt.Sprintf(c.proto.label()+" 请求超时（%dms）", c.timeout.Milliseconds()),
 				Code:    CodeTimeout,
 			}
+		}
+		if opts.sameOriginRedirect || opts.deliveryURL != nil {
+			return opts, nil, "", &Error{Message: c.proto.label() + " 字幕连接失败", Code: CodeUnreachable}
 		}
 		return opts, nil, "", &Error{Message: c.proto.label() + " 连接失败: " + err.Error(), Code: CodeUnreachable}
 	}
@@ -362,11 +407,18 @@ func (c *Client) doOnce(
 	if resp.StatusCode == http.StatusNoContent {
 		return opts, nil, "", nil
 	}
-	body, err := io.ReadAll(resp.Body)
+	var reader io.Reader = resp.Body
+	if opts.maxBytes > 0 {
+		reader = io.LimitReader(reader, opts.maxBytes+1)
+	}
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return opts, nil, "", &Error{Message: c.proto.label() + " 连接失败: " + err.Error(), Code: CodeUnreachable}
 	}
 	ct := resp.Header.Get("Content-Type")
+	if opts.maxBytes > 0 && int64(len(body)) > opts.maxBytes {
+		return opts, nil, "", &Error{Message: "字幕响应超过大小限制", Status: http.StatusRequestEntityTooLarge, Code: CodeRequestFailed}
+	}
 	if ct == "" && opts.responseType == "buffer" {
 		ct = "image/jpeg"
 	}
@@ -752,11 +804,65 @@ func (c *Client) SubtitleContent(
 	ext string,
 ) (string, error) {
 	path := c.proto.Routes.Subtitles(itemID, mediaSourceID, index, ext)
-	body, _, err := c.do(ctx, requestOptions{path: path, responseType: "text"})
+	return c.subtitleAtPath(ctx, path)
+}
+
+// SubtitleContentFromStart 兼容只注册带起始时间参数的字幕路由。
+func (c *Client) SubtitleContentFromStart(ctx context.Context, itemID, mediaSourceID string, index int, ext string) (string, error) {
+	path := c.proto.Routes.Subtitles(itemID, mediaSourceID, index, ext)
+	return c.subtitleAtPath(ctx, strings.Replace(path, "/Stream.", "/0/Stream.", 1))
+}
+
+const maxSubtitleResponseBytes = 4 * 1024 * 1024
+
+func (c *Client) subtitleAtPath(ctx context.Context, path string) (string, error) {
+	body, _, err := c.do(ctx, requestOptions{path: path, responseType: "text", sameOriginRedirect: true, maxBytes: maxSubtitleResponseBytes})
+	return string(body), err
+}
+
+func sameSubtitleOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
+}
+
+// SubtitleByDeliveryURL 使用上游提供的字幕地址，原样保留 query。
+func (c *Client) SubtitleByDeliveryURL(ctx context.Context, deliveryURL string) (string, error) {
+	u, err := url.Parse(deliveryURL)
+	base, baseErr := url.Parse(c.BaseURL)
+	if err != nil || baseErr != nil || u.User != nil || u.Opaque != "" {
+		return "", errors.New("无效的字幕地址")
+	}
+	if u.IsAbs() {
+		if !sameSubtitleOrigin(u, base) {
+			return "", errors.New("字幕地址必须与媒体服务器同源")
+		}
+	} else {
+		if !strings.HasPrefix(deliveryURL, "/") || strings.HasPrefix(deliveryURL, "//") {
+			return "", errors.New("无效的相对字幕地址")
+		}
+		u.Scheme, u.Host = base.Scheme, base.Host
+		basePath := strings.TrimSuffix(base.EscapedPath(), "/")
+		rel := u.EscapedPath()
+		if basePath != "" && (rel == basePath || strings.HasPrefix(rel, basePath+"/")) {
+			rel = strings.TrimPrefix(rel, basePath)
+		}
+		if prefix := c.proto.PathPrefix; prefix != "" && rel != prefix && !strings.HasPrefix(rel, prefix+"/") {
+			rel = prefix + rel
+		}
+		u.RawPath = basePath + rel
+		u.Path, _ = url.PathUnescape(u.RawPath)
+	}
+	body, contentType, err := c.do(ctx, requestOptions{deliveryURL: u, responseType: "text", maxBytes: maxSubtitleResponseBytes})
 	if err != nil {
 		return "", err
 	}
-	return string(body), nil
+	content := string(body)
+	trimmed := strings.TrimLeftFunc(content, func(r rune) bool { return unicode.IsSpace(r) || r == '\ufeff' })
+	start := strings.ToLower(trimmed[:min(len(trimmed), len("<!doctype html"))])
+	if trimmed == "" || strings.Contains(strings.ToLower(contentType), "text/html") ||
+		strings.HasPrefix(start, "<!doctype html") || strings.HasPrefix(start, "<html") {
+		return "", errors.New("字幕地址未返回有效字幕内容")
+	}
+	return content, nil
 }
 
 // ==================== 挂载 → 会话 ====================

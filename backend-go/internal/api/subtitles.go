@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"zviewer/backend/internal/auth"
+	"zviewer/backend/internal/emby"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/subtitle"
 )
@@ -166,7 +167,7 @@ func (s *Server) handleSubtitleEmbeddedTracks(w http.ResponseWriter, r *http.Req
 		httpx.BadRequest(w, "该来源的内嵌字幕提取已前端化，后端不再提供探测")
 		return
 	}
-	tracks, err := s.Subtitles.ListEmbyEmbeddedTracks(r.Context(), movie)
+	tracks, fileSize, err := s.Subtitles.ListEmbyEmbeddedTracks(r.Context(), movie, r.URL.Query().Get("ms"))
 	if err != nil {
 		// Node 这条路径的 catch 固定回 400，不打 500。
 		httpx.Fail(w, http.StatusBadRequest, subtitleErrorMessage(err, "获取内嵌字幕轨道失败"))
@@ -175,7 +176,11 @@ func (s *Server) handleSubtitleEmbeddedTracks(w http.ResponseWriter, r *http.Req
 	if tracks == nil {
 		tracks = []subtitle.Track{}
 	}
-	httpx.OK(w, map[string]any{"success": true, "tracks": tracks})
+	result := map[string]any{"success": true, "tracks": tracks}
+	if fileSize != nil {
+		result["fileSize"] = *fileSize
+	}
+	httpx.OK(w, result)
 }
 
 // handleSubtitleEmbeddedExtract 复刻 routes/subtitles.ts#GET /embedded-extract。
@@ -207,9 +212,14 @@ func (s *Server) handleSubtitleEmbeddedExtract(w http.ResponseWriter, r *http.Re
 		httpx.BadRequest(w, "该来源的内嵌字幕提取已前端化，后端不再提供提取")
 		return
 	}
-	result, err := s.Subtitles.ExtractEmbyEmbeddedTrack(r.Context(), movie, index)
+	result, err := s.Subtitles.ExtractEmbyEmbeddedTrack(r.Context(), movie, index, query.Get("ms"))
 	if err != nil {
-		sendSubtitleError(w, "embedded-extract", err, "提取内嵌字幕失败", http.StatusBadRequest)
+		status := http.StatusBadRequest
+		var upstream *emby.Error
+		if errors.As(err, &upstream) && upstream.Status == http.StatusNotFound {
+			status = http.StatusNotFound
+		}
+		sendSubtitleError(w, "embedded-extract", err, "提取内嵌字幕失败", status)
 		return
 	}
 	httpx.OK(w, map[string]any{

@@ -20,6 +20,8 @@
  * 策略变更只改本文件。
  */
 
+import { getApiUrl } from '@/lib/api'
+
 /**
  * B站媒体 CDN 域名白名单（host 精确或子域后缀匹配）。
  * 与后端 services/bilibili/cdn.ts 的 HTTPS_CAPABLE_BILIBILI_DOMAINS 保持一致。
@@ -198,7 +200,17 @@ function getStoredToken(): string {
 export function appendAuthToken(url: string): string {
   let hasQuery: boolean
   try {
-    const u = new URL(url, window.location.origin)
+    const pageOrigin = window.location.origin
+    const u = new URL(url, pageOrigin)
+    if (u.origin !== pageOrigin) {
+      let apiOrigin = pageOrigin
+      try {
+        apiOrigin = new URL(getApiUrl(), pageOrigin).origin
+      } catch {
+        // 自定义 API 地址无效时只信任当前页面。
+      }
+      if (u.origin !== apiOrigin) return url
+    }
     if (!u.pathname.startsWith('/api/')) return url
     if (u.searchParams.has('token')) return url
     hasQuery = !!u.search
@@ -208,7 +220,9 @@ export function appendAuthToken(url: string): string {
   }
   const token = getStoredToken()
   if (!token) return url
-  return `${url}${hasQuery ? '&' : '?'}token=${encodeURIComponent(token)}`
+  const hash = url.indexOf('#')
+  const target = hash < 0 ? url : url.slice(0, hash)
+  return `${target}${hasQuery ? '&' : '?'}token=${encodeURIComponent(token)}${hash < 0 ? '' : url.slice(hash)}`
 }
 
 /**

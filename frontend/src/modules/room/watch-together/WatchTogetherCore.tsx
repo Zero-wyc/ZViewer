@@ -51,6 +51,7 @@ import {
   isDirectPlayback,
   usesDirectMedia,
 } from '@/modules/movie-source/media-policy'
+import { getEmbyMediaSourceId } from '@/modules/emby/playbackMode'
 import { normalizeAudioCodec, needsBrowserTranscode } from '@/lib/audioCodecs'
 import { isPlaysVideoSupported } from '@/modules/player'
 import type { ArtSlots } from './types'
@@ -188,6 +189,11 @@ export function WatchTogetherCore({
       return {
         kind: currentMovieSourceType as 'emby' | 'jellyfin',
         movieId: currentMovieId,
+        url: watchTogether.sourceUrl || undefined,
+        mediaSourceId:
+          getEmbyMediaSourceId(watchTogether.sourceUrl || '') ||
+          getEmbyMediaSourceId(currentMovie?.url || ''),
+        directLink: currentMovieDirectLink,
       }
     }
     if (
@@ -1292,7 +1298,11 @@ export function WatchTogetherCore({
               onExtractEmbeddedTrack={
                 canEnableEmbedded && embeddedSource
                   ? (track) =>
-                      subtitles.extractEmbeddedTrack(embeddedSource, track)
+                      subtitles.extractEmbeddedTrack(
+                        embeddedSource,
+                        track,
+                        () => videoRef.current?.currentTime ?? null
+                      )
                   : undefined
               }
               canLoadEmbeddedSubtitles={canEnableEmbedded}
