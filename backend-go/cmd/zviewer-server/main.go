@@ -310,11 +310,13 @@ func main() {
 	if !engineOptions.DisableTCP {
 		engineOptions.TCPPort = cfg.ShareMediaTCPPort
 	}
+	var mediaEngine *sfu.Engine
 	if engine, engineErr := sfu.NewEngine(engineOptions); engineErr != nil {
-		// 媒体端口不可用：语音报「暂不可用」。屏幕共享不走这里——它由
-		// Piik 的 `/signal` 负责，与自建媒体面无关。
-		log.Printf("[media] 媒体端口不可用，语音不可用: %v", engineErr)
+		// 媒体端口不可用：语音报「暂不可用」。屏幕共享的中继也一起没有——
+		// 两者共用同一对 UDP/TCP listener（见 piikbridge.SfuOptions）。
+		log.Printf("[media] 媒体端口不可用，语音与共享中继均不可用: %v", engineErr)
 	} else {
+		mediaEngine = engine
 		mediaPlane = sfu.NewMedia(sfu.MediaOptions{Settings: engine.Settings()})
 		log.Printf("[voice] 语音已启用，媒体端口 %s", engine.Describe())
 	}
@@ -356,6 +358,16 @@ func main() {
 	// Piik 信令桥接层：屏幕共享由 Piik 的 /signal 承载。
 	// 起不来不致命但共享不可用——前端会在开播前探能力（GET /api/share/capabilities），
 	// 探到 false 就明确报不可用，而不是让人对着一个 503 猜。
+	var shareSfu *piikbridge.SfuOptions
+	if mediaEngine != nil && cfg.ShareSfuEnabled() {
+		// 共享中继复用语音那对 listener：UDP 走 ShareMediaPort，TCP 走
+		// ShareMediaTCPPort，不再额外开端口。
+		shareSfu = &piikbridge.SfuOptions{
+			Settings: mediaEngine.Settings,
+			Only:     cfg.ShareSfuOnly(),
+		}
+	}
+
 	var piikShare *piikbridge.Bridge
 	if bridge, bridgeErr := piikbridge.New(piikbridge.Options{
 		PublicBaseURL:   &url.URL{Scheme: "http", Host: net.JoinHostPort("localhost", strconv.Itoa(cfg.Port))},
@@ -364,6 +376,7 @@ func main() {
 		// 房间状态跟着主库走，而不是跟着 config/：DATABASE_URL 指到挂载盘时
 		// 房间码也该落在那块盘上，否则换台机器起来就是一屋子新房间码。
 		StateDir: filepath.Dir(cfg.DatabasePath),
+		Sfu:      shareSfu,
 	}); bridgeErr != nil {
 		log.Printf("[piik] 信令桥接未启用: %v", bridgeErr)
 	} else {

@@ -83,12 +83,45 @@ type Config struct {
 	// ShareMediaPublicIP 是 NAT 1:1 的公网地址（FRP/云主机场景必填，
 	// 否则客户端拿到的是内网候选）。
 	ShareMediaPublicIP string
+	// ShareSfuMode 决定屏幕共享走哪条媒体路径。
+	//
+	//   - `off`：只做浏览器直连（Piik 内嵌 SFU 不启用）；
+	//   - `fallback`：直连不可行时由本机 SFU 中转（默认）；
+	//   - `only`：不再下发直连候选，全部共享流量经本机转发。
+	//
+	// 中转走 ShareMediaPort/TCPPort，与语音共用同一对 listener。
+	ShareSfuMode string
 }
 
 // mediaTCPFallbackPort 是媒体 TCP 的默认端口。
 //
 // 取 3337 是为了延续原 livekit 的端口布局：升级时防火墙规则一条都不用改。
 const mediaTCPFallbackPort = 3337
+
+// 屏幕共享中继的取值。默认 fallback：直连优先，打不通才由本机 SFU 转发。
+const (
+	shareSfuOff      = "off"
+	shareSfuFallback = "fallback"
+	shareSfuOnly     = "only"
+)
+
+func parseShareSfuMode(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case shareSfuOff:
+		return shareSfuOff, nil
+	case shareSfuFallback, "":
+		return shareSfuFallback, nil
+	case shareSfuOnly:
+		return shareSfuOnly, nil
+	}
+	return "", fmt.Errorf("SHARE_SFU_MODE 非法: %q（可选 off / fallback / only）", raw)
+}
+
+// ShareSfuEnabled 报告是否启用屏幕共享的服务端中继。
+func (c *Config) ShareSfuEnabled() bool { return c.ShareSfuMode != shareSfuOff }
+
+// ShareSfuOnly 报告是否禁用浏览器直连、强制全部走中继。
+func (c *Config) ShareSfuOnly() bool { return c.ShareSfuMode == shareSfuOnly }
 
 // resolveMediaTCPPort 结算媒体 TCP 端口。
 //
@@ -128,6 +161,14 @@ func Load() (*Config, error) {
 		ShareMediaPort:     3333,
 		ShareMediaTCPPort:  mediaTCPFallbackPort,
 		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
+		ShareSfuMode:       shareSfuFallback,
+	}
+	if raw := os.Getenv("SHARE_SFU_MODE"); raw != "" {
+		mode, err := parseShareSfuMode(raw)
+		if err != nil {
+			return nil, err
+		}
+		cfg.ShareSfuMode = mode
 	}
 	if raw := os.Getenv("SHARE_MEDIA_TCP_PORT"); raw != "" {
 		port, err := strconv.Atoi(raw)

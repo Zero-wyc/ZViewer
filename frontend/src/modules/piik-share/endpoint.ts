@@ -18,7 +18,10 @@ import {
   type PiikRouteUpdate,
   type PiikServerMessage,
   type PiikServerSignalMessage,
+  type PiikSfuConfigMessage,
+  type PiikSfuSignalMessage,
   type PiikSignalPayload,
+  type SfuMedia,
 } from '../piik-signal/protocol.ts'
 import type { EncoderHealthSample } from '../screen-sharing/core/encoder-health.ts'
 import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats.ts'
@@ -63,6 +66,36 @@ interface Edge {
 }
 
 /**
+ * 一条 SFU 边：房主发布到服务器，或观众从服务器订阅。
+ *
+ * 与直连边分开存：直连的边按 `remotePeerId`/`offerer` 做换父与结算，
+ * 而 SFU 边的对端永远是服务器，换父时不该被 `applyAssignment` 顺手关掉。
+ * `connectionId` 由服务端给：发布端是发布代际，订阅端是订阅边，二者不同。
+ */
+interface SfuEdge {
+  pc: RTCPeerConnection
+  connectionId: string
+  publicationGeneration: string
+  /** `sfu-config` / offer 里的版本，结算时原样带回。 */
+  revision: number
+  role: 'publisher' | 'subscriber'
+  pendingCandidates: RTCIceCandidateInit[]
+  remoteReady: boolean
+  /** 订阅端已发过 `route-ready`。 */
+  settled: boolean
+  stream: MediaStream
+}
+
+/** 最近一次 SFU 候选：等 `sfu-config` / `sfu-signal` 到达后再开工。 */
+interface SfuRoute {
+  revision: number
+  publicationGeneration: string
+  connectionId: string
+  /** 我是发布端（房主）还是订阅端（观众）。 */
+  role: 'publisher' | 'subscriber'
+}
+
+/**
  * 一条出边的编码健康采样。
  *
  * `EncoderHealthSample` 是按连接判定的（基线、窗口），共享是多条边同时出，
@@ -78,6 +111,10 @@ export class ShareEndpoint {
   private localStream: MediaStream | null
   private readonly handlers: ShareEndpointHandlers
   private readonly edges = new Map<string, Edge>()
+  /** SFU 边：键是服务端给的 connectionId。 */
+  private readonly sfuEdges = new Map<string, SfuEdge>()
+  /** 等 sfu-config / sfu-signal 的 SFU 候选。 */
+  private sfuRoute: SfuRoute | null = null
   /** 上游推过来的流；观众当中转节点时，把它原样转给下游。 */
   private incoming: MediaStream | null = null
   /** 每条边的统计基线；边关掉就跟着丢，避免连接码复用后拿旧基线做差。 */
@@ -135,6 +172,19 @@ export class ShareEndpoint {
         }
         try {
           edge.pc.addTrack(track, stream)
+        } catch {
+          /* 连接已经关了 */
+        }
+      }
+    }
+    // SFU 发布端只推视频，换源同样走 replaceTrack，不重协商。
+    const video = tracks.find((track) => track.kind === 'video') ?? null
+    for (const edge of this.sfuEdges.values()) {
+      if (edge.role !== 'publisher') continue
+      for (const transceiver of edge.pc.getTransceivers()) {
+        if (transceiver.receiver.track.kind !== 'video') continue
+        try {
+          await transceiver.sender.replaceTrack(video)
         } catch {
           /* 连接已经关了 */
         }
@@ -289,13 +339,21 @@ export class ShareEndpoint {
     this.sendingPaused = paused
     for (const edge of this.edges.values()) {
       if (!edge.offerer) continue
-      await this.applySending(edge, paused)
+      await this.applySending(edge.pc, paused)
+    }
+    // SFU 发布端同样要摘轨：媒体走服务器，服务端的暂停管不到这条连接。
+    for (const edge of this.sfuEdges.values()) {
+      if (edge.role !== 'publisher') continue
+      await this.applySending(edge.pc, paused)
     }
   }
 
-  private async applySending(edge: Edge, paused: boolean): Promise<void> {
+  private async applySending(
+    pc: RTCPeerConnection,
+    paused: boolean
+  ): Promise<void> {
     const tracks = this.localStream?.getTracks() ?? []
-    for (const transceiver of edge.pc.getTransceivers()) {
+    for (const transceiver of pc.getTransceivers()) {
       if (transceiver.direction === 'stopped') continue
       const kind = transceiver.receiver.track.kind
       const desired = paused
@@ -328,6 +386,15 @@ export class ShareEndpoint {
       }
     }
     this.edges.clear()
+    for (const edge of this.sfuEdges.values()) {
+      try {
+        edge.pc.close()
+      } catch {
+        /* 已经关了 */
+      }
+    }
+    this.sfuEdges.clear()
+    this.sfuRoute = null
     this.statBaselines.clear()
     this.qualityBaselines.clear()
   }
@@ -344,6 +411,12 @@ export class ShareEndpoint {
       case 'signal':
         this.applySignal(message as PiikServerSignalMessage)
         return
+      case 'sfu-config':
+        this.applySfuConfig(message as unknown as PiikSfuConfigMessage)
+        return
+      case 'sfu-signal':
+        this.applySfuSignal(message as unknown as PiikSfuSignalMessage)
+        return
       default:
         return
     }
@@ -359,9 +432,21 @@ export class ShareEndpoint {
     if (update.assignment) this.applyAssignment(update.assignment)
     if (update.phase !== 'prepare') return
     const candidate = update.candidate
-    // Piik 的候选有两种传输：`direct`（浏览器直连）与 `sfu`（服务端中转）。
-    // 走这条链路的共享只做直连；sfu 候选留给以后接中继时再处理。
-    if (!candidate || candidate.transport !== 'direct') return
+    if (!candidate) return
+    // Piik 的候选有两种传输：`direct`（浏览器直连）与 `sfu`（服务端中转），
+    // 服务端按「直连优先、sfu 兜底」的顺序下发。sfu 候选本身不带 SDP：
+    // 先记下这次的门闩，等 `sfu-config` / `sfu-signal` 到达再建连接。
+    if (candidate.transport === 'sfu') {
+      const upstream = update.assignment.upstream
+      this.sfuRoute = {
+        revision: update.revision,
+        publicationGeneration: update.assignment.sfuPublicationGeneration ?? '',
+        connectionId: candidate.connectionId,
+        role: upstream && upstream.kind === 'sfu' ? 'subscriber' : 'publisher',
+      }
+      return
+    }
+    if (candidate.transport !== 'direct') return
     // 我只在「我是父」的时候主动发起。子节点等 offer，由 signal 分支建边。
     if (!update.assignment.childPeerIds.includes(candidate.childPeerId)) return
     if (this.edges.has(candidate.connectionId)) return
@@ -395,6 +480,13 @@ export class ShareEndpoint {
       if (edge.offerer) continue
       if (nextPeerId && edge.remotePeerId === nextPeerId) continue
       this.dropEdge(connectionId, edge)
+    }
+    // 上游改回直连的 peer 时，SFU 订阅边必须跟着关：否则它会继续把
+    // 服务器的流推给 onStream，和新的直连画面互相覆盖。
+    if (nextPeerId) {
+      for (const [connectionId, edge] of [...this.sfuEdges]) {
+        if (edge.role === 'subscriber') this.dropSfuEdge(connectionId, edge)
+      }
     }
     if (changed) {
       // 旧的上游流已经作废，等新父的 track 到达再接管转发。
@@ -441,6 +533,264 @@ export class ShareEndpoint {
     void this.acceptAnswer(edge, description.sdp)
   }
 
+  // ==================== SFU 中转 ====================
+
+  /**
+   * 服务端授权了一条 SFU 连接。
+   *
+   * 发布端（房主）拿到的是「发布连接」，由它自己 offer 并声明媒体；
+   * 订阅端（观众）拿到的是「订阅边」，只是告知门闩——offer 由服务端推，
+   * 这里不主动发 `subscribe`，避免和自动准备的订阅抢跑。
+   */
+  private applySfuConfig(config: PiikSfuConfigMessage): void {
+    const route = this.sfuRoute
+    this.sfuRoute = null
+    // 门闩只认最近一次候选：旧代际的配置晚到就别再建连接了。
+    if (
+      route?.publicationGeneration &&
+      config.publicationGeneration !== route.publicationGeneration
+    ) {
+      return
+    }
+    const role =
+      route?.role ??
+      (this.localStream?.getTracks().some((track) => track.kind === 'video')
+        ? 'publisher'
+        : 'subscriber')
+    // 换了一条 SFU 连接就把同角色的旧连接关掉，否则旧 PC 会一直占着。
+    for (const [connectionId, edge] of [...this.sfuEdges]) {
+      if (edge.role === role && connectionId !== config.connectionId)
+        this.dropSfuEdge(connectionId, edge)
+    }
+    if (role === 'subscriber') return
+    void this.publishToSfu(config)
+  }
+
+  private applySfuSignal(message: PiikSfuSignalMessage): void {
+    if (!message.connectionId) return
+    if (message.kind === 'candidate') {
+      const candidate = message.candidate
+      // 候选结束（null）是协议允许的，服务端不再有候选可发。
+      if (!candidate) return
+      const edge = this.sfuEdges.get(message.connectionId)
+      if (!edge) return
+      if (!edge.remoteReady) {
+        edge.pendingCandidates.push(candidate)
+        return
+      }
+      void edge.pc.addIceCandidate(candidate).catch(() => {
+        /* 过期候选：连接已经重协商掉了 */
+      })
+      return
+    }
+    if (message.kind !== 'description') return
+    const description = message.description
+    if (!description) return
+    if (description.type === 'offer') {
+      void this.acceptSfuOffer(message, description.sdp)
+      return
+    }
+    const edge = this.sfuEdges.get(message.connectionId)
+    if (!edge || edge.role !== 'publisher') return
+    void this.acceptSfuAnswer(edge, description.sdp)
+  }
+
+  /**
+   * 房主侧：把本地视频轨推到服务器。
+   *
+   * 只做单层（`rid` 为空字符串）——共享只有一个编码器，分层由服务器按
+   * `layers` 里的实际尺寸决定。offer 与媒体声明必须一起发，服务端靠
+   * `media` 预约发布资源，缺了会被直接丢掉。
+   */
+  private async publishToSfu(config: PiikSfuConfigMessage): Promise<void> {
+    if (this.sfuEdges.has(config.connectionId)) return
+    const track = this.localStream
+      ?.getTracks()
+      .find((item) => item.kind === 'video')
+    if (!track) return
+    const edge = this.createSfuEdge(
+      config.connectionId,
+      config.publicationGeneration,
+      config.revision,
+      'publisher'
+    )
+    if (!edge) return
+    try {
+      edge.pc.addTransceiver(track, { direction: 'sendonly' })
+      const offer = await edge.pc.createOffer()
+      await edge.pc.setLocalDescription(offer)
+      if (this.sendingPaused) await this.applySending(edge.pc, true)
+      this.sendSfuSignal(edge, {
+        kind: 'description',
+        description: { type: 'offer', sdp: offer.sdp ?? '' },
+        media: this.sfuMediaFor(track),
+      })
+    } catch {
+      this.dropSfuEdge(edge.connectionId, edge)
+    }
+  }
+
+  private async acceptSfuOffer(
+    message: PiikSfuSignalMessage,
+    sdp: string
+  ): Promise<void> {
+    let edge = this.sfuEdges.get(message.connectionId)
+    if (!edge) {
+      edge = this.createSfuEdge(
+        message.connectionId,
+        message.publicationGeneration,
+        message.revision,
+        'subscriber'
+      )
+      if (!edge) return
+    }
+    try {
+      await edge.pc.setRemoteDescription({ type: 'offer', sdp })
+      edge.remoteReady = true
+      for (const candidate of edge.pendingCandidates.splice(0))
+        await edge.pc.addIceCandidate(candidate)
+      const answer = await edge.pc.createAnswer()
+      await edge.pc.setLocalDescription(answer)
+      this.sendSfuSignal(edge, {
+        kind: 'description',
+        description: { type: 'answer', sdp: answer.sdp ?? '' },
+      })
+    } catch {
+      this.dropSfuEdge(edge.connectionId, edge)
+    }
+  }
+
+  private async acceptSfuAnswer(edge: SfuEdge, sdp: string): Promise<void> {
+    try {
+      await edge.pc.setRemoteDescription({ type: 'answer', sdp })
+      edge.remoteReady = true
+      for (const candidate of edge.pendingCandidates.splice(0))
+        await edge.pc.addIceCandidate(candidate)
+    } catch {
+      this.dropSfuEdge(edge.connectionId, edge)
+    }
+  }
+
+  private createSfuEdge(
+    connectionId: string,
+    publicationGeneration: string,
+    revision: number,
+    role: 'publisher' | 'subscriber'
+  ): SfuEdge | null {
+    let pc: RTCPeerConnection
+    try {
+      pc = new RTCPeerConnection({
+        iceServers: this.iceConfig.iceServers ?? [],
+      })
+    } catch {
+      return null
+    }
+    const edge: SfuEdge = {
+      pc,
+      connectionId,
+      publicationGeneration,
+      revision,
+      role,
+      pendingCandidates: [],
+      remoteReady: false,
+      settled: false,
+      stream: new MediaStream(),
+    }
+    this.sfuEdges.set(connectionId, edge)
+
+    pc.onicecandidate = (event) => {
+      const candidate = event.candidate
+      if (!candidate) return
+      this.sendSfuSignal(edge, {
+        kind: 'candidate',
+        candidate: candidate.toJSON(),
+      })
+    }
+    pc.ontrack = (event) => {
+      if (edge.role !== 'subscriber') return
+      const track = event.track
+      if (!edge.stream.getTracks().includes(track)) edge.stream.addTrack(track)
+      if (!this.incoming) this.incoming = edge.stream
+      this.handlers.onStream(connectionId, edge.stream)
+      this.relayToChildren(track)
+    }
+    pc.onconnectionstatechange = () => {
+      this.handlers.onStateChange(connectionId, pc.connectionState)
+      if (pc.connectionState === 'connected') this.settleSfu(edge)
+      // SFU 失败不上报 `route-failed`：服务端自己按超时判定，重复上报
+      // 会把这次重新分配判死。这里只关本地连接。
+      if (pc.connectionState === 'failed') this.dropSfuEdge(connectionId, edge)
+    }
+    return edge
+  }
+
+  /** 订阅端连上后结算，口径与直连边一致。 */
+  private settleSfu(edge: SfuEdge): void {
+    if (edge.settled || edge.role !== 'subscriber') return
+    edge.settled = true
+    const revision = edge.revision || this.revision
+    this.handlers.send({
+      type: 'route-transport-connected',
+      revision,
+      connectionId: edge.connectionId,
+    })
+    this.handlers.send({ type: 'route-ready', revision, phase: 'prepare' })
+  }
+
+  private dropSfuEdge(connectionId: string, edge: SfuEdge): void {
+    if (this.sfuEdges.get(connectionId) !== edge) return
+    this.sfuEdges.delete(connectionId)
+    if (this.incoming === edge.stream) this.incoming = null
+    try {
+      edge.pc.close()
+    } catch {
+      /* 已经关了 */
+    }
+    this.handlers.onStateChange(connectionId, 'closed')
+  }
+
+  /** 发布声明：宽高取轨道的实际设置，拿不到时按 1080p 兜底。 */
+  private sfuMediaFor(track: MediaStreamTrack): SfuMedia {
+    let width = 0
+    let height = 0
+    try {
+      const settings = track.getSettings()
+      width = settings.width ?? 0
+      height = settings.height ?? 0
+    } catch {
+      /* 某些实现不提供尺寸 */
+    }
+    return {
+      codec: 'vp8',
+      layers: [
+        {
+          rid: '',
+          width: width > 0 ? Math.round(width) : 1920,
+          height: height > 0 ? Math.round(height) : 1080,
+          bitrate: 4_000_000,
+        },
+      ],
+      audio: false,
+      audioBitrate: 0,
+    }
+  }
+
+  private sendSfuSignal(
+    edge: SfuEdge,
+    payload: Pick<
+      PiikSfuSignalMessage,
+      'kind' | 'description' | 'candidate' | 'media'
+    >
+  ): void {
+    this.handlers.send({
+      type: 'sfu-signal',
+      revision: edge.revision,
+      publicationGeneration: edge.publicationGeneration,
+      connectionId: edge.connectionId,
+      ...payload,
+    })
+  }
+
   // ==================== 协商 ====================
 
   private createEdge(
@@ -477,7 +827,7 @@ export class ShareEndpoint {
     if (source) {
       for (const track of source.getTracks()) pc.addTrack(track, source)
       // 暂停期间新进来的观众不该看到画面：挂上轨后立刻摘掉。
-      if (this.sendingPaused) void this.applySending(edge, true)
+      if (this.sendingPaused) void this.applySending(pc, true)
     }
 
     pc.onicecandidate = (event) => {

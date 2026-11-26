@@ -25,10 +25,14 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/pion/webrtc/v4"
 
 	"zviewer/backend/internal/piik/server/protocol"
 	"zviewer/backend/internal/piik/server/room"
+	"zviewer/backend/internal/piik/server/sfu"
 	"zviewer/backend/internal/piik/server/signal"
 )
 
@@ -85,8 +89,34 @@ type Options struct {
 	//
 	// 为空则整层退回纯内存（测试用）。目录会被创建。
 	StateDir string
-	Logger   *slog.Logger
+	// Sfu 非空时启用 Piik 内嵌 SFU：屏幕共享在直连不可行时改走本机媒体端口
+	// 中转。为空表示只做浏览器直连。
+	Sfu    *SfuOptions
+	Logger *slog.Logger
 }
+
+// SfuOptions 是内嵌 SFU 的媒体面与容量。
+//
+// 媒体端口不在这里创建：Settings 由调用方（cmd/zviewer-server）从
+// share/sfu.Engine 取，语音与共享因此共用同一对 UDP/TCP listener。
+type SfuOptions struct {
+	// Settings 每次返回一份 ICE 配置快照；其中的 UDP mux 归调用方所有，
+	// SFU 只读不关。
+	Settings func() webrtc.SettingEngine
+	// IngressCapacity 是进程级同时发布数（每个房间至多一份共享），
+	// EgressCapacity 是同时订阅数。为零时取下面的默认值。
+	IngressCapacity int
+	EgressCapacity  int
+	// Only 为 true 时不再下发浏览器直连候选，全部共享流量经本机转发。
+	Only bool
+}
+
+// 默认容量按「32 个房间同时开播、每房 16 个观众」估：Ingress 只数房间，
+// Egress 数的是订阅边，20 人房（1 房主 + 19 观众）也不会顶到上限。
+const (
+	defaultSfuIngressCapacity = 32
+	defaultSfuEgressCapacity  = 512
+)
 
 // Bridge 持有 Piik 信令服务器与 ZViewer 房间的映射。
 type Bridge struct {
@@ -200,6 +230,40 @@ func New(options Options) (*Bridge, error) {
 		b.secret = secret
 	}
 
+	// 内嵌 SFU：媒体端口由调用方的 Engine 提供，这里只装配容量与事件回路。
+	// 事件（ICE 候选、连接状态）必须在 Server 存在之后才能回调，所以用
+	// atomic 指针承接——Media 在 signal.New 之前就已构造，但那时还没有
+	// PeerConnection，不会有事件到达。
+	var (
+		sfuFallback *signal.SfuFallback
+		sfuOnly     bool
+		sfuServer   atomic.Pointer[signal.Server]
+	)
+	if sfuOptions := options.Sfu; sfuOptions != nil && sfuOptions.Settings != nil {
+		ingress, egress := sfuOptions.IngressCapacity, sfuOptions.EgressCapacity
+		if ingress <= 0 {
+			ingress = defaultSfuIngressCapacity
+		}
+		if egress <= 0 {
+			egress = defaultSfuEgressCapacity
+		}
+		media := sfu.NewMedia(sfu.MediaOptions{
+			Settings: sfuOptions.Settings,
+			Events: func(event sfu.MediaEvent) {
+				if server := sfuServer.Load(); server != nil {
+					server.HandleSfuMediaEvent(event)
+				}
+			},
+		})
+		sfuFallback = &signal.SfuFallback{
+			Media:     media,
+			Admission: sfu.NewAdmission(sfu.AdmissionOptions{IngressCapacity: ingress, EgressCapacity: egress}),
+		}
+		sfuOnly = sfuOptions.Only
+		logger.Info("[piik] 内嵌 SFU 已启用",
+			"only", sfuOnly, "ingress", ingress, "egress", egress)
+	}
+
 	// Piik 的 Origin 允许表只认启动期的固定集合，见 origins.go 的说明：
 	// 真正的判定在本层，交给它的是规范化后的同一个来源。
 	signaling, err := signal.New(signal.Options{
@@ -209,6 +273,8 @@ func New(options Options) (*Bridge, error) {
 		// 时 20 人的房间铺不满）。语音的每个中间节点还要额外占一条上游边，
 		// 3 条下游 + 1 条上游仍在浏览器能稳定维持的范围内。
 		EndpointMediaCopyCapacity: protocol.MaxEndpointMediaCopyCapacity,
+		SfuFallback:               sfuFallback,
+		SfuOnly:                   sfuOnly,
 		Ice:                       ice,
 		AllowedOrigins:            map[string]struct{}{canonicalOrigin: {}},
 		SiteAccessAtUpgrade: func(request *http.Request) bool {
@@ -223,6 +289,11 @@ func New(options Options) (*Bridge, error) {
 		return nil, err
 	}
 	b.signal = signaling
+	// 事件回路的最后一段：Server 持有媒体面的准入与路由，Media 只负责物理
+	// PeerConnection。Store 之后才有事件，之前发生的（构造期）不存在。
+	if sfuFallback != nil {
+		sfuServer.Store(signaling)
+	}
 
 	// 映射最后加载：校验「这个 Piik 房间还在不在」要用信令层的 store。
 	if stateDir != "" {

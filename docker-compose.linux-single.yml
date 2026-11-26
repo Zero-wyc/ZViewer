@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.linux-single
     ports:
       - "3333:3333"     # 统一端口：后端 API + WebSocket + 前端静态文件 + /live HTTP-FLV 代理
-      - "3333:3333/udp" # 语音与屏幕共享的媒体面（与页面 HTTP 同号，协议不同）
+      - "3333:3333/udp" # 语音与屏幕共享中继的媒体面（与页面 HTTP 同号，协议不同）
       - "3334:3334"     # RTMP 推流 (OBS)
       - "3337:3337"     # 媒体 TCP（UDP 被防火墙/代理拦截时客户端自动回退到此端口）
       - "3332:3332"     # 网页控制台（zviewer-webgui，独立进程；不需要可删掉这行）
@@ -21,6 +21,9 @@ services:
       # 客户端在 UDP 被拦截时会自动回退到它。
       - SHARE_MEDIA_PORT=${SHARE_MEDIA_PORT:-3333}
       - SHARE_MEDIA_TCP_PORT=${SHARE_MEDIA_TCP_PORT:-3337}
+      # 屏幕共享的媒体路径：off 只直连，fallback（默认）直连打不通才由本机 SFU
+      # 转发，only 全部经服务器中转。中转复用上面那对 UDP/TCP 端口。
+      - SHARE_SFU_MODE=${SHARE_SFU_MODE:-fallback}
       # NAT 1:1（云主机 / 只做端口转发的 FRP）：填宿主公网 IP。留空时候选里只有
       # 容器内网地址（172.x），信令能通但媒体连不上；STUN 发现对容器不可靠。
       - SHARE_MEDIA_PUBLIC_IP=${SHARE_MEDIA_PUBLIC_IP:-}

@@ -181,6 +181,7 @@ export type PiikClientMessage =
   /** 房主暂停/恢复：服务端会把整条路由树挂起，不再分配新的候选。 */
   | { type: 'set-sharing-paused'; shareGeneration: string; paused: boolean }
   | PiikClientSignalMessage
+  | PiikSfuSignalMessage
   | {
       type: 'route-ready'
       revision: number
@@ -210,6 +211,59 @@ export type PiikClientMessage =
       connectionId: string
     }
   | { type: 'signaling-challenge'; sequence: number }
+
+// ---------------------------------------------------------------------------
+// 共享：SFU 中转（sfu-config / sfu-signal）
+// ---------------------------------------------------------------------------
+
+/** 发布端声明的一层编码；单层时 `rid` 允许为空字符串。 */
+export interface SfuLayer {
+  rid: string
+  width: number
+  height: number
+  bitrate: number
+}
+
+/** 发布端的媒体声明；`codec` 只有协议认可的这两种。 */
+export interface SfuMedia {
+  codec: 'vp8' | 'h264'
+  layers: SfuLayer[]
+  audio: boolean
+  audioBitrate: number
+}
+
+/**
+ * 服务端授权一条 SFU 物理连接。
+ *
+ * 发布端（房主）的 `connectionId` 就是发布代际；订阅端（观众）的
+ * `connectionId` 是它自己的订阅边——两者不会相同，可以据此区分角色。
+ */
+export interface PiikSfuConfigMessage {
+  type: 'sfu-config'
+  revision: number
+  publicationGeneration: string
+  connectionId: string
+}
+
+/**
+ * `sfu-signal` 的载荷，按 `kind` 取用对应字段。
+ *
+ * - 发布端发 `description`(offer) 时必须带 `media`，服务端回 answer；
+ * - 订阅端发 `description`(answer) 时不许带 `media`；
+ * - `candidate` 的 `candidate` 允许为 null（候选结束）；
+ * - `layers` 是服务端下发的层需求（`activeCount`），客户端只读。
+ */
+export interface PiikSfuSignalMessage {
+  type: 'sfu-signal'
+  revision: number
+  publicationGeneration: string
+  connectionId: string
+  kind: 'media' | 'subscribe' | 'description' | 'candidate' | 'layers'
+  description?: PiikSessionDescription
+  candidate?: RTCIceCandidateInit | null
+  media?: SfuMedia
+  activeCount?: number
+}
 
 /**
  * 下行消息的宽松视图。

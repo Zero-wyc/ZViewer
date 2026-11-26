@@ -73,3 +73,41 @@ func TestResolveMediaTCPPort(t *testing.T) {
 		}
 	}
 }
+
+// 屏幕共享的中继策略只有三档，非法值必须在启动期就失败，而不是悄悄退成直连。
+func TestParseShareSfuMode(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		invalid bool
+	}{
+		{"", shareSfuFallback, false},
+		{"fallback", shareSfuFallback, false},
+		{"FALLBACK", shareSfuFallback, false},
+		{" off ", shareSfuOff, false},
+		{"only", shareSfuOnly, false},
+		{"sfu", "", true},
+	}
+	for _, tc := range cases {
+		got, err := parseShareSfuMode(tc.in)
+		if tc.invalid {
+			if err == nil {
+				t.Fatalf("%q 应被拒绝，得到 %q", tc.in, got)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Fatalf("%q: 期望 %q，得到 %q（err=%v）", tc.in, tc.want, got, err)
+		}
+	}
+
+	if !(&Config{ShareSfuMode: shareSfuFallback}).ShareSfuEnabled() {
+		t.Fatal("fallback 应视为启用中继")
+	}
+	if (&Config{ShareSfuMode: shareSfuOff}).ShareSfuEnabled() {
+		t.Fatal("off 不应启用中继")
+	}
+	if !(&Config{ShareSfuMode: shareSfuOnly}).ShareSfuOnly() {
+		t.Fatal("only 应报告强制中继")
+	}
+}

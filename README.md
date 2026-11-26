@@ -83,8 +83,8 @@ docker run -d --name zviewer --restart unless-stopped \
 | 端口 | 用途 |
 | --- | --- |
 | 3333/tcp | HTTP/HTTPS、WebSocket、页面 |
-| 3333/udp | 语音媒体（UDP） |
-| 3337/tcp | 语音媒体（TCP，UDP 受限时自动切换） |
+| 3333/udp | 语音媒体；启用共享中继时也承载它（UDP） |
+| 3337/tcp | 同上，TCP 回退（UDP 被防火墙/代理拦截时自动切换） |
 | 3334/tcp | OBS RTMP 推流 |
 | 3332/tcp | 网页控制台（`zviewer-webgui`，独立进程，可不开） |
 
@@ -101,6 +101,7 @@ docker run -d --name zviewer --restart unless-stopped \
 | `SHARE_MEDIA_PORT` | 媒体 UDP 端口 | `3333` |
 | `SHARE_MEDIA_TCP_PORT` | 媒体 TCP 端口。**不能与 `PORT` 相同**（会抢走网页端口）；留空用 3337 | `3337` |
 | `SHARE_MEDIA_PUBLIC_IP` | NAT 1:1 下的公网地址（云主机 / FRP 场景必填） | 自动 |
+| `SHARE_SFU_MODE` | 屏幕共享媒体路径：`off` 只直连、`fallback` 直连打不通才由本机 SFU 转发、`only` 全部经服务器中转 | `fallback` |
 | `WEBGUI_PORT` | 网页控制台端口（运行包 / 容器）；`ZVIEWER_WEB_PORT` 优先 | `3332` |
 
 其余变量（推流、Emby 等）见 `backend-go/internal/config`。
@@ -108,6 +109,14 @@ docker run -d --name zviewer --restart unless-stopped \
 ## 语音（采用Piik的语音链路）
 
 语音在房间成员之间直连，房主是树根，后端只负责信令（`/signal`）与禁言、踢人等权限，音频不经过服务器。浏览器自动在 UDP 与 TCP 之间择优。
+
+## 屏幕共享
+
+屏幕共享同样由 Piik 承载：信令走 `/signal`，媒体默认在浏览器之间直连（观众之间可以互为中继）。
+
+`SHARE_SFU_MODE=fallback`（默认）时，后端会额外提供一条服务端中继路径：直连候选打不通（对称 NAT、只放行 TCP 的网络）就由本机 SFU 转发，走 `3333/udp`，UDP 不通时回退 `3337/tcp`。设成 `only` 则不再下发直连候选，所有共享流量都经服务器。
+
+中转会增加服务器带宽与 CPU（每个观众一条出向流）；纯局域网或打洞正常的场景保持默认即可，不需要把 `3333/udp` 暴露到公网。
 
 ## 网页控制台
 
