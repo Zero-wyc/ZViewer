@@ -84,6 +84,8 @@ interface SfuEdge {
   /** 订阅端已发过 `route-ready`。 */
   settled: boolean
   stream: MediaStream
+  /** 发布端最近一次声明的编码层，画质档变化时随 `kind:'media'` 更新。 */
+  media: SfuMedia | null
 }
 
 /** 最近一次 SFU 候选：等 `sfu-config` / `sfu-signal` 到达后再开工。 */
@@ -177,18 +179,31 @@ export class ShareEndpoint {
         }
       }
     }
-    // SFU 发布端只推视频，换源同样走 replaceTrack，不重协商。
+    // SFU 发布端换源同样走 replaceTrack，不重协商；共享的系统声音也跟着换。
     const video = tracks.find((track) => track.kind === 'video') ?? null
+    const audio = tracks.find((track) => track.kind === 'audio') ?? null
     for (const edge of this.sfuEdges.values()) {
       if (edge.role !== 'publisher') continue
-      for (const transceiver of edge.pc.getTransceivers()) {
-        if (transceiver.receiver.track.kind !== 'video') continue
+      for (const sender of edge.pc.getSenders()) {
+        const kind = sender.track?.kind
+        if (kind !== 'video' && kind !== 'audio') continue
         try {
-          await transceiver.sender.replaceTrack(video)
+          await sender.replaceTrack(kind === 'video' ? video : audio)
         } catch {
           /* 连接已经关了 */
         }
       }
+      if (!video) continue
+      const media = this.sfuMediaFor(video, null, audio)
+      if (
+        edge.media?.audio === media.audio &&
+        edge.media?.layers[0]?.width === media.layers[0]?.width &&
+        edge.media?.layers[0]?.height === media.layers[0]?.height
+      ) {
+        continue
+      }
+      edge.media = media
+      this.sendSfuSignal(edge, { kind: 'media', media })
     }
   }
 
@@ -219,6 +234,39 @@ export class ShareEndpoint {
         }
       }
     }
+    // 中转时房主的编码器只挂在 sfu 发布边上。画质档换了要同时做两件事：
+    // 把新参数设到 sender，再把新的层尺寸报给服务端——带宽按声明分配，
+    // 不更新的话服务端还在按旧分辨率留余量。
+    for (const edge of this.sfuEdges.values()) {
+      if (edge.role !== 'publisher') continue
+      const sender = edge.pc
+        .getSenders()
+        .find((item) => item.track?.kind === 'video')
+      if (!sender) continue
+      try {
+        readbacks.push(await configureVideoSender(sender, profile))
+      } catch {
+        /* 同上 */
+      }
+      const audioSender = edge.pc
+        .getSenders()
+        .find((item) => item.track?.kind === 'audio')
+      const media = this.sfuMediaFor(
+        sender.track,
+        profile.resolution,
+        audioSender?.track ?? null
+      )
+      const previous = edge.media?.layers[0]
+      if (
+        previous &&
+        previous.width === media.layers[0]?.width &&
+        previous.height === media.layers[0]?.height
+      ) {
+        continue
+      }
+      edge.media = media
+      this.sendSfuSignal(edge, { kind: 'media', media })
+    }
     return readbacks
   }
 
@@ -231,66 +279,70 @@ export class ShareEndpoint {
    */
   async healthSamples(): Promise<ShareHealthSample[]> {
     const samples: ShareHealthSample[] = []
+    // 统计报告的 timestamp 精度因浏览器而异，统一用本地时钟算窗口长度。
     for (const [connectionId, edge] of this.edges) {
       if (!edge.offerer) continue
-      const report = await edge.pc.getStats().catch(() => null)
-      if (!report) continue
-
-      let framesEncoded: number | null = null
-      let outboundId: string | null = null
-      let sourceId: string | null = null
-      let limitation: EncoderHealthSample['limitation'] = null
-      report.forEach((entry) => {
-        const stat = entry as {
-          type?: string
-          kind?: string
-          id?: string
-          framesEncoded?: number
-          mediaSourceId?: string
-          qualityLimitationReason?: string
-        }
-        if (stat.type !== 'outbound-rtp' || stat.kind !== 'video') return
-        if (typeof stat.framesEncoded !== 'number') return
-        // simulcast 时同一路会有多条 outbound-rtp，取编码量最大的一条
-        // （全尺寸那层），与旧实现 HostPeer 的口径一致。
-        if (framesEncoded !== null && stat.framesEncoded <= framesEncoded)
-          return
-        framesEncoded = stat.framesEncoded
-        outboundId = stat.id ?? null
-        sourceId = stat.mediaSourceId ?? null
-        limitation =
-          (stat.qualityLimitationReason as EncoderHealthSample['limitation']) ??
-          null
-      })
-      if (framesEncoded === null) continue
-
-      const source = sourceId
-        ? (report.get(sourceId) as { frames?: number } | undefined)
-        : undefined
-      samples.push({
-        connectionId,
-        outboundId,
-        sourceId,
-        // 统计报告的 timestamp 精度因浏览器而异，统一用本地时钟算窗口长度。
-        timestamp: Date.now(),
-        framesEncoded,
-        sourceFrames: typeof source?.frames === 'number' ? source.frames : null,
-        limitation,
-      })
+      const sample = await this.sampleEncoder(edge.pc)
+      if (sample)
+        samples.push({ connectionId, ...sample, timestamp: Date.now() })
+    }
+    // 走中转时房主的编码器在 sfu 发布边上，直连边可能一条都没有；漏掉它
+    // 会让健康监控以为「没有画面在编码」，把正常的共享判成异常。
+    for (const [connectionId, edge] of this.sfuEdges) {
+      if (edge.role !== 'publisher') continue
+      const sample = await this.sampleEncoder(edge.pc)
+      if (sample)
+        samples.push({ connectionId, ...sample, timestamp: Date.now() })
     }
     return samples
   }
 
-  /**
-   * 每条边的用量。
-   *
-   * 每条边自带一份采样基线：窗口速率（帧率、码率、丢包率、编码耗时）只能靠
-   * 两次采样做差得出，共用基线会让两条边互相减出负数。复用单 PC 那套
-   * `sampleShareStats`，口径与 `chrome://webrtc-internals` 一致。
-   *
-   * 一条边只取一个方向：房主的边只有出、观众的边只有入，面板上不会出现
-   * 「同一条边两个方向都为零」的困惑。
-   */
+  /** 读一条连接的视频编码量；没有 outbound-rtp 时返回 null。 */
+  private async sampleEncoder(
+    pc: RTCPeerConnection
+  ): Promise<Omit<ShareHealthSample, 'connectionId' | 'timestamp'> | null> {
+    const report = await pc.getStats().catch(() => null)
+    if (!report) return null
+
+    let framesEncoded: number | null = null
+    let outboundId: string | null = null
+    let sourceId: string | null = null
+    let limitation: EncoderHealthSample['limitation'] = null
+    report.forEach((entry) => {
+      const stat = entry as {
+        type?: string
+        kind?: string
+        id?: string
+        framesEncoded?: number
+        mediaSourceId?: string
+        qualityLimitationReason?: string
+      }
+      if (stat.type !== 'outbound-rtp' || stat.kind !== 'video') return
+      if (typeof stat.framesEncoded !== 'number') return
+      // simulcast 时同一路会有多条 outbound-rtp，取编码量最大的一条
+      // （全尺寸那层），与旧实现 HostPeer 的口径一致。
+      if (framesEncoded !== null && stat.framesEncoded <= framesEncoded) return
+      framesEncoded = stat.framesEncoded
+      outboundId = stat.id ?? null
+      sourceId = stat.mediaSourceId ?? null
+      limitation =
+        (stat.qualityLimitationReason as EncoderHealthSample['limitation']) ??
+        null
+    })
+    if (framesEncoded === null) return null
+
+    const source = sourceId
+      ? (report.get(sourceId) as { frames?: number } | undefined)
+      : undefined
+    return {
+      outboundId,
+      sourceId,
+      framesEncoded,
+      sourceFrames: typeof source?.frames === 'number' ? source.frames : null,
+      limitation,
+    }
+  }
+
   async stats(): Promise<ShareEdgeStats[]> {
     const out: ShareEdgeStats[] = []
     for (const [connectionId, edge] of this.edges) {
@@ -315,6 +367,34 @@ export class ShareEndpoint {
       out.push({
         connectionId,
         direction: edge.offerer ? 'outbound' : 'inbound',
+        state: edge.pc.connectionState,
+        stats: sample.stats,
+        quality,
+      })
+    }
+    // 中转边同样要进统计：只报直连会让「只有一个观众、走 sfu」的房间看起来
+    // 一条连接都没有，码率/丢包面板整片空白。
+    for (const [connectionId, edge] of this.sfuEdges) {
+      const report = await edge.pc.getStats().catch(() => null)
+      if (!report) continue
+      const outbound = edge.role === 'publisher'
+      const sample = sampleShareStats(
+        this.statBaselines.get(connectionId) ?? null,
+        report
+      )
+      this.statBaselines.set(connectionId, sample.baseline)
+      let quality: ShareEdgeStats['quality']
+      if (outbound) {
+        const peer = samplePeerQuality(
+          this.qualityBaselines.get(connectionId) ?? null,
+          report
+        )
+        this.qualityBaselines.set(connectionId, peer.baseline)
+        quality = peer.quality
+      }
+      out.push({
+        connectionId,
+        direction: outbound ? 'outbound' : 'inbound',
         state: edge.pc.connectionState,
         stats: sample.stats,
         quality,
@@ -369,11 +449,15 @@ export class ShareEndpoint {
 
   /** 一条边的连接状态，用于面板展示。 */
   stateOf(connectionId: string): RTCPeerConnectionState | null {
-    return this.edges.get(connectionId)?.pc.connectionState ?? null
+    return (
+      this.edges.get(connectionId)?.pc.connectionState ??
+      this.sfuEdges.get(connectionId)?.pc.connectionState ??
+      null
+    )
   }
 
   connectionIds(): string[] {
-    return [...this.edges.keys()]
+    return [...this.edges.keys(), ...this.sfuEdges.keys()]
   }
 
   close(): void {
@@ -604,10 +688,10 @@ export class ShareEndpoint {
    */
   private async publishToSfu(config: PiikSfuConfigMessage): Promise<void> {
     if (this.sfuEdges.has(config.connectionId)) return
-    const track = this.localStream
-      ?.getTracks()
-      .find((item) => item.kind === 'video')
+    const tracks = this.localStream?.getTracks() ?? []
+    const track = tracks.find((item) => item.kind === 'video')
     if (!track) return
+    const audio = tracks.find((item) => item.kind === 'audio') ?? null
     const edge = this.createSfuEdge(
       config.connectionId,
       config.publicationGeneration,
@@ -617,13 +701,17 @@ export class ShareEndpoint {
     if (!edge) return
     try {
       edge.pc.addTransceiver(track, { direction: 'sendonly' })
+      // 共享系统声音时加一路音频：服务端按 media.audio 决定是否转发，
+      // 不发这条 transceiver 的话中转过去只有画面。
+      if (audio) edge.pc.addTransceiver(audio, { direction: 'sendonly' })
       const offer = await edge.pc.createOffer()
       await edge.pc.setLocalDescription(offer)
       if (this.sendingPaused) await this.applySending(edge.pc, true)
+      edge.media = this.sfuMediaFor(track, null, audio)
       this.sendSfuSignal(edge, {
         kind: 'description',
         description: { type: 'offer', sdp: offer.sdp ?? '' },
-        media: this.sfuMediaFor(track),
+        media: edge.media,
       })
     } catch {
       this.dropSfuEdge(edge.connectionId, edge)
@@ -695,6 +783,7 @@ export class ShareEndpoint {
       remoteReady: false,
       settled: false,
       stream: new MediaStream(),
+      media: null,
     }
     this.sfuEdges.set(connectionId, edge)
 
@@ -740,6 +829,8 @@ export class ShareEndpoint {
   private dropSfuEdge(connectionId: string, edge: SfuEdge): void {
     if (this.sfuEdges.get(connectionId) !== edge) return
     this.sfuEdges.delete(connectionId)
+    this.statBaselines.delete(connectionId)
+    this.qualityBaselines.delete(connectionId)
     if (this.incoming === edge.stream) this.incoming = null
     try {
       edge.pc.close()
@@ -749,16 +840,22 @@ export class ShareEndpoint {
     this.handlers.onStateChange(connectionId, 'closed')
   }
 
-  /** 发布声明：宽高取轨道的实际设置，拿不到时按 1080p 兜底。 */
-  private sfuMediaFor(track: MediaStreamTrack): SfuMedia {
-    let width = 0
-    let height = 0
-    try {
-      const settings = track.getSettings()
-      width = settings.width ?? 0
-      height = settings.height ?? 0
-    } catch {
-      /* 某些实现不提供尺寸 */
+  /** 发布声明：宽高优先取画质档，其次轨道实际设置，拿不到时按 1080p 兜底。 */
+  private sfuMediaFor(
+    track: MediaStreamTrack,
+    resolution?: { width: number; height: number } | null,
+    audio?: MediaStreamTrack | null
+  ): SfuMedia {
+    let width = resolution?.width ?? 0
+    let height = resolution?.height ?? 0
+    if (width <= 0 || height <= 0) {
+      try {
+        const settings = track.getSettings()
+        width = settings.width ?? 0
+        height = settings.height ?? 0
+      } catch {
+        /* 某些实现不提供尺寸 */
+      }
     }
     return {
       codec: 'vp8',
@@ -770,8 +867,9 @@ export class ShareEndpoint {
           bitrate: 4_000_000,
         },
       ],
-      audio: false,
-      audioBitrate: 0,
+      audio: Boolean(audio),
+      // 屏幕共享的系统声是立体声 Opus，64kbps 足够；协议上限 510kbps。
+      audioBitrate: audio ? 64_000 : 0,
     }
   }
 

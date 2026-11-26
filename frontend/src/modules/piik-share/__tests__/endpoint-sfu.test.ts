@@ -399,3 +399,40 @@ test('close() 会关掉 SFU 连接', async () => {
     restore()
   }
 })
+
+test('共享带系统声音时同时推音频，并在声明里标 audio', async () => {
+  const restore = installFake()
+  try {
+    const video: FakeTrack = {
+      kind: 'video',
+      getSettings: () => ({ width: 1920, height: 1080 }),
+    }
+    const audio: FakeTrack = { kind: 'audio', getSettings: () => ({}) }
+    const local = new FakeStream()
+    local.addTrack(video)
+    local.addTrack(audio)
+    const { endpoint, sent } = harness(local as unknown as MediaStream)
+
+    endpoint.handle(sfuPrepare(9, 'gen-2', 'conn-audio', 'publisher'))
+    endpoint.handle({
+      type: 'sfu-config',
+      revision: 9,
+      publicationGeneration: 'gen-2',
+      connectionId: 'gen-2',
+    } as never)
+    await flush()
+
+    const pc = FakePeerConnection.instances[0]
+    assert.ok(pc, '带音频也应建发布连接')
+    assert.equal(pc.transceivers.length, 2)
+    assert.equal(pc.transceivers[0].sender.track, video)
+    assert.equal(pc.transceivers[1].sender.track, audio)
+
+    const [offer] = sfuMessages(sent)
+    assert.equal(offer.media?.audio, true)
+    assert.equal(offer.media?.audioBitrate, 64_000)
+    assert.equal(offer.media?.layers[0]?.width, 1920)
+  } finally {
+    restore()
+  }
+})
