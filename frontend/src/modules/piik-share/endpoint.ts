@@ -104,6 +104,9 @@ interface SfuRoute {
  * 所以采样必须带上 `connectionId`——否则两条边的计数器会互相污染，
  * 心跳式的一高一低会让判据永远得不出结论。
  */
+/** 观众等不到服务端 offer 时，隔多久补一次 `subscribe`。 */
+const SFU_SUBSCRIBE_RETRY_MS = 3_000
+
 export interface ShareHealthSample extends EncoderHealthSample {
   connectionId: string
 }
@@ -117,6 +120,8 @@ export class ShareEndpoint {
   private readonly sfuEdges = new Map<string, SfuEdge>()
   /** 等 sfu-config / sfu-signal 的 SFU 候选。 */
   private sfuRoute: SfuRoute | null = null
+  /** 观众侧的补订阅定时器：服务端推 offer 丢了才用到。 */
+  private sfuSubscribeTimer: ReturnType<typeof setTimeout> | null = null
   /** 上游推过来的流；观众当中转节点时，把它原样转给下游。 */
   private incoming: MediaStream | null = null
   /** 每条边的统计基线；边关掉就跟着丢，避免连接码复用后拿旧基线做差。 */
@@ -460,6 +465,24 @@ export class ShareEndpoint {
     return [...this.edges.keys(), ...this.sfuEdges.keys()]
   }
 
+  /** 房主的共享是否正走服务端转发（还有一条未关闭的 sfu 发布边）。 */
+  get relayPublishing(): boolean {
+    for (const edge of this.sfuEdges.values()) {
+      if (edge.role === 'publisher' && edge.pc.connectionState !== 'closed')
+        return true
+    }
+    return false
+  }
+
+  /** 观众的共享是否来自服务端转发。 */
+  get relaySubscribed(): boolean {
+    for (const edge of this.sfuEdges.values()) {
+      if (edge.role === 'subscriber' && edge.pc.connectionState !== 'closed')
+        return true
+    }
+    return false
+  }
+
   close(): void {
     this.closed = true
     for (const edge of this.edges.values()) {
@@ -477,6 +500,7 @@ export class ShareEndpoint {
         /* 已经关了 */
       }
     }
+    this.clearSfuSubscribe()
     this.sfuEdges.clear()
     this.sfuRoute = null
     this.statBaselines.clear()
@@ -528,6 +552,7 @@ export class ShareEndpoint {
         connectionId: candidate.connectionId,
         role: upstream && upstream.kind === 'sfu' ? 'subscriber' : 'publisher',
       }
+      this.armSfuSubscribe(this.sfuRoute)
       return
     }
     if (candidate.transport !== 'direct') return
@@ -646,7 +671,16 @@ export class ShareEndpoint {
       if (edge.role === role && connectionId !== config.connectionId)
         this.dropSfuEdge(connectionId, edge)
     }
-    if (role === 'subscriber') return
+    if (role === 'subscriber') {
+      // 配置比 offer 先到：把门闩换成配置里的那组，等 offer 期间同样要补订阅。
+      this.armSfuSubscribe({
+        revision: config.revision,
+        publicationGeneration: config.publicationGeneration,
+        connectionId: config.connectionId,
+        role: 'subscriber',
+      })
+      return
+    }
     void this.publishToSfu(config)
   }
 
@@ -722,6 +756,7 @@ export class ShareEndpoint {
     message: PiikSfuSignalMessage,
     sdp: string
   ): Promise<void> {
+    this.clearSfuSubscribe()
     let edge = this.sfuEdges.get(message.connectionId)
     if (!edge) {
       edge = this.createSfuEdge(
@@ -829,6 +864,12 @@ export class ShareEndpoint {
   private dropSfuEdge(connectionId: string, edge: SfuEdge): void {
     if (this.sfuEdges.get(connectionId) !== edge) return
     this.sfuEdges.delete(connectionId)
+    if (
+      edge.role === 'subscriber' &&
+      this.sfuRoute?.connectionId === connectionId
+    ) {
+      this.sfuRoute = null
+    }
     this.statBaselines.delete(connectionId)
     this.qualityBaselines.delete(connectionId)
     if (this.incoming === edge.stream) this.incoming = null
@@ -870,6 +911,36 @@ export class ShareEndpoint {
       audio: Boolean(audio),
       // 屏幕共享的系统声是立体声 Opus，64kbps 足够；协议上限 510kbps。
       audioBitrate: audio ? 64_000 : 0,
+    }
+  }
+
+  /**
+   * 观众侧补订阅。
+   *
+   * 正常时序是发布就绪后服务端主动推 offer；弱网下这条 offer 可能丢，
+   * 而前端只等不催就会一路耗到路由超时。3 秒还没建边就发一次
+   * `subscribe`（服务端走 `RestartSubscriber`），只补一次，避免刷屏。
+   */
+  private armSfuSubscribe(route: SfuRoute): void {
+    this.clearSfuSubscribe()
+    if (route.role !== 'subscriber') return
+    this.sfuSubscribeTimer = setTimeout(() => {
+      this.sfuSubscribeTimer = null
+      if (this.closed || this.sfuEdges.has(route.connectionId)) return
+      this.handlers.send({
+        type: 'sfu-signal',
+        revision: route.revision,
+        publicationGeneration: route.publicationGeneration,
+        connectionId: route.connectionId,
+        kind: 'subscribe',
+      })
+    }, SFU_SUBSCRIBE_RETRY_MS)
+  }
+
+  private clearSfuSubscribe(): void {
+    if (this.sfuSubscribeTimer !== null) {
+      clearTimeout(this.sfuSubscribeTimer)
+      this.sfuSubscribeTimer = null
     }
   }
 

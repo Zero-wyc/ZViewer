@@ -96,6 +96,8 @@ export function usePiikShareHost(
   const [sharing, setSharing] = useState(false)
   const [paused, setPaused] = useState(false)
   const [peerCount, setPeerCount] = useState(0)
+  /** 共享是否正由服务端转发：控制条与状态面板据此显示「服务器转发」。 */
+  const [relaying, setRelaying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null)
   const [audioAvailable, setAudioAvailable] = useState(false)
@@ -248,11 +250,17 @@ export function usePiikShareHost(
       const session = new PiikShareSession(roomId, {
         onStatus: () => {},
         onStream: () => {},
-        onStateChange: () => setPeerCount(session.edgeCount),
+        onStateChange: () => {
+          setPeerCount(session.edgeCount)
+          setRelaying(session.relayPublishing)
+        },
         onError: (message) => setError(message),
         onSharingStarted: () => setSharing(true),
         onHostStatus: (status) => setPaused(status.paused),
-        onSharingStopped: () => setSharing(false),
+        onSharingStopped: () => {
+          setSharing(false)
+          setRelaying(false)
+        },
         onRoomClosed: () => {
           setSharing(false)
           setError(t('房间已关闭'))
@@ -407,7 +415,7 @@ export function usePiikShareHost(
     viewerCount: peerCount,
     edges,
     autoDowngrade,
-    sharingMode: 'direct',
+    sharingMode: relaying ? 'relay' : 'direct',
     parameterOverride,
     audioAvailable,
     microphoneEnabled,

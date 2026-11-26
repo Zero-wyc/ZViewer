@@ -669,6 +669,7 @@ function WebrtcSharePage({
             connected={connected}
             viewerCount={viewerCount}
             connectionCount={peerCount}
+            relaying={sharingMode === 'relay'}
             closing={closing}
             onTogglePause={handleTogglePause}
             onCopyLink={handleCopy}

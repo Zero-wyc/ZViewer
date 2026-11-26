@@ -55,6 +55,8 @@ export function usePiikShareViewer(
   const [connectionState, setConnectionState] =
     useState<RTCPeerConnectionState>('new')
   const [generation, setGeneration] = useState(0)
+  /** 上游是否由服务端转发；状态面板据此显示「服务器转发」。 */
+  const [relaying, setRelaying] = useState(false)
   const onAutoplayBlockedRef = useRef(onAutoplayBlocked)
   useEffect(() => {
     onAutoplayBlockedRef.current = onAutoplayBlocked
@@ -81,6 +83,7 @@ export function usePiikShareViewer(
       onStateChange: (_connectionId, next) => {
         if (disposed) return
         setConnectionState(next)
+        setRelaying(sessionRef.current?.relaySubscribed ?? false)
         setState((prev) => ({
           ...prev,
           active: next === 'connected',
@@ -152,7 +155,7 @@ export function usePiikShareViewer(
     hasRemoteAudio: tracks.some((track) => track.kind === 'audio'),
     connectionState,
     state,
-    sharingMode: 'direct',
+    sharingMode: relaying ? 'relay' : 'direct',
     edges,
     retry,
   }

@@ -14,6 +14,8 @@ interface ShareControlsBarProps {
   viewerCount: number
   /** PeerConnection 数量 */
   connectionCount: number
+  /** 媒体是否经服务端转发（中转时连接数不代表观众数，额外标一个标签） */
+  relaying?: boolean
   /** 是否正在关闭房间（loading 状态） */
   closing: boolean
   /** 暂停/恢复共享 */
@@ -38,6 +40,7 @@ export function ShareControlsBar({
   connected,
   viewerCount,
   connectionCount,
+  relaying = false,
   closing,
   onTogglePause,
   onCopyLink,
@@ -113,6 +116,7 @@ export function ShareControlsBar({
               connectionCount,
             })}
           </Tag>
+          {relaying && <Tag color="cyan">{t('服务器转发')}</Tag>}
         </div>
       </div>
     </div>

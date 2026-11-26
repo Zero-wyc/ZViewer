@@ -143,6 +143,15 @@ export class PiikShareSession {
     return this.endpoint?.connectionIds().length ?? 0
   }
 
+  /** 房主的共享是否正由服务端转发；观众侧用 relaySubscribed。 */
+  get relayPublishing(): boolean {
+    return this.endpoint?.relayPublishing ?? false
+  }
+
+  get relaySubscribed(): boolean {
+    return this.endpoint?.relaySubscribed ?? false
+  }
+
   /**
    * 连上并发起共享（房主）或等待接入（观众）。
    *

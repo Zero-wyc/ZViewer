@@ -42,11 +42,12 @@ RUN mkdir -p config/ssl config/uploads config/media log \
 # 3333/udp: 语音媒体；SHARE_SFU_MODE 启用时屏幕共享中继也走它（与页面同号不同协议）
 # 3334/tcp: RTMP 推流端口 (OBS 连接，由后端进程内监听)
 # 3337/tcp: 媒体 TCP 回退（语音与共享中继共用，UDP 被拦截时自动切过来）
+# 3478/udp: 自带 STUN 反射端（共享与语音打洞；STUN_PORT=0 可关闭）
 # 3332/tcp: 网页控制台（zviewer-webgui，独立进程；管启停/日志/网络接入，与 3333 页面是两套东西）
 # 拉流不需要额外端口：/live 由后端进程内直接写出 FLV，不占监听。
 # 注意：媒体 TCP 必须与网页端口分开（SHARE_MEDIA_TCP_PORT，默认 3337），
 # 与网页同号会让媒体面先把网页端口绑走，后端自己起不来。
-EXPOSE 3333/tcp 3333/udp 3334/tcp 3337/tcp 3332/tcp
+EXPOSE 3333/tcp 3333/udp 3334/tcp 3337/tcp 3478/udp 3332/tcp
 
 # Entrypoint（HTTP 模式，仅启动后端，由后端统一提供 API + 前端静态文件）
 COPY docker/entrypoint-linux-single.sh /app/entrypoint.sh

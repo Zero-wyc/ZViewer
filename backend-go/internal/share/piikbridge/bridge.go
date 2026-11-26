@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,8 +92,11 @@ type Options struct {
 	StateDir string
 	// Sfu 非空时启用 Piik 内嵌 SFU：屏幕共享在直连不可行时改走本机媒体端口
 	// 中转。为空表示只做浏览器直连。
-	Sfu    *SfuOptions
-	Logger *slog.Logger
+	Sfu *SfuOptions
+	// StunURLs 是自建 STUN 的地址（`stun:host:port`），排在默认公共 STUN
+	// 之前下发。为空时只用默认列表。
+	StunURLs []string
+	Logger   *slog.Logger
 }
 
 // SfuOptions 是内嵌 SFU 的媒体面与容量。
@@ -163,7 +167,7 @@ func New(options Options) (*Bridge, error) {
 	}
 	ice := options.ICE
 	if len(ice.IceServers) == 0 {
-		ice = DefaultICE()
+		ice = iceConfigFor(options.StunURLs)
 	}
 	publicBase := options.PublicBaseURL
 	if publicBase == nil {
@@ -443,11 +447,34 @@ func (b *Bridge) Close(ctx context.Context) error {
 // DefaultICE 与前端 lib/iceServers.ts 保持同一组 STUN：两边各写一份是刻意的，
 // 服务端不能 import 前端模块；改一处就要改另一处。
 func DefaultICE() protocol.IceConfig {
-	urls := []string{
-		"stun:stun.miwifi.com:3478",
-		"stun:stun.cdnbye.com:3478",
-		"stun:stun.l.google.com:19302",
-		"stun:stun1.l.google.com:19302",
+	return iceConfigFor(nil)
+}
+
+// defaultStunURLs 是自建 STUN 不可达时的后备。Google 的两个在国内基本连不上，
+// 留着是因为海外部署和有代理的环境还常用；排在前面的两个国内可达性更好。
+var defaultStunURLs = []string{
+	"stun:stun.miwifi.com:3478",
+	"stun:stun.cdnbye.com:3478",
+	"stun:stun.l.google.com:19302",
+	"stun:stun1.l.google.com:19302",
+}
+
+// iceConfigFor 把自建地址排在默认列表之前，并按 URL 去重。
+func iceConfigFor(extra []string) protocol.IceConfig {
+	urls := make([]string, 0, len(extra)+len(defaultStunURLs))
+	seen := make(map[string]struct{}, len(extra)+len(defaultStunURLs))
+	for _, group := range [][]string{extra, defaultStunURLs} {
+		for _, raw := range group {
+			u := strings.TrimSpace(raw)
+			if u == "" {
+				continue
+			}
+			if _, duplicate := seen[u]; duplicate {
+				continue
+			}
+			seen[u] = struct{}{}
+			urls = append(urls, u)
+		}
 	}
 	servers := make([]protocol.IceServer, 0, len(urls))
 	for _, u := range urls {

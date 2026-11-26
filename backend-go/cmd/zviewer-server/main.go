@@ -45,6 +45,7 @@ import (
 	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/share/piikbridge"
 	"zviewer/backend/internal/share/sfu"
+	"zviewer/backend/internal/share/stunserver"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/ssl"
 	"zviewer/backend/internal/store"
@@ -358,6 +359,20 @@ func main() {
 	// Piik 信令桥接层：屏幕共享由 Piik 的 /signal 承载。
 	// 起不来不致命但共享不可用——前端会在开播前探能力（GET /api/share/capabilities），
 	// 探到 false 就明确报不可用，而不是让人对着一个 503 猜。
+	// 自建 STUN：共享与语音的候选不再依赖公共 STUN 的可用性。端口被占只
+	// 降级成「只用公共 STUN」，不能让整个后端起不来。
+	stunServer, stunErr := stunserver.Start(stunserver.Options{
+		Host:       cfg.StunHost,
+		Port:       cfg.StunPort,
+		PublicHost: cfg.StunPublicHost,
+	})
+	if stunErr != nil {
+		log.Printf("[stun] 未启用: %v（打洞将只依赖公共 STUN）", stunErr)
+	} else if stunServer != nil {
+		defer func() { _ = stunServer.Close() }()
+		log.Printf("[stun] 已启用 %s", strings.Join(stunServer.URLs(), ","))
+	}
+
 	var shareSfu *piikbridge.SfuOptions
 	if mediaEngine != nil && cfg.ShareSfuEnabled() {
 		// 共享中继复用语音那对 listener：UDP 走 ShareMediaPort，TCP 走
@@ -377,6 +392,7 @@ func main() {
 		// 房间码也该落在那块盘上，否则换台机器起来就是一屋子新房间码。
 		StateDir: filepath.Dir(cfg.DatabasePath),
 		Sfu:      shareSfu,
+		StunURLs: stunServer.URLs(),
 	}); bridgeErr != nil {
 		log.Printf("[piik] 信令桥接未启用: %v", bridgeErr)
 	} else {
