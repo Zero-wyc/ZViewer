@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Link2, Trash2, Upload } from 'lucide-react'
+import { Check, Link2, Pencil, Trash2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { t } from '@/i18n'
@@ -9,11 +9,12 @@ import { validateModelUrl } from '../core/model-url'
 import {
   LIVE2D_LIBRARY_MAX_PER_OWNER,
   LIVE2D_LIBRARY_MAX_TOTAL,
+  LIVE2D_UPLOAD_MAX_BYTES,
   libraryModelThumbUrl,
   type Live2DLibraryEntry,
 } from '../core/model-library'
 import type { Live2DModelKind } from '../types'
-import { ModelThumb } from './ModelThumb'
+import { Panel } from './Panel'
 
 // 模型来源选择：本服模型（随包 + 服务端上传库）、自定义地址，两段平铺。
 //
@@ -22,12 +23,12 @@ import { ModelThumb } from './ModelThumb'
 // 分成两个列表会让人以为它们是两种东西，而实际上选哪个效果完全一样——协议里
 // 的 kind 仍然分成 builtin/room，那只是数据出处，不该漏到界面上。
 //
-// 不用 Tab：切 Tab 就要维护「当前 Tab」状态，而当前选中项可能来自任意一段
-// （比如统一模型是房主在别的面板里选的），同步逻辑只会带来闪烁。平铺之后
-// 用户一眼能看到全部可选的角色，点谁是谁。
+// 为什么是立绘卡片而不是一行行 chip：模型认得出来靠的是画面，不是名字。
+// 26px 的小方块只够看出配色，选模型还得逐个点开试。卡片给到 4:5 的竖幅，
+// 名字压在底部渐变上，五六个模型一屏放得下，扫一眼就挑完了。
 //
-// 上传与删除也在这里，而不是在设置面板里另开一段列表：那样同一个模型会在
-// 界面上出现两次（一次用来选、一次用来删），是两个入口在描述同一份数据。
+// 上传/导入/管理放在标题右侧的图标按钮里：它们是低频动作，用文字会和"选哪个
+// 模型"这件正事抢注意力；配额之类的一次性说明放 title，不占版面。
 
 export interface ModelPickerValue {
   kind: Live2DModelKind
@@ -42,6 +43,8 @@ export interface Live2DModelPickerProps {
   /** 房主才能填自定义地址（外链会让每个人的浏览器都去拉第三方资源） */
   allowUrl: boolean
   disabled?: boolean
+  /** 卡片标题；缺省是「本服模型」 */
+  title?: string
   /** 上传入口：只有登录用户能传，不传这个 prop 就不显示按钮 */
   upload?: { uploading: boolean; onUpload: (file: File) => void }
   /**
@@ -61,6 +64,7 @@ export function Live2DModelPicker({
   onSelect,
   allowUrl,
   disabled = false,
+  title,
   upload,
   urlImport,
   removableIds,
@@ -75,7 +79,7 @@ export function Live2DModelPicker({
   const canManage = removable.size > 0 && Boolean(onDeleteModel)
   const activeManaging = managing && canManage
 
-  const items: ChipItem[] = [
+  const items: TileItem[] = [
     ...builtins.map((item) => ({
       kind: 'builtin' as Live2DModelKind,
       id: item.id,
@@ -97,84 +101,91 @@ export function Live2DModelPicker({
   ]
 
   return (
-    <div className="flex flex-col gap-3">
-      <div>
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <p className="text-[10px] uppercase tracking-wide opacity-55">
-            {t('本服模型')}
-          </p>
-          <div className="flex items-center gap-1">
-            {canManage && (
-              <ToolButton onClick={() => setManaging((prev) => !prev)}>
-                {activeManaging ? t('结束管理') : t('管理')}
-              </ToolButton>
-            )}
-            {upload && (
-              <UploadButton
-                uploading={upload.uploading}
-                onUpload={upload.onUpload}
-                // 配额只在 title 里说：真正超了由服务端拒绝并给出具体原因，
-                // 界面上常驻一行"每人 8 个"只会占地方。
-                title={t('每人最多 {{perOwner}} 个，全库最多 {{total}} 个', {
-                  perOwner: LIVE2D_LIBRARY_MAX_PER_OWNER,
-                  total: LIVE2D_LIBRARY_MAX_TOTAL,
-                })}
-              />
-            )}
-            {urlImport && (
-              <ToolButton
-                onClick={() => setImportOpen((prev) => !prev)}
-                title={t('从链接导入 zip 模型包')}
-                active={importOpen}
-              >
-                {t('导入')}
-              </ToolButton>
-            )}
-          </div>
+    <Panel
+      title={title ?? t('本服模型')}
+      action={
+        <>
+          {canManage && (
+            <ToolButton
+              onClick={() => setManaging((prev) => !prev)}
+              title={activeManaging ? t('结束管理') : t('管理')}
+              active={activeManaging}
+              label={activeManaging ? t('结束管理') : t('管理')}
+            >
+              <Pencil size={13} />
+            </ToolButton>
+          )}
+          {upload && (
+            <UploadButton
+              uploading={upload.uploading}
+              onUpload={upload.onUpload}
+              // 配额只在 title 里说：真正超了由服务端拒绝并给出具体原因，
+              // 界面上常驻一行"每人 8 个"只会占地方。
+              // 配额与模型包要求只在这里说：真正超了/包不对由服务端拒绝并给出
+              // 具体原因，界面上常驻两行说明只会把左列撑出可视高度。
+              title={`${t('每人最多 {{perOwner}} 个，全库最多 {{total}} 个', {
+                perOwner: LIVE2D_LIBRARY_MAX_PER_OWNER,
+                total: LIVE2D_LIBRARY_MAX_TOTAL,
+              })} · ${t(
+                '模型包是 zip，需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB；上传后所有房间都能选',
+                { size: LIVE2D_UPLOAD_MAX_BYTES >> 20 }
+              )}`}
+            />
+          )}
+          {urlImport && (
+            <ToolButton
+              onClick={() => setImportOpen((prev) => !prev)}
+              title={t('从链接导入 zip 模型包')}
+              active={importOpen}
+              label={t('从链接导入 zip 模型包')}
+            >
+              <Link2 size={13} />
+            </ToolButton>
+          )}
+        </>
+      }
+    >
+      {/* 列数跟着容器宽度自适应：宽屏是两列布局（左列 ~500px），房间页是
+          通栏（~640px），固定 3 列会让后者每张卡大得离谱。 */}
+      {items.length > 0 ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
+          {items.map((item) => (
+            <ModelTile
+              key={`${item.kind}:${item.id}`}
+              item={item}
+              active={value.kind === item.kind && value.id === item.id}
+              disabled={disabled}
+              deleting={activeManaging && item.removable}
+              onSelect={() => onSelect(item.kind, item.id)}
+              onDelete={
+                activeManaging && item.removable
+                  ? () => onDeleteModel?.(item.id)
+                  : undefined
+              }
+            />
+          ))}
         </div>
+      ) : (
+        <p className="py-6 text-center text-[11px] leading-relaxed opacity-50">
+          {/* 只说现状，不给做不到的承诺：游客不能上传，能不能传由传不传
+              upload 这个 prop 决定（真的能传时按钮就在标题右边）。 */}
+          {upload
+            ? t('还没有可用的模型，上传一个模型包就能开始')
+            : t('还没有可用的模型，等房主或别人上传一个')}
+        </p>
+      )}
 
-        {items.length > 0 ? (
-          <Chips
-            items={items}
-            value={value}
-            onSelect={onSelect}
-            disabled={disabled}
-            managing={activeManaging}
-            onDelete={onDeleteModel}
-          />
-        ) : (
-          <Hint>
-            {/* 只说现状，不给做不到的承诺：游客不能上传，能不能传由传不传
-                upload 这个 prop 决定（真的能传时按钮就在上面）。 */}
-            {upload
-              ? t('还没有可用的模型，上传一个模型包就能开始')
-              : t('还没有可用的模型，等房主或别人上传一个')}
-          </Hint>
-        )}
-
-        {urlImport && importOpen && (
-          <ImportRow
-            onImport={urlImport.onImport}
-            onClose={() => setImportOpen(false)}
-          />
-        )}
-
-        {activeManaging && (
-          <Hint>
-            {t('点模型右侧的删除按钮可以删掉它，正在使用的人会退回默认角色')}
-          </Hint>
-        )}
-      </div>
+      {urlImport && importOpen && (
+        <ImportRow
+          onImport={urlImport.onImport}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
 
       {allowUrl && (
-        <div>
-          <p className="mb-1 text-[10px] uppercase tracking-wide opacity-55">
-            {t('自定义模型地址')}
-          </p>
-          <UrlRow value={value} onSelect={onSelect} disabled={disabled} />
-        </div>
+        <UrlRow value={value} onSelect={onSelect} disabled={disabled} />
       )}
-    </div>
+    </Panel>
   )
 }
 
@@ -220,6 +231,7 @@ function UrlRow({
           disabled={disabled}
           aria-label={t('应用地址')}
           title={t('应用地址')}
+          className="shrink-0"
         >
           <Link2 size={13} />
         </Button>
@@ -250,17 +262,15 @@ function UploadButton({
   return (
     <label
       title={title}
+      aria-label={t('上传模型包')}
       className={cn(
-        'inline-flex cursor-pointer items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity',
-        uploading ? 'cursor-not-allowed opacity-55' : 'hover:opacity-80'
+        'inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_6%,transparent)] text-[var(--md-sys-color-on-surface-variant)] transition-colors',
+        uploading
+          ? 'cursor-not-allowed opacity-50'
+          : 'hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_12%,transparent)]'
       )}
-      style={{
-        background: 'var(--md-sys-color-surface)',
-        borderColor: 'var(--md-sys-color-outline-variant)',
-      }}
     >
-      <Upload size={11} />
-      {uploading ? t('上传中…') : t('上传')}
+      <Upload size={13} />
       <input
         type="file"
         accept=".zip,application/zip"
@@ -280,11 +290,13 @@ function ToolButton({
   onClick,
   children,
   title,
+  label,
   active = false,
 }: {
   onClick: () => void
   children: React.ReactNode
   title?: string
+  label?: string
   active?: boolean
 }) {
   return (
@@ -292,18 +304,14 @@ function ToolButton({
       type="button"
       onClick={onClick}
       title={title}
-      className="rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity hover:opacity-80"
-      style={{
-        background: active
-          ? 'color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface))'
-          : 'var(--md-sys-color-surface)',
-        borderColor: active
-          ? 'var(--md-sys-color-primary)'
-          : 'var(--md-sys-color-outline-variant)',
-        color: active
-          ? 'var(--md-sys-color-primary)'
-          : 'var(--md-sys-color-on-surface)',
-      }}
+      aria-label={label ?? title}
+      aria-pressed={active}
+      className={cn(
+        'inline-flex h-6 w-6 items-center justify-center rounded-lg transition-colors',
+        active
+          ? 'bg-[color-mix(in_srgb,var(--md-sys-color-primary)_16%,transparent)] text-[var(--md-sys-color-primary)]'
+          : 'bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_6%,transparent)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_12%,transparent)]'
+      )}
     >
       {children}
     </button>
@@ -342,7 +350,7 @@ function ImportRow({
   }
 
   return (
-    <div className="mt-1.5">
+    <div>
       <div className="flex items-center gap-1.5">
         <Input
           value={url}
@@ -355,7 +363,12 @@ function ImportRow({
           size="sm"
           className="min-w-0 flex-1"
         />
-        <Button size="sm" onClick={() => void submit()} disabled={busy}>
+        <Button
+          size="sm"
+          onClick={() => void submit()}
+          disabled={busy}
+          className="shrink-0"
+        >
           {busy ? t('导入中…') : t('导入')}
         </Button>
       </div>
@@ -367,18 +380,11 @@ function ImportRow({
           {error}
         </p>
       )}
-      <Hint>{t('填 zip 直链，服务端下载后加入模型库')}</Hint>
     </div>
   )
 }
 
-function Hint({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mt-1 text-[11px] leading-relaxed opacity-60">{children}</p>
-  )
-}
-
-interface ChipItem {
+interface TileItem {
   kind: Live2DModelKind
   id: string
   label: string
@@ -386,93 +392,101 @@ interface ChipItem {
   removable: boolean
   /** 大小（服务端已下发），管理态下显示，便于挑出占地方的那个 */
   bytes: number
-  /** 缩略图地址；没有就画首字方块 */
+  /** 缩略图地址；没有就画首字 */
   thumb?: string
 }
 
-function Chips({
-  items,
-  value,
-  onSelect,
+/**
+ * 一张立绘卡。
+ *
+ * 名字压在底部渐变上而不是排在卡片下面：卡片是 4:5 竖幅，图说完一切，
+ * 多一行文字只会把网格撑高。渐变同时保证任何底色上白字都读得清。
+ */
+function ModelTile({
+  item,
+  active,
   disabled,
-  managing,
+  deleting,
+  onSelect,
   onDelete,
 }: {
-  items: ChipItem[]
-  value: ModelPickerValue
-  onSelect: (kind: Live2DModelKind, modelId: string) => void
+  item: TileItem
+  active: boolean
   disabled: boolean
-  managing: boolean
-  onDelete?: (modelId: string) => void
+  deleting: boolean
+  onSelect: () => void
+  onDelete?: () => void
 }) {
+  // 清单可能比磁盘旧（模型刚被删、缩略图生成失败），加载失败就退回首字。
+  const [broken, setBroken] = useState(false)
+  const initial = Array.from(item.label)[0] ?? '?'
+  const showThumb = Boolean(item.thumb) && !broken
+
   return (
-    <div className="grid grid-cols-2 gap-1.5">
-      {items.map((item) => {
-        const active = value.kind === item.kind && value.id === item.id
-        const deleting = managing && item.removable && Boolean(onDelete)
-        const chip = (
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => onSelect(item.kind, item.id)}
-            className={cn(
-              'flex min-w-0 flex-1 items-center justify-between gap-1 rounded-lg border px-2 py-1.5 text-left text-[11px] transition-colors',
-              disabled ? 'cursor-not-allowed opacity-60' : 'hover:opacity-90'
-            )}
-            style={{
-              background: active
-                ? 'color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface))'
-                : 'var(--md-sys-color-surface)',
-              borderColor: active
-                ? 'var(--md-sys-color-primary)'
-                : 'var(--md-sys-color-outline-variant)',
-              color: active
-                ? 'var(--md-sys-color-primary)'
-                : 'var(--md-sys-color-on-surface)',
-            }}
+    <div className="group relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onSelect}
+        aria-pressed={active}
+        title={item.label}
+        className={cn(
+          'relative block aspect-square w-full overflow-hidden rounded-xl text-left transition-[filter,box-shadow]',
+          disabled ? 'cursor-not-allowed opacity-60' : 'hover:brightness-105',
+          active && 'ring-2 ring-[var(--md-sys-color-primary)]'
+        )}
+        style={{
+          background: 'var(--md-sys-color-surface-container-high)',
+        }}
+      >
+        {showThumb ? (
+          <img
+            src={item.thumb}
+            alt=""
+            draggable={false}
+            onError={() => setBroken(true)}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : (
+          <span
+            className="absolute inset-0 flex items-center justify-center opacity-25"
+            style={{ fontSize: 28 }}
           >
-            <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <ModelThumb label={item.label} src={item.thumb} />
-              <span className="truncate">{item.label}</span>
+            {initial}
+          </span>
+        )}
+
+        <span className="absolute inset-x-0 bottom-0 flex flex-col bg-gradient-to-t from-black/70 via-black/35 to-transparent px-2 pb-1.5 pt-5">
+          {/* 管理态多一行体积：这一段就是为「哪个模型占地方、要不要删」服务的，
+              和名字挤在同一行会把名字截成三四个字。 */}
+          {deleting && item.bytes > 0 && (
+            <span className="text-[9px] leading-tight tabular-nums text-white/60">
+              {formatFileSize(item.bytes)}
             </span>
-            {deleting ? (
-              // 管理态显示大小：这一段就是为了"哪个模型占地方、要不要删"
-              <span className="shrink-0 text-[9px] tabular-nums opacity-55">
-                {item.bytes > 0 ? formatFileSize(item.bytes) : ''}
-              </span>
-            ) : (
-              active && <Check size={12} className="shrink-0" />
-            )}
-          </button>
-        )
+          )}
+          <span className="min-w-0 truncate text-[11px] leading-tight text-white">
+            {item.label}
+          </span>
+        </span>
 
-        if (!deleting) {
-          return <div key={`${item.kind}:${item.id}`}>{chip}</div>
-        }
+        {active && (
+          <span className="absolute left-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm">
+            <Check size={11} strokeWidth={3} />
+          </span>
+        )}
+      </button>
 
-        return (
-          <div
-            key={`${item.kind}:${item.id}`}
-            className="flex min-w-0 items-stretch gap-1"
-          >
-            {chip}
-            <button
-              type="button"
-              onClick={() => onDelete?.(item.id)}
-              aria-label={t('删除该模型')}
-              title={t('删除该模型')}
-              className="shrink-0 rounded-lg border px-1.5 transition-opacity hover:opacity-80"
-              style={{
-                background: 'var(--md-sys-color-surface)',
-                borderColor: 'var(--md-sys-color-outline-variant)',
-                color: 'var(--md-sys-color-error)',
-              }}
-            >
-              <Trash2 size={11} />
-            </button>
-          </div>
-        )
-      })}
+      {deleting && onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label={t('删除该模型')}
+          title={t('删除该模型')}
+          className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-[var(--md-sys-color-error)]"
+        >
+          <Trash2 size={11} />
+        </button>
+      )}
     </div>
   )
 }

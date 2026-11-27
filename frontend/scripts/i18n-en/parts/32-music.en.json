@@ -12,6 +12,7 @@
     "Delete the section “{{name}}”",
     "Delete the blocked word {{word}}",
     "Delete the genre {{name}}",
+    "Upload",
     "Upload finished. Tracks may need transcoding, refresh in a moment.",
     "Tracks may need transcoding after upload, refresh in a moment",
     "Uploading...",
@@ -118,7 +119,6 @@
     "Sign out of NetEase Cloud Music",
     "External content",
     "Fit",
-    "NetEase Cloud Music",
-    "Signed in to NetEase Cloud Music"
+    "NetEase Cloud Music"
   ]
 }

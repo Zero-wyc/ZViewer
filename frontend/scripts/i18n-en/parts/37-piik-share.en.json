@@ -1,9 +1,26 @@
 {
   "items": [
+    "",
     "The room is closed",
+    "",
+    "",
+    "",
     "Failed to start sharing: the server rejected this share generation",
+    "",
+    "",
+    "",
+    "",
     "Connection failed",
+    "",
+    "",
+    "",
+    "",
     "Could not obtain sharing credentials",
-    "Route selection failed: {{reason}}"
+    "Route selection failed: {{reason}}",
+    "",
+    "",
+    "",
+    "",
+    ""
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "total": 2949,
+  "total": 2970,
   "chunk": 120,
   "parts": [
     {
@@ -80,7 +80,7 @@
     {
       "id": "16-bilibili",
       "bucket": "modules/bilibili",
-      "count": 47
+      "count": 48
     },
     {
       "id": "17-cms",
@@ -130,7 +130,7 @@
     {
       "id": "26-live2d",
       "bucket": "modules/live2d",
-      "count": 31
+      "count": 29
     },
     {
       "id": "27-mounts",
@@ -175,7 +175,7 @@
     {
       "id": "35-music",
       "bucket": "modules/music",
-      "count": 5
+      "count": 6
     },
     {
       "id": "36-openlist",
@@ -185,7 +185,7 @@
     {
       "id": "37-piik-share",
       "bucket": "modules/piik-share",
-      "count": 5
+      "count": 22
     },
     {
       "id": "38-piik-signal",
@@ -230,7 +230,7 @@
     {
       "id": "46-room",
       "bucket": "modules/room",
-      "count": 24
+      "count": 28
     },
     {
       "id": "47-screen-sharing",

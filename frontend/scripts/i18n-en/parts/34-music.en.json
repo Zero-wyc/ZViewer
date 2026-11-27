@@ -1,5 +1,6 @@
 {
   "items": [
+    "Already in the queue",
     "Already in Liked Music",
     "All replies shown",
     "Autoplaying a related track: {{name}}",
@@ -118,7 +119,6 @@
     "MP4 direct link",
     "MP4 direct link, smooth seeking, usually 480P/720P",
     "Bottom of the UI",
-    "UI blur amount",
-    "Top of the UI"
+    "UI blur amount"
   ]
 }

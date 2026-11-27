@@ -1,23 +1,14 @@
 import { useState } from 'react'
-import {
-  Camera,
-  Eye,
-  Mic,
-  RotateCcw,
-  ScanFace,
-  Trash2,
-  Users,
-} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmModal, Modal } from '@/components/ui/Modal'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
+import { cn } from '@/lib/utils'
 import type { Live2DModelEntry } from '../core/model-catalog'
 import type { ModelExpressionEntry, ModelMotionGroup } from '../core/model-meta'
 import {
-  LIVE2D_UPLOAD_MAX_BYTES,
   libraryModelThumbUrl,
   type Live2DLibraryEntry,
 } from '../core/model-library'
@@ -26,6 +17,7 @@ import { PEER_SCALE_MAX, PEER_SCALE_MIN } from '../core/peer-scale'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DModelPicker } from './Live2DModelPicker'
 import { ModelThumb } from './ModelThumb'
+import { Panel } from './Panel'
 
 // 角色设置：**唯一**的设置入口（右键菜单只留快捷动作，模型选择都指到这里）。
 //
@@ -36,8 +28,10 @@ import { ModelThumb } from './ModelThumb'
 // 以前房间页签只给房主渲染，结果"为什么我不能换模型""为什么动捕开关是灰的"
 // 只能靠猜：限制发生了，但被限制的人看不到规则本身。只读展示比隐藏更省事。
 //
-// 为什么用弹窗而不是全塞进右键菜单：模型清单展开后有两三百像素，贴在光标上
-// 会盖住画面且容易误触。
+// 版式是「两列卡片」而不是一列长表单：设置项本来就是四组（模型 / 外观 /
+// 表情动作 / 动捕），塞进一条 512px 的窄列后必须一路往下滚，组与组之间只靠
+// 12px 的灰色小标题分隔，看起来像一张没分行的表格。现在每组分一张卡片，
+// 宽屏两列平铺、窄屏自动落回一列，一屏之内把该看的都看完。
 
 type Tab = 'me' | 'room'
 
@@ -255,6 +249,10 @@ export function Live2DSettingsModal({
       ? libraryModelThumbUrl(unifiedEntry.id)
       : undefined
 
+  // 删除角色：单向动作，放在页脚左下角——它跟「完成」是同一层的收尾动作，
+  // 混在内容里反而会被当成普通开关点掉。
+  const showRemove = !removed && !unified
+
   return (
     <>
       <Modal
@@ -262,458 +260,456 @@ export function Live2DSettingsModal({
         onClose={onClose}
         container={container}
         title={t('角色设置')}
-        className="w-full max-w-lg"
+        className={cn(
+          'w-full',
+          // 两页的内容密度差得远：我的角色是模型网格 + 三组设置，房间设置
+          // 只有三个开关。宽度跟着页面走，房间页就不会拖着一块空荡荡的
+          // 896px 面板。
+          tab === 'me' ? 'max-w-4xl' : 'max-w-2xl'
+        )}
         footer={
-          <Button variant="primary" onClick={onClose}>
-            {t('完成')}
-          </Button>
+          <>
+            {showRemove && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mr-auto hover:bg-[color-mix(in_srgb,var(--md-sys-color-error)_10%,transparent)]"
+                style={{ color: 'var(--md-sys-color-error)' }}
+                onClick={onRemove}
+                disabled={!canRemove}
+                title={t('删除后房间里所有人（包括你）都看不到你的角色')}
+              >
+                {t('删除角色')}
+              </Button>
+            )}
+            <Button variant="primary" onClick={onClose}>
+              {t('完成')}
+            </Button>
+          </>
         }
       >
-        <div className="mb-3 mt-1">
-          <SegmentedToggle
-            options={[
-              { value: 'me', label: t('我的角色') },
-              { value: 'room', label: t('房间设置') },
-            ]}
-            value={tab}
-            onChange={(value) => setTab(value as Tab)}
-          />
-        </div>
+        <div className="flex w-full flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <div className="shrink-0">
+              <SegmentedToggle
+                options={[
+                  { value: 'me', label: t('我的角色') },
+                  { value: 'room', label: t('房间设置') },
+                ]}
+                value={tab}
+                onChange={(value) => setTab(value as Tab)}
+              />
+            </div>
+            <span className="hidden min-w-0 flex-1 truncate text-right text-[10px] opacity-55 md:block">
+              {tab === 'me'
+                ? t('位置和大小只保存在本机，不会同步给别人')
+                : isHost
+                  ? ''
+                  : t('这些设置由房主决定，你只能看')}
+            </span>
+          </div>
 
-        <div className="max-h-[62vh] overflow-y-auto pr-1 hide-scrollbar">
           {tab === 'me' ? (
-            <div className="flex flex-col gap-4">
-              {hiddenByHost && (
-                <Note>
-                  {t(
-                    '房主关闭了角色显示，你现在看不到任何角色；重新打开后你选的模型会立刻出现'
-                  )}
-                </Note>
-              )}
-              {/* 「拉不到清单」与「库里确实没有模型」必须分开说：前者重试就好，
-                  后者才需要重新上传。混在一起时用户唯一能做的就是重传一遍。 */}
-              {libraryError && (
-                <Note
-                  action={
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disableAnimation
-                      onClick={onReloadLibrary}
-                    >
-                      {t('重试')}
-                    </Button>
-                  }
-                >
-                  {t('模型库没能加载：{{reason}}', { reason: libraryError })}
-                </Note>
-              )}
-              {missingModel && (
-                <Note>
-                  {t(
-                    '你选的模型已经不在服务器上了（可能被删除或服务端重置）。在下面重新选一个即可恢复，重新上传同一个模型包也可以'
-                  )}
-                </Note>
-              )}
-              {unified ? (
-                <>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] md:items-start">
+              <div className="flex min-w-0 flex-col gap-3">
+                {hiddenByHost && (
                   <Note>
                     {t(
-                      '房主统一了角色：模型由房主决定，大小、表情和动捕仍然是你自己的'
+                      '房主关闭了角色显示，你现在看不到任何角色；重新打开后你选的模型会立刻出现'
                     )}
                   </Note>
-                  <Section label={t('统一使用的模型')}>
-                    <span className="flex min-w-0 items-center gap-2">
-                      <ModelThumb label={unifiedLabel} src={unifiedThumb} />
-                      <span className="truncate text-xs opacity-80">
+                )}
+                {/* 「拉不到清单」与「库里确实没有模型」必须分开说：前者重试就好，
+                    后者才需要重新上传。混在一起时用户唯一能做的就是重传一遍。 */}
+                {libraryError && (
+                  <Note
+                    tone="error"
+                    action={
+                      <button
+                        type="button"
+                        onClick={onReloadLibrary}
+                        className="shrink-0 text-[11px] font-medium underline-offset-2 hover:underline"
+                        style={{ color: 'var(--md-sys-color-primary)' }}
+                      >
+                        {t('重试')}
+                      </button>
+                    }
+                  >
+                    {t('模型库没能加载：{{reason}}', { reason: libraryError })}
+                  </Note>
+                )}
+                {missingModel && (
+                  <Note>
+                    {t(
+                      '你选的模型已经不在服务器上了（可能被删除或服务端重置）。在下面重新选一个即可恢复，重新上传同一个模型包也可以'
+                    )}
+                  </Note>
+                )}
+
+                {unified ? (
+                  // 统一角色时把「用的是哪个」和「为什么不能换」放进同一块：
+                  // 拆成提示条 + 卡片会出现两块几乎空着的面板，而这一页本来
+                  // 就没别的东西可填。
+                  <div className="l2d-panel flex items-center gap-3 rounded-[var(--md-sys-shape-corner)] p-3">
+                    <ModelThumb
+                      label={unifiedLabel}
+                      src={unifiedThumb}
+                      size={40}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs text-[var(--md-sys-color-on-surface)]">
                         {unifiedLabel || t('未知模型')}
-                      </span>
-                    </span>
-                  </Section>
-                </>
-              ) : (
-                <>
-                  {removed && (
-                    <Note>
-                      {t(
-                        '角色已删除，房间里所有人（包括你）都看不到它。在下面重新选一个模型即可恢复'
-                      )}
-                    </Note>
-                  )}
-                  <Live2DModelPicker
-                    builtins={builtins}
-                    libraryModels={libraryModels}
-                    value={{ kind: selectedKind, id: selectedModelId }}
-                    onSelect={onSelect}
-                    // 与后端同口径：kind=url 只开给房主（它会让房间里每个人
-                    // 的浏览器都去拉第三方资源）。
-                    allowUrl={isHost}
-                    upload={
-                      canUploadModels ? { uploading, onUpload } : undefined
-                    }
-                    urlImport={
-                      canUploadModels ? { onImport: importForMe } : undefined
-                    }
-                    removableIds={removableIds}
-                    onDeleteModel={(modelId) => setPendingDelete(modelId)}
-                  />
-                  {canUploadModels && (
-                    <p className="-mt-2 text-[10px] leading-snug opacity-45">
-                      {t(
-                        '模型包是 zip，需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB；上传后所有房间都能选',
-                        { size: LIVE2D_UPLOAD_MAX_BYTES >> 20 }
-                      )}
-                    </p>
-                  )}
-                </>
-              )}
-
-              {/* 大小是**本机**的：不写名册、也不上行。自己的这一档存在本机
-                  偏好里，别人的在右键他的角色时单独调。以前大小跟着房间走，
-                  房主定个模型就顺带决定了别人屏幕上该多大——而每个人的窗口
-                  尺寸、观看距离根本不同。 */}
-              <Section label={t('大小')}>
-                <Slider
-                  min={PEER_SCALE_MIN}
-                  max={PEER_SCALE_MAX}
-                  step={0.05}
-                  value={myScale}
-                  onChange={onScale}
-                  size="sm"
-                  valueFormatter={(value) => `${Math.round(value * 100)}%`}
-                  aria-label={t('模型大小')}
-                />
-                {/* 快捷档：滑杆要精确停在"半身像"那一档不太现实，而这是绝大多数
-                    人想一次性要到的效果（放大到下半身被画面裁掉）。
-                    样式与模型选择器的小按钮同源，避免在一个面板里出现两套 chip。 */}
-                <div className="mt-1.5 flex items-center gap-1.5">
-                  {SCALE_PRESETS.map((preset) => {
-                    const active = Math.abs(myScale - preset.value) < 0.03
-                    return (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        onClick={() => onScale(preset.value)}
-                        aria-pressed={active}
-                        className="rounded-md border px-2 py-0.5 text-[10px] transition-opacity hover:opacity-80"
-                        style={{
-                          background: active
-                            ? 'color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface))'
-                            : 'var(--md-sys-color-surface)',
-                          borderColor: active
-                            ? 'var(--md-sys-color-primary)'
-                            : 'var(--md-sys-color-outline-variant)',
-                          color: active
-                            ? 'var(--md-sys-color-primary)'
-                            : 'var(--md-sys-color-on-surface)',
-                        }}
-                      >
-                        {t(preset.label)}
-                      </button>
-                    )
-                  })}
-                </div>
-              </Section>
-
-              {/* 位置也是本机的。这里必须有一个「放回去」的出口：角色可以
-                  被拖到完全看不见的地方（位置不同步，各端互不影响），那时
-                  右键命不中它，右下角这个入口就是唯一的路。别人的角色现在
-                  也能拖，所以另给一个「全部」的按钮兜底。 */}
-              <Section label={t('位置')}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="min-w-0 flex-1 text-[10px] leading-snug opacity-50">
-                    {t('位置和大小只保存在本机，不会同步给别人')}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disableAnimation
-                    icon={<RotateCcw size={13} />}
-                    onClick={onResetPosition}
-                  >
-                    {t('重置模型位置')}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disableAnimation
-                    icon={<RotateCcw size={13} />}
-                    onClick={onResetAllPositions}
-                    title={t('所有角色回到默认站位')}
-                  >
-                    {t('重置所有角色位置')}
-                  </Button>
-                </div>
-              </Section>
-
-              {expressions.length > 0 && (
-                <Section label={t('表情')}>
-                  <div className="flex flex-wrap gap-1">
-                    {expressions.map((item) => (
-                      <button
-                        key={item.index}
-                        type="button"
-                        onClick={() => onExpression(item.index)}
-                        // 删除角色后服务端名册里没有我，动作会被直接丢掉：
-                        // 能点却没有任何反应比置灰更容易被当成 bug
-                        disabled={removed && !unified}
-                        title={t('所有人都会看到')}
-                        className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-                        style={{
-                          background: 'var(--md-sys-color-surface)',
-                          borderColor: 'var(--md-sys-color-outline-variant)',
-                        }}
-                      >
-                        {item.name ||
-                          t('表情 {{index}}', { index: item.index + 1 })}
-                      </button>
-                    ))}
+                      </div>
+                      <div className="mt-0.5 text-[10px] leading-snug text-[var(--md-sys-color-on-surface-variant)] opacity-60">
+                        {t(
+                          '房主统一了角色：模型由房主决定，大小、表情和动捕仍然是你自己的'
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </Section>
-              )}
-
-              {motions.length > 0 && (
-                <Section label={t('动作')}>
-                  <div className="flex flex-wrap gap-1">
-                    {motions.map((item) => (
-                      <button
-                        key={item.group}
-                        type="button"
-                        onClick={() => onMotion(item.group, 0)}
-                        disabled={removed && !unified}
-                        // 组名是 Cubism 里的原始名字，不翻译：翻错了反而对不上
-                        // 模型作者文档里的说法。
-                        title={t('所有人都会看到')}
-                        className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-                        style={{
-                          background: 'var(--md-sys-color-surface)',
-                          borderColor: 'var(--md-sys-color-outline-variant)',
-                        }}
-                      >
-                        {item.group}
-                      </button>
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              <div className="flex items-center gap-2">
-                <Camera size={14} className="shrink-0 opacity-70" aria-hidden />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs">{t('摄像头动捕')}</span>
-                  <span className="block text-[10px] leading-snug opacity-50">
-                    {faceTracking.error
-                      ? faceTracking.error
-                      : !canUseFace
-                        ? t('房主已关闭成员动捕')
-                        : removed && !unified
-                          ? t('重新选一个模型之后动捕才有作用')
-                          : faceTracking.on
-                            ? t('画面只在本机处理，不会上传')
-                            : t('开启后角色会跟着你的头部转动')}
-                  </span>
-                </span>
-                <Switch
-                  checked={faceTracking.on}
-                  // 删除角色后开动捕没有任何可驱动的对象（指针上报也跟着
-                  // 停了），让开关能点却毫无反应比直接置灰更让人怀疑坏了
-                  disabled={
-                    !canUseFace || (removed && !unified) || faceTracking.busy
-                  }
-                  onChange={onToggleFaceTracking}
-                  aria-label={t('摄像头动捕')}
-                />
-              </div>
-
-              {/* 动捕精度：改变的是「检测多快、看多清、要不要用 3D」。
-                  做成三档而不是四个滑杆，是因为帧率和分辨率必须匹配——单独
-                  拉高帧率只会更抖，单独拉高分辨率只会更卡。
-                  两个开关放进同一个 Section：它们只在这一档之下才有意义，
-                  散在页面里会让人以为是和「大小」同级的独立设置。 */}
-              <Section label={t('动捕精度')}>
-                <SegmentedToggle
-                  options={[
-                    { value: 'smooth', label: t('流畅') },
-                    { value: 'standard', label: t('标准') },
-                    { value: 'precise', label: t('高精度') },
-                  ]}
-                  value={faceQuality}
-                  onChange={(value) =>
-                    onFaceQuality(value as Live2DFaceQuality)
-                  }
-                />
-                <p className="mt-2 text-[10px] leading-snug opacity-50">
-                  {faceQuality === 'precise'
-                    ? t('30fps / 640×480：跟手最好，核显笔记本可能掉帧')
-                    : faceQuality === 'smooth'
-                      ? t('10fps / 320×240：省电优先，快速转头会有点滞后')
-                      : t('15fps / 480×360：精度与占用均衡')}
-                  {!faceTracking.on && t('，下次开启动捕时生效')}
-                </p>
-                <div className="mt-2.5 flex flex-col gap-2">
-                  <Row
-                    icon={<ScanFace size={14} />}
-                    label={t('3D 头部（6DOF）')}
-                    hint={t('三轴旋转 + 前后左右视差；关掉退回 2D 近似')}
-                  >
-                    <Switch
-                      checked={head3d}
-                      disabled={removed && !unified}
-                      onChange={(event) => onHead3d(event.target.checked)}
-                      aria-label={t('3D 头部（6DOF）')}
-                    />
-                  </Row>
-
-                  <Row
-                    icon={<Eye size={14} />}
-                    label={t('眼球跟随')}
-                    hint={t('瞳孔跟着你转；有的模型眼球位移很夸张，可以关掉')}
-                  >
-                    <Switch
-                      checked={eyeTrack}
-                      disabled={removed && !unified}
-                      onChange={(event) => onEyeTrack(event.target.checked)}
-                      aria-label={t('眼球跟随')}
-                    />
-                  </Row>
-                </div>
-              </Section>
-
-              {/* 语音口型：不需要摄像头也能有嘴型。刻意**不做**成房间策略——
-                  它读的是本机麦克风电平（不上传音频），只影响"我的嘴怎么动"，
-                  和房主管不管摄像头没有关系。 */}
-              <div className="flex items-center gap-2">
-                <Mic size={14} className="shrink-0 opacity-70" aria-hidden />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs">{t('语音口型')}</span>
-                  <span className="block text-[10px] leading-snug opacity-50">
-                    {removed && !unified
-                      ? t('重新选一个模型之后口型才有作用')
-                      : faceTracking.on
-                        ? t('动捕开着时以动捕为准')
-                        : t('加入语音后说话会动嘴，不需要摄像头')}
-                  </span>
-                </span>
-                <Switch
-                  checked={voiceLipSync}
-                  // 和动捕开关同一个理由：删除角色后没有可驱动的对象
-                  disabled={removed && !unified}
-                  onChange={onToggleVoiceLipSync}
-                  aria-label={t('语音口型')}
-                />
-              </div>
-
-              {/* 删除角色是**单向**动作，这里不再有「显示角色」的反向按钮。
-                  以前那一对按钮就是紊乱的源头：删除后模型选择器仍然可选，
-                  点任意一个模型都会恢复，所以"恢复"的正确入口一直是列表本身，
-                  而不是一个只在特定状态下才出现的按钮。 */}
-              {!removed &&
-                (unified ? (
-                  <p className="text-[10px] leading-snug opacity-45">
-                    {t('统一角色期间不能删除自己的角色')}
-                  </p>
                 ) : (
+                  <>
+                    {removed && (
+                      <Note>
+                        {t(
+                          '角色已删除，房间里所有人（包括你）都看不到它。在下面重新选一个模型即可恢复'
+                        )}
+                      </Note>
+                    )}
+                    <Live2DModelPicker
+                      builtins={builtins}
+                      libraryModels={libraryModels}
+                      value={{ kind: selectedKind, id: selectedModelId }}
+                      onSelect={onSelect}
+                      // 与后端同口径：kind=url 只开给房主（它会让房间里每个人
+                      // 的浏览器都去拉第三方资源）。
+                      allowUrl={isHost}
+                      upload={
+                        canUploadModels ? { uploading, onUpload } : undefined
+                      }
+                      urlImport={
+                        canUploadModels ? { onImport: importForMe } : undefined
+                      }
+                      removableIds={removableIds}
+                      onDeleteModel={(modelId) => setPendingDelete(modelId)}
+                    />
+                  </>
+                )}
+
+                {/* 模型包的要求（zip、model3.json、体积上限）收进上传按钮的
+                    title：它是"第一次传的时候才需要读"的一次性说明，常驻在
+                    网格下面只会把左列撑出可视高度。 */}
+                {(expressions.length > 0 || motions.length > 0) && (
+                  <Panel title={t('表情与动作')}>
+                    {expressions.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <p className="w-8 shrink-0 pt-1.5 text-[10px] text-[var(--md-sys-color-on-surface-variant)] opacity-60">
+                          {t('表情')}
+                        </p>
+                        <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                          {expressions.map((item) => (
+                            <Chip
+                              key={item.index}
+                              // 删除角色后服务端名册里没有我，动作会被直接丢掉：
+                              // 能点却没有任何反应比置灰更容易被当成 bug
+                              disabled={removed && !unified}
+                              title={t('所有人都会看到')}
+                              onClick={() => onExpression(item.index)}
+                            >
+                              {item.name ||
+                                t('表情 {{index}}', { index: item.index + 1 })}
+                            </Chip>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {motions.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <p className="w-8 shrink-0 pt-1.5 text-[10px] text-[var(--md-sys-color-on-surface-variant)] opacity-60">
+                          {t('动作')}
+                        </p>
+                        <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                          {motions.map((item) => (
+                            <Chip
+                              key={item.group}
+                              disabled={removed && !unified}
+                              // 组名是 Cubism 里的原始名字，不翻译：翻错了反而对不上
+                              // 模型作者文档里的说法。
+                              title={t('所有人都会看到')}
+                              onClick={() => onMotion(item.group, 0)}
+                            >
+                              {item.group}
+                            </Chip>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </Panel>
+                )}
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-3">
+                {/* 大小是**本机**的：不写名册、也不上行。自己的这一档存在本机
+                    偏好里，别人的在右键他的角色时单独调。以前大小跟着房间走，
+                    房主定个模型就顺带决定了别人屏幕上该多大——而每个人的窗口
+                    尺寸、观看距离根本不同。 */}
+                <Panel title={t('外观')}>
                   <div>
-                    <Button
-                      variant="danger"
+                    <Slider
+                      min={PEER_SCALE_MIN}
+                      max={PEER_SCALE_MAX}
+                      step={0.05}
+                      value={myScale}
+                      onChange={onScale}
                       size="sm"
-                      icon={<Trash2 size={13} />}
-                      onClick={onRemove}
-                      disabled={!canRemove}
+                      label={t('大小')}
+                      valueFormatter={(value) => `${Math.round(value * 100)}%`}
+                      aria-label={t('模型大小')}
+                    />
+                    {/* 快捷档：滑杆要精确停在"半身像"那一档不太现实，而这是绝大多
+                        数人想一次性要到的效果（放大到下半身被画面裁掉）。 */}
+                    <div className="mt-1 flex items-center gap-1.5">
+                      {SCALE_PRESETS.map((preset) => (
+                        <Chip
+                          key={preset.value}
+                          active={Math.abs(myScale - preset.value) < 0.03}
+                          onClick={() => onScale(preset.value)}
+                        >
+                          {t(preset.label)}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 位置也是本机的。必须有一个「放回去」的出口：角色可以被拖到
+                      完全看不见的地方（位置不同步，各端互不影响），那时右键命不中
+                      它；别人的角色现在也能拖，所以另给一个「全部」的按钮兜底。 */}
+                  <div className="flex items-center gap-2 border-t border-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)] pt-2.5">
+                    <span className="min-w-0 flex-1 text-xs text-[var(--md-sys-color-on-surface)]">
+                      {t('位置')}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disableAnimation
+                      onClick={onResetPosition}
+                      title={t('重置模型位置')}
                     >
-                      {t('删除角色')}
+                      {t('重置')}
                     </Button>
-                    <p className="mt-1 text-[10px] leading-snug opacity-45">
-                      {t('删除后房间里所有人（包括你）都看不到你的角色')}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disableAnimation
+                      onClick={onResetAllPositions}
+                      title={t('所有角色回到默认站位')}
+                    >
+                      {t('全部重置')}
+                    </Button>
+                  </div>
+                </Panel>
+
+                <Panel title={t('动捕与口型')}>
+                  <Row
+                    label={t('摄像头动捕')}
+                    hint={
+                      faceTracking.error
+                        ? faceTracking.error
+                        : !canUseFace
+                          ? t('房主已关闭成员动捕')
+                          : removed && !unified
+                            ? t('重新选一个模型之后动捕才有作用')
+                            : faceTracking.on
+                              ? t('画面只在本机处理，不会上传')
+                              : t('开启后角色会跟着你的头部转动')
+                    }
+                  >
+                    <Switch
+                      checked={faceTracking.on}
+                      // 删除角色后开动捕没有任何可驱动的对象（指针上报也跟着
+                      // 停了），让开关能点却毫无反应比直接置灰更让人怀疑坏了
+                      disabled={
+                        !canUseFace ||
+                        (removed && !unified) ||
+                        faceTracking.busy
+                      }
+                      onChange={onToggleFaceTracking}
+                      aria-label={t('摄像头动捕')}
+                    />
+                  </Row>
+
+                  {/* 动捕精度：改变的是「检测多快、看多清、要不要用 3D」。
+                      做成三档而不是四个滑杆，是因为帧率和分辨率必须匹配——单独
+                      拉高帧率只会更抖，单独拉高分辨率只会更卡。 */}
+                  <div>
+                    <SegmentedToggle
+                      options={[
+                        { value: 'smooth', label: t('流畅') },
+                        { value: 'standard', label: t('标准') },
+                        { value: 'precise', label: t('高精度') },
+                      ]}
+                      value={faceQuality}
+                      onChange={(value) =>
+                        onFaceQuality(value as Live2DFaceQuality)
+                      }
+                      disabled={!canUseFace || (removed && !unified)}
+                    />
+                    <p className="mt-1.5 text-[10px] leading-snug opacity-45">
+                      {faceQuality === 'precise'
+                        ? t('30fps / 640×480：跟手最好，核显笔记本可能掉帧')
+                        : faceQuality === 'smooth'
+                          ? t('10fps / 320×240：省电优先，快速转头会有点滞后')
+                          : t('15fps / 480×360：精度与占用均衡')}
+                      {!faceTracking.on && t('，下次开启动捕时生效')}
                     </p>
                   </div>
-                ))}
+
+                  {/* 这两个开关只在这一档之下才有意义，和精度放在同一张卡片里；
+                      散到页面别处会让人以为是和「大小」同级的独立设置。 */}
+                  <div className="flex flex-col gap-2.5 border-t border-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)] pt-2.5">
+                    <Row
+                      label={t('3D 头部（6DOF）')}
+                      hint={t('三轴旋转 + 前后左右视差；关掉退回 2D 近似')}
+                    >
+                      <Switch
+                        checked={head3d}
+                        disabled={removed && !unified}
+                        onChange={(event) => onHead3d(event.target.checked)}
+                        aria-label={t('3D 头部（6DOF）')}
+                      />
+                    </Row>
+                    <Row
+                      label={t('眼球跟随')}
+                      hint={t('瞳孔跟着你转；有的模型眼球位移很夸张，可以关掉')}
+                    >
+                      <Switch
+                        checked={eyeTrack}
+                        disabled={removed && !unified}
+                        onChange={(event) => onEyeTrack(event.target.checked)}
+                        aria-label={t('眼球跟随')}
+                      />
+                    </Row>
+                  </div>
+
+                  {/* 语音口型：不需要摄像头也能有嘴型。刻意**不做**成房间策略——
+                      它读的是本机麦克风电平（不上传音频），只影响"我的嘴怎么动"，
+                      和房主管不管摄像头没有关系。 */}
+                  <div className="border-t border-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)] pt-2.5">
+                    <Row
+                      label={t('语音口型')}
+                      hint={
+                        removed && !unified
+                          ? t('重新选一个模型之后口型才有作用')
+                          : faceTracking.on
+                            ? t('动捕开着时以动捕为准')
+                            : t('加入语音后说话会动嘴，不需要摄像头')
+                      }
+                    >
+                      <Switch
+                        checked={voiceLipSync}
+                        // 和动捕开关同一个理由：删除角色后没有可驱动的对象
+                        disabled={removed && !unified}
+                        onChange={onToggleVoiceLipSync}
+                        aria-label={t('语音口型')}
+                      />
+                    </Row>
+                  </div>
+                </Panel>
+              </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
-              <Note>
-                {isHost
-                  ? t('这些设置对房间里所有人生效')
-                  : t('这些设置由房主决定，你只能看')}
-              </Note>
+            <div className="flex flex-col gap-3">
+              <Panel title={t('权限')}>
+                <Row
+                  label={t('对观众显示角色')}
+                  hint={t('关闭后观众看不到任何角色，你自己仍然看得到')}
+                >
+                  <Switch
+                    checked={policy.showToViewers}
+                    disabled={!isHost}
+                    onChange={(event) =>
+                      onPolicy({ showToViewers: event.target.checked })
+                    }
+                    aria-label={t('对观众显示角色')}
+                  />
+                </Row>
+                <div className="border-t border-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)] pt-2.5">
+                  <Row
+                    label={t('允许成员开启摄像头动捕')}
+                    hint={t('关闭后成员的动捕开关会被禁用')}
+                  >
+                    <Switch
+                      checked={policy.allowFace}
+                      disabled={!isHost}
+                      onChange={(event) =>
+                        onPolicy({ allowFace: event.target.checked })
+                      }
+                      aria-label={t('允许成员开启摄像头动捕')}
+                    />
+                  </Row>
+                </div>
+              </Panel>
 
-              <Row
-                icon={<Users size={14} />}
-                label={t('对观众显示角色')}
-                hint={t('关闭后观众看不到任何角色，你自己仍然看得到')}
-              >
-                <Switch
-                  checked={policy.showToViewers}
-                  disabled={!isHost}
-                  onChange={(event) =>
-                    onPolicy({ showToViewers: event.target.checked })
-                  }
-                  aria-label={t('对观众显示角色')}
-                />
-              </Row>
-
-              <Row
-                icon={<Camera size={14} />}
-                label={t('允许成员开启摄像头动捕')}
-                hint={t('关闭后成员的动捕开关会被禁用')}
-              >
-                <Switch
-                  checked={policy.allowFace}
-                  disabled={!isHost}
-                  onChange={(event) =>
-                    onPolicy({ allowFace: event.target.checked })
-                  }
-                  aria-label={t('允许成员开启摄像头动捕')}
-                />
-              </Row>
-
-              <Row
-                label={t('统一角色')}
-                hint={
-                  canUnify
-                    ? t('全房间都显示同一个模型，成员不能再自己换')
-                    : t('房间里还没有模型，先上传一个')
+              {/* 统一角色：开关在标题右侧，卡片里只放"现在统一成什么"。
+                  以前开关下面挂着一整块模型选择器，不开统一也要占半屏高度；
+                  真正的选择器放到下面跨两列，开了才出现。 */}
+              <Panel
+                title={t('统一角色')}
+                action={
+                  <Switch
+                    checked={policy.unified}
+                    disabled={!isHost || !canUnify}
+                    onChange={(event) => {
+                      // 打开时必须给一个模型：拿当前统一模型，退而用**我自己的
+                      // 选择**（不是生效模型——隐藏时它是空串、统一时它本来就
+                      // 是统一模型，两种都不该作为"统一哪个"的来源）
+                      const next = event.target.checked
+                      if (!next) {
+                        onPolicy({ unified: false })
+                        return
+                      }
+                      const kind =
+                        policy.unifiedKind ??
+                        (selectedModelId
+                          ? selectedKind
+                          : (fallbackModel?.kind ?? 'builtin'))
+                      const id =
+                        policy.unifiedId ?? selectedModelId ?? fallbackModel?.id
+                      if (!id) return
+                      onPolicy({
+                        unified: true,
+                        unifiedKind: kind,
+                        unifiedId: id,
+                      })
+                    }}
+                    aria-label={t('统一角色')}
+                  />
                 }
               >
-                <Switch
-                  checked={policy.unified}
-                  disabled={!isHost || !canUnify}
-                  onChange={(event) => {
-                    // 打开时必须给一个模型：拿当前统一模型，退而用**我自己的
-                    // 选择**（不是生效模型——隐藏时它是空串、统一时它本来就
-                    // 是统一模型，两种都不该作为"统一哪个"的来源）
-                    const next = event.target.checked
-                    if (!next) {
-                      onPolicy({ unified: false })
-                      return
-                    }
-                    const kind =
-                      policy.unifiedKind ??
-                      (selectedModelId
-                        ? selectedKind
-                        : (fallbackModel?.kind ?? 'builtin'))
-                    const id =
-                      policy.unifiedId ?? selectedModelId ?? fallbackModel?.id
-                    if (!id) return
-                    onPolicy({
-                      unified: true,
-                      unifiedKind: kind,
-                      unifiedId: id,
-                    })
-                  }}
-                  aria-label={t('统一角色')}
-                />
-              </Row>
+                {unified ? (
+                  <div className="flex min-w-0 items-center gap-2">
+                    <ModelThumb
+                      label={unifiedLabel}
+                      src={unifiedThumb}
+                      size={36}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--md-sys-color-on-surface)]">
+                      {unifiedLabel || t('未知模型')}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] leading-relaxed opacity-50">
+                    {canUnify
+                      ? t('全房间都显示同一个模型，成员不能再自己换')
+                      : t('房间里还没有模型，先上传一个')}
+                  </p>
+                )}
+              </Panel>
 
               {policy.unified && (
-                <div
-                  className="rounded-xl border p-2.5"
-                  style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
-                >
-                  <p className="mb-1.5 text-[10px] uppercase tracking-wide opacity-55">
-                    {t('统一使用的模型')}
-                  </p>
+                <div className="md:col-span-2">
                   <Live2DModelPicker
+                    title={t('统一使用的模型')}
                     builtins={builtins}
                     libraryModels={libraryModels}
                     value={{
@@ -777,68 +773,91 @@ export function Live2DSettingsModal({
   )
 }
 
-function Section({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <p className="mb-1.5 text-[10px] uppercase tracking-wide opacity-55">
-        {label}
-      </p>
-      {children}
-    </div>
-  )
-}
-
+/** 一行设置：左边标题(+ 一句说明)，右边控件。 */
 function Row({
-  icon,
   label,
   hint,
   children,
 }: {
-  icon?: React.ReactNode
   label: string
   hint?: string
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-2">
-      {icon && (
-        <span className="shrink-0 opacity-70" aria-hidden>
-          {icon}
-        </span>
-      )}
-      <span className="min-w-0 flex-1">
-        <span className="block text-xs">{label}</span>
+    <div className="flex items-center gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs leading-tight text-[var(--md-sys-color-on-surface)]">
+          {label}
+        </div>
         {hint && (
-          <span className="block text-[10px] leading-snug opacity-50">
+          <div className="mt-0.5 text-[10px] leading-snug text-[var(--md-sys-color-on-surface-variant)] opacity-60">
             {hint}
-          </span>
+          </div>
         )}
-      </span>
-      {children}
+      </div>
+      <div className="shrink-0">{children}</div>
     </div>
+  )
+}
+
+/** 表情/动作/大小预设共用的胶囊按钮：同一张面板里不出现两套 chip。 */
+function Chip({
+  children,
+  onClick,
+  active = false,
+  disabled = false,
+  title,
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  active?: boolean
+  disabled?: boolean
+  title?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-pressed={active}
+      className="h-7 max-w-full truncate rounded-lg px-2.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+      style={{
+        background: active
+          ? 'color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent)'
+          : 'color-mix(in srgb, var(--md-sys-color-on-surface) 7%, transparent)',
+        color: active
+          ? 'var(--md-sys-color-primary)'
+          : 'var(--md-sys-color-on-surface)',
+      }}
+    >
+      {children}
+    </button>
   )
 }
 
 function Note({
   children,
   action,
+  tone = 'info',
 }: {
   children: React.ReactNode
   /** 右侧的动作（例如「重试」）：用 div 而不是 p，按钮才不会被浏览器强制闭合 */
   action?: React.ReactNode
+  tone?: 'info' | 'error'
 }) {
   return (
     <div
-      className="flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed"
+      className="flex items-start gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 text-[11px] leading-relaxed"
       style={{
-        background: 'var(--md-sys-color-surface-container)',
-        color: 'var(--md-sys-color-on-surface-variant)',
+        background:
+          tone === 'error'
+            ? 'color-mix(in srgb, var(--md-sys-color-error) 10%, transparent)'
+            : 'color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent)',
+        color:
+          tone === 'error'
+            ? 'var(--md-sys-color-error)'
+            : 'var(--md-sys-color-on-surface-variant)',
       }}
     >
       <span className="min-w-0 flex-1">{children}</span>

@@ -1,5 +1,8 @@
 {
   "items": [
+    "Auto-approve: off",
+    "Auto-approve: on",
+    "Auto-reload hit its limit and the video still will not play; reload manually, change the quality or pick another movie",
     "AniSubs anime source",
     "Bilibili sign-in status",
     "The Bilibili URL expired, resolve the video again",
@@ -21,6 +24,7 @@
     "Direct video links such as MP4/WebM",
     "OpenList server address (required for direct-link mode; filled in from the selected mount)",
     "P{{currentPage}} {{value}} · click to switch",
+    "",
     "RTT",
     "Socket not connected",
     "WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)"

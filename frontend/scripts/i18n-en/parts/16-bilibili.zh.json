@@ -1,6 +1,7 @@
 {
   "bucket": "modules/bilibili",
   "items": [
+    "[cliCandidates] 候选地址登记失败（不影响播放）:",
     "[resolveBilibili] 读取响应体失败:",
     "[resolveBilibili] 解析进度行失败:",
     "[useBilibiliQuality] 切换清晰度失败:",

@@ -1,5 +1,6 @@
 {
   "items": [
+    "",
     "[resolveBilibili] Failed to read the response body:",
     "[resolveBilibili] Failed to parse a progress line:",
     "[useBilibiliQuality] Failed to switch quality:",

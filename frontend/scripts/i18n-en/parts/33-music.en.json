@@ -1,5 +1,6 @@
 {
   "items": [
+    "Signed in to NetEase Cloud Music",
     "NetEase Cloud Music login QR code",
     "Your NetEase Cloud Music session expired, scan again",
     "NetEase Cloud Music request failed, try again",
@@ -118,7 +119,6 @@
     "Signed out",
     "Signed out of NetEase Cloud Music",
     "Requested: {{value}}",
-    "Already in {{displayName}}",
-    "Already in the queue"
+    "Already in {{displayName}}"
   ]
 }

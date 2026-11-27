@@ -56,5 +56,11 @@
   "确定要删除选中的 {{count}} 条规则吗？此操作不可撤销。": "Delete the {{count}} selected rules? This cannot be undone.",
   "删除选中的规则": "Delete selected rules",
   "选择该规则": "Select this rule",
-  "已删除 {{count}} 条规则": "Deleted {{count}} rules"
+  "已删除 {{count}} 条规则": "Deleted {{count}} rules",
+  "外观": "Appearance",
+  "表情与动作": "Expressions & motions",
+  "动捕与口型": "Motion capture & lip sync",
+  "权限": "Permissions",
+  "全部重置": "Reset all",
+  "上传模型包": "Upload model pack"
 }

@@ -1,5 +1,8 @@
 {
   "items": [
+    "Select a server file",
+    "Select a saved {{label}} mount",
+    "Select a saved mount",
     "Add and play a movie below",
     "Complete the verification in the page below (e.g. drag the slider, enter the code); the search continues automatically when done.",
     "Cancel (keep the current episode)",
@@ -116,9 +119,6 @@
     "Seek request sent, waiting for the host",
     "Pause request sent, waiting for the host",
     "Danmaku text copied",
-    "“CLI only” turned off",
-    "Members can no longer add movies",
-    "Host approval turned off",
-    "Auto-approve turned off"
+    "“CLI only” turned off"
   ]
 }

@@ -1,7 +1,7 @@
 {
   "items": [
-    "Drag mode",
     "Tilt",
+    "",
     "Done",
     "No face detected",
     "Unknown model",
@@ -15,7 +15,6 @@
     "Apply URL",
     "Voice lip sync",
     "Allow camera tracking for members",
-    "These settings apply to everyone in the room",
     "The host controls these settings; you can only view them",
     "Calibrating…",
     "Starting…",
@@ -24,7 +23,6 @@
     "Face tracking only works once you pick a model again",
     "Pick a model again for lip sync to have something to move",
     "Reset model position",
-    "Reset every character position",
     "Custom model URL",
     "Mouth",
     "Failed to load Cubism Core",

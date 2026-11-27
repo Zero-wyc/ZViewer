@@ -1,5 +1,6 @@
 {
   "items": [
+    "Top of the UI",
     "UI opacity",
     "useMusicPlayer must be used inside MusicPlayerProvider",
     "Sign in to play VIP tracks",

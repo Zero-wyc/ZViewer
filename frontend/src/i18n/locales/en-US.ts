@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2955 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2954 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1041,7 +1041,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（151 条） =====
+  // ===== modules/live2d（143 条） =====
   '，下次开启动捕时生效': ', takes effect the next time motion capture is enabled',
   '[live2d] 动捕配置切换失败（沿用原检测器）': '[live2d] Failed to switch motion-capture config (keeping the current detector)',
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
@@ -1073,8 +1073,6 @@ const enUS: Record<string, string> = {
   '地址必须指向 model3.json': 'The URL must point to model3.json',
   '地址格式无效': 'Invalid URL format',
   '地址过长': 'URL is too long',
-  '点模型右侧的删除按钮可以删掉它，正在使用的人会退回默认角色': 'Use the delete button beside a model to remove it; anyone using it falls back to the default character',
-  '动捕精度': 'Motion-capture quality',
   '动捕开着时以动捕为准': 'Face tracking takes over while it is on',
   '动捕预览': 'Capture preview',
   '动捕中': 'Tracking',
@@ -1144,9 +1142,7 @@ const enUS: Record<string, string> = {
   '删除后正在使用它的人会退回默认角色，且无法恢复': 'Anyone using it falls back to the default character. This cannot be undone.',
   '删除角色': 'Delete character',
   '删除失败': 'Failed to delete',
-  '上传': 'Upload',
   '上传失败': 'Upload failed',
-  '上传中…': 'Uploading…',
   '摄像头被其他程序占用': 'The camera is in use by another app',
   '摄像头打开失败': 'Couldn\'t open the camera',
   '摄像头动捕': 'Camera tracking',
@@ -1155,10 +1151,8 @@ const enUS: Record<string, string> = {
   '摄像头权限被拒绝': 'Camera permission denied',
   '所有角色回到默认站位': 'Put all characters back in their default spot',
   '所有人都会看到': 'Everyone will see it',
-  '填 zip 直链，服务端下载后加入模型库': 'Paste a direct zip link; the server downloads it into the model library',
   '瞳孔跟着你转；有的模型眼球位移很夸张，可以关掉': 'Pupils follow you; some models exaggerate eye displacement, so you can turn it off',
   '统一角色': 'Unified character',
-  '统一角色期间不能删除自己的角色': 'You can\'t remove your character while the host uses a room-wide one',
   '统一使用的模型': 'Shared model',
   '退出拖拽模式': 'Exit drag mode',
   '拖动角色移动': 'Drag the character to move',
@@ -1177,7 +1171,6 @@ const enUS: Record<string, string> = {
   '应用地址': 'Apply URL',
   '语音口型': 'Voice lip sync',
   '允许成员开启摄像头动捕': 'Allow camera tracking for members',
-  '这些设置对房间里所有人生效': 'These settings apply to everyone in the room',
   '这些设置由房主决定，你只能看': 'The host controls these settings; you can only view them',
   '正在标定，请正对镜头': 'Calibrating…',
   '正在启动…': 'Starting…',
@@ -1186,7 +1179,6 @@ const enUS: Record<string, string> = {
   '重新选一个模型之后动捕才有作用': 'Face tracking only works once you pick a model again',
   '重新选一个模型之后口型才有作用': 'Pick a model again for lip sync to have something to move',
   '重置模型位置': 'Reset model position',
-  '重置所有角色位置': 'Reset every character position',
   '自定义模型地址': 'Custom model URL',
   '嘴': 'Mouth',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',
@@ -1273,7 +1265,7 @@ const enUS: Record<string, string> = {
   '未取得影片播放地址': 'No playback URL for the movie',
   '主播当前未开播，请开播后再播放': 'The streamer is offline, try again once the stream starts',
 
-  // ===== modules/music（725 条） =====
+  // ===== modules/music（726 条） =====
   ' · 共 {{totalPages}} 页': ' · {{totalPages}} pages',
   ' / 共 {{totalPages}} 页': ' / {{totalPages}} pages',
   ' 首分P歌曲…': ' first-part tracks…',
@@ -1646,6 +1638,7 @@ const enUS: Record<string, string> = {
   '删除栏目「{{name}}」': 'Delete the section “{{name}}”',
   '删除屏蔽词 {{word}}': 'Delete the blocked word {{word}}',
   '删除种类 {{name}}': 'Delete the genre {{name}}',
+  '上传': 'Upload',
   '上传完毕，上传完成后可能需要转码，请稍后刷新查看': 'Upload finished. Tracks may need transcoding, refresh in a moment.',
   '上传完成后可能需要转码，请稍后刷新查看': 'Tracks may need transcoding after upload, refresh in a moment',
   '上传中...': 'Uploading...',
@@ -2003,29 +1996,12 @@ const enUS: Record<string, string> = {
   // ===== modules/openlist（1 条） =====
   '浏览 OpenList 目录': 'Browse the OpenList directory',
 
-  // ===== modules/piik-share（22 条） =====
+  // ===== modules/piik-share（5 条） =====
   '房间已关闭': 'The room is closed',
   '开播失败：服务端拒绝了这个代际': 'Failed to start sharing: the server rejected this share generation',
   '连接失败': 'Connection failed',
   '无法获取共享凭证': 'Could not obtain sharing credentials',
   '选路失败：{{reason}}': 'Route selection failed: {{reason}}',
-  '开始建立直连（发起方）': 'Starting a direct connection (initiator)',
-  '开始建立直连（接收方）': 'Starting a direct connection (receiver)',
-  '收集到本地候选：{{candidate}}': 'Local candidate: {{candidate}}',
-  '收到远端候选：{{candidate}}': 'Remote candidate: {{candidate}}',
-  'STUN 服务器不可达：{{url}}': 'STUN server unreachable: {{url}}',
-  'ICE 状态：{{state}}': 'ICE state: {{state}}',
-  '打洞成功：{{local}} ↔ {{remote}}': 'Hole punching succeeded: {{local}} ↔ {{remote}}',
-  '直连失败，等待重新分配': 'Direct connection failed, waiting for reassignment',
-  '收到远端画面': 'Remote video received',
-  '收到远端声音': 'Remote audio received',
-  '直连不可用，改为从服务器接收': 'Direct connection unavailable, receiving from the server',
-  '直连不可用，改为推流到服务器': 'Direct connection unavailable, publishing to the server',
-  '开始向服务器推流': 'Started publishing to the server',
-  '开始从服务器拉流': 'Started receiving from the server',
-  '服务器转发已建立': 'Server relay established',
-  '服务器转发失败': 'Server relay failed',
-  '会话已关闭': 'Session closed',
 
   // ===== modules/piik-signal（3 条） =====
   '客户端发了一条服务端不认识的消息': 'The client sent a message the server does not recognize',
@@ -2164,11 +2140,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（508 条） =====
-  'P2P 连接日志': 'P2P connection log',
-  '复制连接日志': 'Copy connection log',
-  '清空连接日志': 'Clear connection log',
-  '建立连接后会在这里显示候选、打洞与中转的每一步': 'Candidates, hole punching and relaying will show up here once a connection starts',
+  // ===== modules/room（504 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',
@@ -3055,13 +3027,19 @@ const enUS: Record<string, string> = {
   '解析 {{label}} 文件失败': 'Failed to resolve {{label}} files',
   '浏览 WebDAV 目录': 'Browse the WebDAV directory',
 
-  // ===== extra（6 条，见 overrides.json） =====
+  // ===== extra（12 条，见 overrides.json） =====
   '」': '”',
   '{{count}} 集_one': '{{count}} episode',
   '找到 {{count}} 条字幕_one': 'Found {{count}} subtitle track',
   '已清理 {{count}} 个无人使用的房间_one': 'Removed {{count}} unused room',
   '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one': 'Delete the <strong>{{count}}</strong> selected room? This cannot be undone.',
   '等 {{count}} 个': 'and {{count}} more',
+  '外观': 'Appearance',
+  '表情与动作': 'Expressions & motions',
+  '动捕与口型': 'Motion capture & lip sync',
+  '权限': 'Permissions',
+  '全部重置': 'Reset all',
+  '上传模型包': 'Upload model pack',
 }
 
 export default enUS

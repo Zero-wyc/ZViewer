@@ -113,12 +113,12 @@
     "DASH is disabled on the server, forcing MP4 playback",
     "Server relay",
     "Server relay (the server reads the mount stream)",
+    "",
     "This room is password protected",
     "This viewer",
     "This episode is for premium members; you are watching a preview (about {{value}} minutes). Sign in with a premium account for the full episode.",
     "This movie can only be watched in CLI mode",
     "This movie uses “CLI only”: install and connect ZViewer CLI first",
-    "This user",
-    "The main feature on this site requires membership or cannot be played directly; open the original site to watch"
+    "This user"
   ]
 }

@@ -1,5 +1,8 @@
 {
   "items": [
+    "Members can no longer add movies",
+    "Host approval turned off",
+    "Auto-approve turned off",
     "Restored to {{value}} (paused)",
     "Transferred the host role to {{value}}",
     "Removed that viewer from the room",
@@ -116,9 +119,6 @@
     "Autoplay next",
     "Autoplay: “{{title}}”",
     "Autoplay off: when on, the next movie in the list plays after the current one",
-    "Autoplay on: the next movie plays after the current one, stopping at the end",
-    "Auto-approve: off",
-    "Auto-approve: on",
-    "Auto-reload hit its limit and the video still will not play; reload manually, change the quality or pick another movie"
+    "Autoplay on: the next movie plays after the current one, stopping at the end"
   ]
 }

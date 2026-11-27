@@ -1,0 +1,22 @@
+/* Live2D 设置面板的分组卡片底。
+ *
+ * 用 on-surface 的百分比而不是 surface-container：弹窗本身是毛玻璃，主题
+ * 容器色盖上去会变成一块死板的实心色；按 on-surface 调透明度，浅色下
+ * 自动压暗、深色下自动提亮，两种主题都和玻璃底保持同一档层级差。
+ *
+ * 深色的百分比更高：白 6% 落在深玻璃上只有两三个色阶，卡片边界会糊掉。 */
+.l2d-panel {
+  background-color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 6%,
+    transparent
+  );
+}
+
+.dark .l2d-panel {
+  background-color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 9%,
+    transparent
+  );
+}

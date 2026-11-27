@@ -1,6 +1,7 @@
 {
   "bucket": "modules/music",
   "items": [
+    "UI 上方",
     "UI 透明度",
     "useMusicPlayer 必须在 MusicPlayerProvider 内使用",
     "VIP 歌曲需登录后播放",
