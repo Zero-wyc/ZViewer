@@ -8,7 +8,7 @@ services:
       - "3333:3333/udp" # 语音与屏幕共享中继的媒体面（与页面 HTTP 同号，协议不同）
       - "3334:3334"     # RTMP 推流 (OBS)
       - "3337:3337"     # 媒体 TCP（UDP 被防火墙/代理拦截时客户端自动回退到此端口）
-      - "3478:3478/udp" # 自带 STUN，共享与语音打洞；不需要可删掉这行并设 STUN_PORT=0
+      - "3334:3334/udp" # 自带 STUN，共享与语音打洞（与 RTMP 的 3334/tcp 同号不同协议）；不需要可删掉这行并设 STUN_PORT=0
       - "3332:3332"     # 网页控制台（zviewer-webgui，独立进程；不需要可删掉这行）
     environment:
       # 网页控制台端口（容器内监听，与上面的映射对应）
@@ -27,7 +27,7 @@ services:
       - SHARE_SFU_MODE=${SHARE_SFU_MODE:-fallback}
       # 自带 STUN：优先于公共 STUN 下发。公网部署要设 STUN_PUBLIC_HOST，
       # 否则 ICE 里只有容器内网地址。
-      - STUN_PORT=${STUN_PORT:-3478}
+      - STUN_PORT=${STUN_PORT:-3334}
       - STUN_PUBLIC_HOST=${STUN_PUBLIC_HOST:-}
       # NAT 1:1（云主机 / 只做端口转发的 FRP）：填宿主公网 IP。留空时候选里只有
       # 容器内网地址（172.x），信令能通但媒体连不上；STUN 发现对容器不可靠。

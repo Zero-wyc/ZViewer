@@ -111,3 +111,19 @@ func TestParseShareSfuMode(t *testing.T) {
 		t.Fatal("only 应报告强制中继")
 	}
 }
+
+// 自带 STUN 默认与 RTMP 的 3334/tcp 同号不同协议：默认值被改动时必须同步
+// README、compose 与镜像 EXPOSE，否则部署方按文档映射会漏掉 UDP。
+func TestStunPortDefaults(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StunPort != 3334 {
+		t.Fatalf("STUN 默认端口应为 3334，得到 %d", cfg.StunPort)
+	}
+	// 与媒体 UDP 端口同号会 bind 失败、静默退回公共 STUN，启动期就该拦住。
+	if cfg.StunPort == cfg.ShareMediaPort {
+		t.Fatalf("STUN 不能与媒体共用 UDP 端口 %d", cfg.ShareMediaPort)
+	}
+}

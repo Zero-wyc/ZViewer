@@ -91,7 +91,11 @@ type Config struct {
 	//
 	// 中转走 ShareMediaPort/TCPPort，与语音共用同一对 listener。
 	ShareSfuMode string
-	// StunPort 是自带 STUN 反射端的 UDP 端口；0 表示关闭。默认 3478。
+	// StunPort 是自带 STUN 反射端的 UDP 端口；0 表示关闭。默认 3334。
+	//
+	// 与 RTMP 推流的 3334/tcp 同号不同协议：部署方只需记住 3333/3334 这
+	// 一组数字，不必再单独为 STUN 开一个陌生端口。公共 STUN 的端口由对方
+	// 决定（3478 / 19302），改不了，也不占本机端口。
 	StunPort int
 	// StunHost 是 STUN 监听地址，空 = 0.0.0.0。
 	StunHost string
@@ -169,8 +173,8 @@ func Load() (*Config, error) {
 		ShareMediaTCPPort:  mediaTCPFallbackPort,
 		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
 		ShareSfuMode:       shareSfuFallback,
-		// 3478 是 STUN 的标准端口；自建之后客户端不再依赖公共 STUN 的可用性。
-		StunPort:       3478,
+		// 与 RTMP 的 3334/tcp 同号、协议不同，不冲突。
+		StunPort:       3334,
 		StunHost:       strings.TrimSpace(os.Getenv("STUN_HOST")),
 		StunPublicHost: strings.TrimSpace(os.Getenv("STUN_PUBLIC_HOST")),
 	}

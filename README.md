@@ -68,7 +68,7 @@
 
 ```bash
 docker run -d --name zviewer --restart unless-stopped \
-  -p 3333:3333 -p 3333:3333/udp -p 3334:3334 -p 3337:3337 -p 3478:3478/udp -p 3332:3332 \
+  -p 3333:3333 -p 3333:3333/udp -p 3334:3334 -p 3334:3334/udp -p 3337:3337 -p 3332:3332 \
   -v zviewer-data:/app/config \
   zerowyc0721/zviewer:latest
 ```
@@ -85,7 +85,7 @@ docker run -d --name zviewer --restart unless-stopped \
 | 3333/tcp | HTTP/HTTPS、WebSocket、页面 |
 | 3333/udp | 语音媒体；启用共享中继时也承载它（UDP） |
 | 3337/tcp | 同上，TCP 回退（UDP 被防火墙/代理拦截时自动切换） |
-| 3478/udp | 自带 STUN 反射端，共享与语音打洞用；`STUN_PORT=0` 可关闭 |
+| 3334/udp | 自带 STUN 反射端，共享与语音打洞用（与 RTMP 的 3334/tcp 同号不同协议）；`STUN_PORT=0` 可关闭 |
 | 3334/tcp | OBS RTMP 推流 |
 | 3332/tcp | 网页控制台（`zviewer-webgui`，独立进程，可不开） |
 
@@ -103,7 +103,7 @@ docker run -d --name zviewer --restart unless-stopped \
 | `SHARE_MEDIA_TCP_PORT` | 媒体 TCP 端口。**不能与 `PORT` 相同**（会抢走网页端口）；留空用 3337 | `3337` |
 | `SHARE_MEDIA_PUBLIC_IP` | NAT 1:1 下的公网地址（云主机 / FRP 场景必填） | 自动 |
 | `SHARE_SFU_MODE` | 屏幕共享媒体路径：`off` 只直连、`fallback` 直连打不通才由本机 SFU 转发、`only` 全部经服务器中转 | `fallback` |
-| `STUN_PORT` | 自带 STUN 的 UDP 端口；`0` 关闭，退回只用公共 STUN | `3478` |
+| `STUN_PORT` | 自带 STUN 的 UDP 端口；`0` 关闭，退回只用公共 STUN | `3334` |
 | `STUN_HOST` | STUN 监听地址 | `0.0.0.0` |
 | `STUN_PUBLIC_HOST` | 写进 ICE 配置的对外地址，云主机/FRP 必填；留空取 `SHARE_MEDIA_PUBLIC_IP`，再空则自动探测本机 IPv4 | 自动 |
 | `WEBGUI_PORT` | 网页控制台端口（运行包 / 容器）；`ZVIEWER_WEB_PORT` 优先 | `3332` |
@@ -122,7 +122,7 @@ docker run -d --name zviewer --restart unless-stopped \
 
 中转会增加服务器带宽与 CPU（每个观众一条出向流）；纯局域网或打洞正常的场景保持默认即可，不需要把 `3333/udp` 暴露到公网。
 
-打洞依赖 STUN：后端自带一个 `3478/udp` 的反射端并优先下发，公共 STUN 只作后备。`STUN_PORT=0` 可关掉它；云主机或 NAT 1:1 部署要设 `STUN_PUBLIC_HOST`（留空会退到 `SHARE_MEDIA_PUBLIC_IP`），否则客户端拿到的候选指向内网。
+打洞依赖 STUN：后端自带一个 `3334/udp` 的反射端并优先下发，公共 STUN（端口由对方决定，改不了）只作后备。`STUN_PORT=0` 可关掉它；云主机或 NAT 1:1 部署要设 `STUN_PUBLIC_HOST`（留空会退到 `SHARE_MEDIA_PUBLIC_IP`），否则客户端拿到的候选指向内网。
 
 ## 网页控制台
 
