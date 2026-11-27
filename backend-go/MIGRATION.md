@@ -447,7 +447,7 @@ Node-Media-Server，`streamPushAvailable()` 恒为 `false`。阶段 25 改成**�
 | 文件 | 行数 | 内容 |
 |---|---:|---|
 | `internal/serverfiles/paths.go` | 210 | 前缀式路径协议（`uploads:` / `custom:<id>:` / 旧式裸路径）、越权拦截、拼音排序 |
-| `internal/serverfiles/upload.go` | 213 | 流式落盘、10GB 上限、只读根拒绝、重名改名、文件名修复 |
+| `internal/serverfiles/upload.go` | 213 | 流式落盘（不限体积）、只读根拒绝、重名改名、文件名修复 |
 | `internal/serverfiles/download.go` | 119 | URL → 本地文件（B站下载用），失败删残片，进度按 2% 节流 |
 | `internal/store/serverfolder.go` | 127 | `server_folder` 表（第 14 张表）读写 |
 
@@ -498,7 +498,7 @@ HTTP 对拍与 socket 对拍的方法论差异：比的是「状态码 + 响应�
    `language.SimplifiedChinese` 复刻 JS 的 `localeCompare(name, 'zh-Hans-CN')`；
    Collator **非并发安全**，必须加互斥锁。「阿」要排在「波」之前——码点序是相反的。
 7. **上传必须流式**（`r.MultipartReader()`）。`ParseMultipartForm` 会把整个请求体先落临时
-   文件，10GB 上传等于写两遍盘。`targetDir` 字段必须**排在文件 part 之前**才能边收边定根。
+   文件，几十 GB 的上传等于写两遍盘。`targetDir` 字段必须**排在文件 part 之前**才能边收边定根。
 8. **根目录注册表带 30s TTL + 主动失效**。`/proxy` 在 seek/预取时高频到达，每次查
    `server_folder` 全表是纯浪费；增删时 `Invalidate()` 保证改完立刻生效。
 
@@ -1841,7 +1841,7 @@ DeviceId 仍是进程级常量，见 `internal/emby/clientname_test.go`。
 | `ToPrefixedPath` 必须把 `rel == "."` 当成根路径 | 同上 | `filepath.Clean` 把正斜杠换成正平台分隔符，与 `root.AbsPath` 字符串不等；不判 `"."` 会输出 `uploads:/.`，前端面包屑与「当前目录」比较全部失配 |
 | 416 响应**不写响应体** | `range-stream.ts#sendRangeNotSatisfiable` | Node 是 `res.status(416).setHeader(); res.end()`。播放器只看状态码与 `Content-Range`，塞 JSON 会让它把响应当成媒体数据解析 |
 | 目录项的 `size` 键**整个消失**（不是 0） | `server-files` 目录 DTO | Node 的 `size` 是 `undefined`，`JSON.stringify` 丢键。写 0 会让前端排序把目录与空文件混在一起 |
-| 上传必须用**流式** multipart 读取，且 `targetDir` 字段要排在文件 part 之前 | `routes/server-files.ts` | `ParseMultipartForm` 先把整个请求体落临时文件，10GB 上传写两遍盘；字段顺序反了则边收边定根会失败 |
+| 上传必须用**流式** multipart 读取，且 `targetDir` 字段要排在文件 part 之前 | `routes/server-files.ts` | `ParseMultipartForm` 先把整个请求体落临时文件，几十 GB 的上传写两遍盘；字段顺序反了则边收边定根会失败 |
 | 服务器文件根目录注册表带 **30s TTL + 主动失效** | `internal/serverfiles/paths.go` | `/proxy` 在 seek/预取时高频到达，每次查 `server_folder` 全表是纯浪费；只做 TTL 则「新增根后立刻浏览」看不到 |
 | 直链解析缓存 key **不含 userId**（`type\|serverURL\|path`） | `internal/api/directresolve.go` | 同一源文件跨影片、跨房间共享解析结果；带 userId 会让缓存命中率归零并放大上游压力 |
 | 直链升级前必须**现场再探**一次（`UpgradeDirectURLValidated`） | `mountutil` | `httpsDirect` 是配置期一次性探测的持久缓存，源站拆掉反向代理后陈旧的 `true` 会变成永远连不上 |

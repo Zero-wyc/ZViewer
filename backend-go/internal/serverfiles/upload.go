@@ -13,18 +13,14 @@ import (
 	"unicode/utf8"
 )
 
-// MaxUploadSize 是单个上传文件的大小上限（10GB，与 Node 的
-// multer `limits.fileSize` 一致）。
-const MaxUploadSize int64 = 10 * 1024 * 1024 * 1024
+// 上传不设单文件体积上限：影片动辄几十 GB，卡在固定值上就等于「传不上去」。
+// 这里只做流式落盘，写满磁盘时由 write 错误中断并清理残片。
 
 // maxFieldBytes 限制非文件字段（targetDir 等）的长度，防止恶意超长字段。
 const maxFieldBytes int64 = 1 << 20
 
 // ErrRootReadonly 表示目标根被标记为只读。
 var ErrRootReadonly = errors.New("该根目录为只读")
-
-// ErrUploadTooLarge 表示单文件超过 MaxUploadSize。
-var ErrUploadTooLarge = errors.New("文件超过大小上限")
 
 // UploadedFile 是一个已落盘的上传结果。
 type UploadedFile struct {
@@ -42,7 +38,7 @@ type UploadedFile struct {
 //   - 任一步失败清理已写入的文件。
 //
 // 之所以用流式 multipart.Reader 而不是 ParseMultipartForm：后者会把整个
-// 请求体先落到临时文件（10GB 上传等于写两遍盘）。
+// 请求体先落到临时文件（几十 GB 的上传等于写两遍盘）。
 func (r *Registry) ReceiveUploads(ctx context.Context, reader *multipart.Reader) ([]UploadedFile, error) {
 	fields := make(map[string]string)
 
@@ -136,14 +132,15 @@ func (r *Registry) ReceiveUploads(ctx context.Context, reader *multipart.Reader)
 	return files, nil
 }
 
-// writePart 把单个 part 写入磁盘，超过 MaxUploadSize 时中断。
+// writePart 把单个 part 完整写入磁盘（不限体积）。
 func writePart(part io.Reader, targetPath string, root RootInfo) (int64, error) {
 	dst, err := OpenFile(root, targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, err
 	}
-	// 多读 1 字节：正好等于上限时不算超限，多出来才判超限。
-	written, copyErr := io.Copy(dst, io.LimitReader(part, MaxUploadSize+1))
+	// 不加 LimitReader：体积上限移除后这里纯粹是「收多少写多少」，
+	// 磁盘写满或客户端断流都会让 io.Copy 返回错误，走下面的清理分支。
+	written, copyErr := io.Copy(dst, part)
 	closeErr := dst.Close()
 	if copyErr != nil {
 		_ = RemoveAll(root, targetPath)
@@ -152,10 +149,6 @@ func writePart(part io.Reader, targetPath string, root RootInfo) (int64, error) 
 	if closeErr != nil {
 		_ = RemoveAll(root, targetPath)
 		return 0, closeErr
-	}
-	if written > MaxUploadSize {
-		_ = RemoveAll(root, targetPath)
-		return 0, ErrUploadTooLarge
 	}
 	return written, nil
 }
