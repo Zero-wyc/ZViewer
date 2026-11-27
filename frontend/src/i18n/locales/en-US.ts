@@ -2003,12 +2003,29 @@ const enUS: Record<string, string> = {
   // ===== modules/openlist（1 条） =====
   '浏览 OpenList 目录': 'Browse the OpenList directory',
 
-  // ===== modules/piik-share（5 条） =====
+  // ===== modules/piik-share（22 条） =====
   '房间已关闭': 'The room is closed',
   '开播失败：服务端拒绝了这个代际': 'Failed to start sharing: the server rejected this share generation',
   '连接失败': 'Connection failed',
   '无法获取共享凭证': 'Could not obtain sharing credentials',
   '选路失败：{{reason}}': 'Route selection failed: {{reason}}',
+  '开始建立直连（发起方）': 'Starting a direct connection (initiator)',
+  '开始建立直连（接收方）': 'Starting a direct connection (receiver)',
+  '收集到本地候选：{{candidate}}': 'Local candidate: {{candidate}}',
+  '收到远端候选：{{candidate}}': 'Remote candidate: {{candidate}}',
+  'STUN 服务器不可达：{{url}}': 'STUN server unreachable: {{url}}',
+  'ICE 状态：{{state}}': 'ICE state: {{state}}',
+  '打洞成功：{{local}} ↔ {{remote}}': 'Hole punching succeeded: {{local}} ↔ {{remote}}',
+  '直连失败，等待重新分配': 'Direct connection failed, waiting for reassignment',
+  '收到远端画面': 'Remote video received',
+  '收到远端声音': 'Remote audio received',
+  '直连不可用，改为从服务器接收': 'Direct connection unavailable, receiving from the server',
+  '直连不可用，改为推流到服务器': 'Direct connection unavailable, publishing to the server',
+  '开始向服务器推流': 'Started publishing to the server',
+  '开始从服务器拉流': 'Started receiving from the server',
+  '服务器转发已建立': 'Server relay established',
+  '服务器转发失败': 'Server relay failed',
+  '会话已关闭': 'Session closed',
 
   // ===== modules/piik-signal（3 条） =====
   '客户端发了一条服务端不认识的消息': 'The client sent a message the server does not recognize',
@@ -2147,7 +2164,11 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（504 条） =====
+  // ===== modules/room（508 条） =====
+  'P2P 连接日志': 'P2P connection log',
+  '复制连接日志': 'Copy connection log',
+  '清空连接日志': 'Clear connection log',
+  '建立连接后会在这里显示候选、打洞与中转的每一步': 'Candidates, hole punching and relaying will show up here once a connection starts',
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[RoomInfoPanel] 更新成员点片权限失败:': '[RoomInfoPanel] failed to update member movie permission:',

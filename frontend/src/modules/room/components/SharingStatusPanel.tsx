@@ -32,6 +32,8 @@ import {
   peerQualitySeverity,
   type PeerQuality,
 } from '@/modules/screen-sharing/core/peer-quality'
+import { ConnectionLogPanel } from '@/modules/room/components/ConnectionLogPanel'
+import type { ConnectionLogEntry } from '@/modules/piik-share/connection-log'
 import { t } from '@/i18n'
 
 export interface SharingStatusPanelProps {
@@ -53,6 +55,14 @@ export interface SharingStatusPanelProps {
   mode: 'sender' | 'receiver'
   /** 共享模式标签：服务器中转 / P2P 直连 */
   sharingMode: SharingMode
+  /**
+   * P2P 连接日志（候选、STUN 可达性、打洞结果）。
+   *
+   * 目前只在观众侧接：房主的出边是「一对多」，日志会混在一起，暂时不展示。
+   */
+  connectionLog?: ConnectionLogEntry[]
+  /** 清空本地日志；不传则不显示清空按钮。 */
+  onClearLog?: () => void
 }
 
 interface StatRowProps {
@@ -259,6 +269,8 @@ export function SharingStatusPanel({
   captureFps,
   mode,
   sharingMode,
+  connectionLog,
+  onClearLog,
 }: SharingStatusPanelProps) {
   // 汇总口径写在 core/edge-stats：帧率/丢包取最差一条，码率求和。
   const stats = aggregateEdgeStats(edges)
@@ -376,7 +388,7 @@ export function SharingStatusPanel({
       )}
 
       {/* 实时统计字段列表 */}
-      <div className="flex flex-col gap-2 overflow-y-auto pr-1">
+      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto pr-1">
         {mode === 'sender' && (
           <StatRow
             icon={<Gauge className="h-3.5 w-3.5" />}
@@ -526,6 +538,12 @@ export function SharingStatusPanel({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {connectionLog && (
+        <div className="flex-shrink-0">
+          <ConnectionLogPanel entries={connectionLog} onClear={onClearLog} />
         </div>
       )}
 

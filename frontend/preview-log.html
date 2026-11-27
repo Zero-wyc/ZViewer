@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>P2P 连接日志预览</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // i18n 在模块初始化时就读取这个键，必须早于入口脚本执行。
+      localStorage.setItem('zviewer-language', 'zh-CN')
+    </script>
+    <script type="module" src="/src/dev/preview-connection-log.tsx"></script>
+  </body>
+</html>

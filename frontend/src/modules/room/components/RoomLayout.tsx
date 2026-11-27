@@ -18,6 +18,7 @@ import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { useRoomStore, type RoomMode } from '@/store/roomStore'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 import { SharingStatusPanel } from '@/modules/room/components/SharingStatusPanel'
+import type { ConnectionLogEntry } from '@/modules/piik-share/connection-log'
 import {
   getFullscreenElement,
   onFullscreenChange,
@@ -51,6 +52,10 @@ interface RoomLayoutProps {
   sharingRole?: 'sender' | 'receiver'
   /** 共享模式标签，默认服务器中转 */
   sharingMode?: SharingMode
+  /** P2P 连接日志（观众侧）：候选、STUN 可达性、打洞结果。 */
+  connectionLog?: ConnectionLogEntry[]
+  /** 清空连接日志。 */
+  onClearConnectionLog?: () => void
   /**
    * 显式覆盖共享状态判断。
    * 未提供时，自动判断为 `mode === 'screen-share' && store.isSharing`。
@@ -130,6 +135,8 @@ export function RoomLayout({
   captureFps = null,
   sharingRole = 'sender',
   sharingMode = 'direct',
+  connectionLog,
+  onClearConnectionLog,
   sharingActive,
   webFullscreen = false,
   onSwitchMode,
@@ -179,6 +186,8 @@ export function RoomLayout({
       captureFps={captureFps}
       mode={sharingRole}
       sharingMode={sharingMode}
+      connectionLog={connectionLog}
+      onClearLog={onClearConnectionLog}
     />
   ) : (
     rightPanel

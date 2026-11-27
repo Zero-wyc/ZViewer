@@ -21,6 +21,7 @@ import {
 } from '../piik-signal/client.ts'
 import { acquireLink, linkKey, type PiikLink } from '../piik-signal/link.ts'
 import { ShareEndpoint, type ShareHealthSample } from './endpoint.ts'
+import type { ConnectionLogEntry } from './connection-log.ts'
 import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats.ts'
 import type {
   QualityProfile,
@@ -38,6 +39,8 @@ export interface ShareSessionHandlers {
   onStatus: (status: SignalStatus) => void
   onStream: (connectionId: string, stream: MediaStream) => void
   onStateChange: (connectionId: string, state: RTCPeerConnectionState) => void
+  /** P2P 连接日志（候选、STUN 可达性、打洞结果）。不传就不收集。 */
+  onLog?: (entry: ConnectionLogEntry) => void
   onError: (message: string) => void
   /** 房主：服务端确认开播。 */
   onSharingStarted?: (message: PiikSharingStarted) => void
@@ -166,6 +169,7 @@ export class PiikShareSession {
       send: (message) => this.client?.send(message) ?? false,
       onStream: this.handlers.onStream,
       onStateChange: this.handlers.onStateChange,
+      onLog: this.handlers.onLog,
     })
     // 同房间只维持一条连接：语音、共享共用，各自只订阅自己认得的消息。
     this.link = acquireLink(

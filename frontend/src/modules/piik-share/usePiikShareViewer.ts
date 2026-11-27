@@ -9,6 +9,10 @@ import type { ViewerSessionState } from '../screen-sharing/core/view-state'
 import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats'
 import { PiikShareSession } from './session.ts'
 import { usePiikShareStats } from './usePiikShareStats.ts'
+import {
+  appendConnectionLog,
+  type ConnectionLogEntry,
+} from './connection-log.ts'
 import { t } from '@/i18n'
 
 export interface UsePiikShareViewerOptions {
@@ -30,6 +34,10 @@ export interface UsePiikShareViewerResult {
   sharingMode: 'direct' | 'relay'
   /** 当前入边的用量（多连接拓扑下没有「唯一一条 PC」）。 */
   edges: ShareEdgeStats[]
+  /** P2P 连接日志：候选、STUN 可达性、打洞结果，按时间正序。 */
+  logs: ConnectionLogEntry[]
+  /** 清空本地日志（不影响连接本身）。 */
+  clearLogs: () => void
   retry: () => void
 }
 
@@ -57,6 +65,28 @@ export function usePiikShareViewer(
   const [generation, setGeneration] = useState(0)
   /** 上游是否由服务端转发；状态面板据此显示「服务器转发」。 */
   const [relaying, setRelaying] = useState(false)
+  const [logs, setLogs] = useState<ConnectionLogEntry[]>([])
+  /**
+   * 日志缓冲。
+   *
+   * 一次协商会连续抛十几条候选事件，逐条 setState 会让整棵树跟着重渲染；
+   * 攒 150ms 再一起提交，面板看起来仍然是「实时」的。
+   */
+  const logBufferRef = useRef<ConnectionLogEntry[]>([])
+  const logTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleLogFlush = useCallback(() => {
+    if (logTimerRef.current !== null) return
+    logTimerRef.current = setTimeout(() => {
+      logTimerRef.current = null
+      const batch = logBufferRef.current.splice(0)
+      if (batch.length === 0) return
+      setLogs((prev) => {
+        let next = prev
+        for (const entry of batch) next = appendConnectionLog(next, entry)
+        return next
+      })
+    }, 150)
+  }, [])
   const onAutoplayBlockedRef = useRef(onAutoplayBlocked)
   useEffect(() => {
     onAutoplayBlockedRef.current = onAutoplayBlocked
@@ -65,6 +95,9 @@ export function usePiikShareViewer(
   useEffect(() => {
     if (!roomId) return
     let disposed = false
+    // 换房间或手动重连都从空日志开始，否则上一轮的候选会和这一轮混在一起。
+    setLogs([])
+    logBufferRef.current = []
     const session = new PiikShareSession(roomId, {
       onStatus: (status) =>
         setState((prev) => ({
@@ -79,6 +112,11 @@ export function usePiikShareViewer(
           active: true,
           hasVideo: stream.getVideoTracks().length > 0,
         }))
+      },
+      onLog: (entry) => {
+        if (disposed) return
+        logBufferRef.current.push(entry)
+        scheduleLogFlush()
       },
       onStateChange: (_connectionId, next) => {
         if (disposed) return
@@ -121,8 +159,12 @@ export function usePiikShareViewer(
       session.stop()
       sessionRef.current = null
       setRemoteStream(null)
+      if (logTimerRef.current !== null) {
+        clearTimeout(logTimerRef.current)
+        logTimerRef.current = null
+      }
     }
-  }, [roomId, generation])
+  }, [roomId, generation, scheduleLogFlush])
 
   // 远端流可能先于 video 元素到达，元素就位后补一次绑定。
   useEffect(() => {
@@ -141,6 +183,11 @@ export function usePiikShareViewer(
     }
   }, [remoteStream, videoRef, videoVersion])
 
+  const clearLogs = useCallback(() => {
+    logBufferRef.current = []
+    setLogs([])
+  }, [])
+
   const retry = useCallback(() => {
     // 断线后的重连交给信令层；这里只处理「彻底躺平」的手动重来。
     setGeneration((value) => value + 1)
@@ -157,6 +204,8 @@ export function usePiikShareViewer(
     state,
     sharingMode: relaying ? 'relay' : 'direct',
     edges,
+    logs,
+    clearLogs,
     retry,
   }
 }

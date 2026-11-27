@@ -38,12 +38,25 @@ import {
   type QualityProfile,
   type VideoSenderParameterReadback,
 } from '../screen-sharing/core/quality.ts'
+import {
+  CONNECTION_LOG_LIMIT,
+  candidateFromInit,
+  describeCandidate,
+  describeSelectedPair,
+  type ConnectionLogEntry,
+  type ConnectionLogLevel,
+} from './connection-log.ts'
 
 export interface ShareEndpointHandlers {
   send: (message: PiikClientMessage) => boolean
   /** 这条边收到了远端媒体。 */
   onStream: (connectionId: string, stream: MediaStream) => void
   onStateChange: (connectionId: string, state: RTCPeerConnectionState) => void
+  /**
+   * 一条连接日志。不传就不收集——测试和不需要面板的调用方省掉这批事件，
+   * 也不让日志数组常驻内存。
+   */
+  onLog?: (entry: ConnectionLogEntry) => void
 }
 
 interface Edge {
@@ -134,6 +147,9 @@ export class ShareEndpoint {
   private closed = false
   /** 房主是否暂停了共享：暂停期间新建的边也要立刻停发。 */
   private sendingPaused = false
+  /** 最近的连接日志，面板晚于会话挂载时用来补历史。 */
+  private readonly logEntries: ConnectionLogEntry[] = []
+  private logSeq = 0
 
   constructor(
     iceConfig: PiikIceConfig,
@@ -147,6 +163,37 @@ export class ShareEndpoint {
 
   setIceConfig(config: PiikIceConfig): void {
     this.iceConfig = config
+  }
+
+  /**
+   * 记一条连接日志。
+   *
+   * `message` 是 i18n key（中文原文），`vars` 负责插值；`detail` 放不翻译的
+   * 原始信息（连接 ID、错误码），复制日志时一并带走。只有接了 `onLog` 的
+   * 调用方才会收到。
+   */
+  private log(
+    level: ConnectionLogLevel,
+    message: string,
+    vars?: Record<string, string | number>,
+    detail?: string
+  ): void {
+    const entry: ConnectionLogEntry = {
+      id: ++this.logSeq,
+      at: Date.now(),
+      level,
+      message,
+    }
+    if (vars) entry.vars = vars
+    if (detail) entry.detail = detail
+    this.logEntries.push(entry)
+    if (this.logEntries.length > CONNECTION_LOG_LIMIT) this.logEntries.shift()
+    this.handlers.onLog?.(entry)
+  }
+
+  /** 已记录的日志（面板挂载晚于会话时用来补历史）。 */
+  connectionLog(): ConnectionLogEntry[] {
+    return [...this.logEntries]
   }
 
   /**
@@ -485,6 +532,7 @@ export class ShareEndpoint {
 
   close(): void {
     this.closed = true
+    this.log('info', '会话已关闭')
     for (const edge of this.edges.values()) {
       try {
         edge.pc.close()
@@ -553,6 +601,14 @@ export class ShareEndpoint {
         role: upstream && upstream.kind === 'sfu' ? 'subscriber' : 'publisher',
       }
       this.armSfuSubscribe(this.sfuRoute)
+      this.log(
+        'warn',
+        this.sfuRoute.role === 'subscriber'
+          ? '直连不可用，改为从服务器接收'
+          : '直连不可用，改为推流到服务器',
+        undefined,
+        candidate.connectionId
+      )
       return
     }
     if (candidate.transport !== 'direct') return
@@ -614,6 +670,14 @@ export class ShareEndpoint {
       const candidate = payload.candidate
       if (!candidate) return
       if (!edge) return
+      const summary = candidateFromInit(candidate)
+      if (summary && edge.remoteReady)
+        this.log(
+          'info',
+          '收到远端候选：{{candidate}}',
+          { candidate: summary },
+          connectionId
+        )
       if (!edge.remoteReady) {
         edge.pendingCandidates.push(candidate)
         return
@@ -692,6 +756,14 @@ export class ShareEndpoint {
       if (!candidate) return
       const edge = this.sfuEdges.get(message.connectionId)
       if (!edge) return
+      const summary = candidateFromInit(candidate)
+      if (summary && edge.remoteReady)
+        this.log(
+          'info',
+          '收到远端候选：{{candidate}}',
+          { candidate: summary },
+          message.connectionId
+        )
       if (!edge.remoteReady) {
         edge.pendingCandidates.push(candidate)
         return
@@ -821,14 +893,45 @@ export class ShareEndpoint {
       media: null,
     }
     this.sfuEdges.set(connectionId, edge)
+    this.log(
+      'info',
+      role === 'publisher' ? '开始向服务器推流' : '开始从服务器拉流',
+      undefined,
+      connectionId
+    )
 
     pc.onicecandidate = (event) => {
       const candidate = event.candidate
       if (!candidate) return
+      const summary = describeCandidate(candidate)
+      if (summary)
+        this.log(
+          'info',
+          '收集到本地候选：{{candidate}}',
+          { candidate: summary },
+          connectionId
+        )
       this.sendSfuSignal(edge, {
         kind: 'candidate',
         candidate: candidate.toJSON(),
       })
+    }
+    pc.onicecandidateerror = (event) => {
+      this.log(
+        'warn',
+        'STUN 服务器不可达：{{url}}',
+        { url: event.url || '-' },
+        `code=${event.errorCode}${event.errorText ? ` ${event.errorText}` : ''}`
+      )
+    }
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState
+      this.log(
+        state === 'failed' ? 'error' : 'info',
+        'ICE 状态：{{state}}',
+        { state },
+        connectionId
+      )
     }
     pc.ontrack = (event) => {
       if (edge.role !== 'subscriber') return
@@ -836,14 +939,27 @@ export class ShareEndpoint {
       if (!edge.stream.getTracks().includes(track)) edge.stream.addTrack(track)
       if (!this.incoming) this.incoming = edge.stream
       this.handlers.onStream(connectionId, edge.stream)
+      this.log(
+        'ok',
+        track.kind === 'audio' ? '收到远端声音' : '收到远端画面',
+        undefined,
+        connectionId
+      )
       this.relayToChildren(track)
     }
     pc.onconnectionstatechange = () => {
       this.handlers.onStateChange(connectionId, pc.connectionState)
-      if (pc.connectionState === 'connected') this.settleSfu(edge)
+      if (pc.connectionState === 'connected') {
+        this.log('ok', '服务器转发已建立', undefined, connectionId)
+        this.settleSfu(edge)
+        void this.logSelectedPair(connectionId, pc)
+      }
       // SFU 失败不上报 `route-failed`：服务端自己按超时判定，重复上报
       // 会把这次重新分配判死。这里只关本地连接。
-      if (pc.connectionState === 'failed') this.dropSfuEdge(connectionId, edge)
+      if (pc.connectionState === 'failed') {
+        this.log('error', '服务器转发失败', undefined, connectionId)
+        this.dropSfuEdge(connectionId, edge)
+      }
     }
     return edge
   }
@@ -999,15 +1115,49 @@ export class ShareEndpoint {
       if (this.sendingPaused) void this.applySending(pc, true)
     }
 
+    this.log(
+      'info',
+      offerer ? '开始建立直连（发起方）' : '开始建立直连（接收方）',
+      undefined,
+      connectionId
+    )
+
     pc.onicecandidate = (event) => {
       const candidate = event.candidate
       // 候选结束（null）不转发：协议允许，但服务端只认真正的候选。
       if (!candidate) return
+      const summary = describeCandidate(candidate)
+      if (summary)
+        this.log(
+          'info',
+          '收集到本地候选：{{candidate}}',
+          { candidate: summary },
+          connectionId
+        )
       this.sendSignal(remotePeerId, {
         kind: 'candidate',
         connectionId,
         candidate: candidate.toJSON(),
       })
+    }
+    // STUN 服务器不可达时浏览器会在这里报 701：这是「为什么没有公网候选」
+    // 的唯一直接线索，比事后猜 NAT 类型可靠得多。
+    pc.onicecandidateerror = (event) => {
+      this.log(
+        'warn',
+        'STUN 服务器不可达：{{url}}',
+        { url: event.url || '-' },
+        `code=${event.errorCode}${event.errorText ? ` ${event.errorText}` : ''}`
+      )
+    }
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState
+      this.log(
+        state === 'failed' ? 'error' : 'info',
+        'ICE 状态：{{state}}',
+        { state },
+        connectionId
+      )
     }
     pc.ontrack = (event) => {
       const track = event.track
@@ -1016,12 +1166,24 @@ export class ShareEndpoint {
       // 到达时会重新接管；旧边的 track 已随连接关闭而 ended。
       if (!edge.offerer && !this.incoming) this.incoming = edge.stream
       this.handlers.onStream(connectionId, edge.stream)
+      this.log(
+        'ok',
+        track.kind === 'audio' ? '收到远端声音' : '收到远端画面',
+        undefined,
+        connectionId
+      )
       this.relayToChildren(track)
     }
     pc.onconnectionstatechange = () => {
       this.handlers.onStateChange(connectionId, pc.connectionState)
-      if (pc.connectionState === 'connected') this.settle(edge, connectionId)
-      if (pc.connectionState === 'failed') this.fail(edge, connectionId)
+      if (pc.connectionState === 'connected') {
+        this.settle(edge, connectionId)
+        void this.logSelectedPair(connectionId, pc)
+      }
+      if (pc.connectionState === 'failed') {
+        this.log('error', '直连失败，等待重新分配', undefined, connectionId)
+        this.fail(edge, connectionId)
+      }
     }
     return edge
   }
@@ -1095,6 +1257,32 @@ export class ShareEndpoint {
         /* 连接已经关了 */
       }
     }
+  }
+
+  /**
+   * 记下最终选中的候选对。
+   *
+   * connected 之后 stats 才稳定，这里异步补一条：`srflx → srflx` 说明打洞
+   * 成功，`host → host` 是同网段直连，出现 `relay` 则已经在走中继。RTT 一并
+   * 带上，弱网排查不用再翻统计面板。
+   */
+  private async logSelectedPair(
+    connectionId: string,
+    pc: RTCPeerConnection
+  ): Promise<void> {
+    // 测试桩与个别老实现没有 getStats：日志少一条，不影响协商。
+    if (typeof pc.getStats !== 'function') return
+    const report = await pc.getStats().catch(() => null)
+    const pair = describeSelectedPair(report)
+    if (!pair) return
+    this.log(
+      'ok',
+      '打洞成功：{{local}} ↔ {{remote}}',
+      { local: pair.local, remote: pair.remote },
+      pair.rttMs === null
+        ? connectionId
+        : `${connectionId} · RTT ${pair.rttMs} ms`
+    )
   }
 
   private settle(edge: Edge, connectionId: string): void {

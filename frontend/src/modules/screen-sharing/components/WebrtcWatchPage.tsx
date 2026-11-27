@@ -153,6 +153,8 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     state,
     sharingMode,
     edges,
+    logs,
+    clearLogs,
     retry,
   } = usePiikShareViewer({ roomId, videoRef, videoVersion })
 
@@ -505,6 +507,8 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         edges={edges}
         sharingRole="receiver"
         sharingMode={sharingMode}
+        connectionLog={logs}
+        onClearConnectionLog={clearLogs}
         sharingActive
         webFullscreen={isWebFullscreen}
         rightPanel={commentPanel}
