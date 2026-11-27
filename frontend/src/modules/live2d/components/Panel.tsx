@@ -8,28 +8,21 @@ import './panel.css'
 // 每组是一块实色底，边界由底色本身给出——不加描边、不加阴影、不加图标，
 // 一眼能看出"这几项是一伙的"就够了。
 //
-// 底色用 on-surface 的 4% 而不是 surface-container：弹窗本身是毛玻璃，
-// 主题容器色盖上去会变成死板的一块；4% 会跟着主题明暗自动"下沉"（浅色变灰、
-// 深色变亮），和玻璃底始终有层级差。
+// 底色用 on-surface 的百分比而不是 surface-container：弹窗本身是毛玻璃，
+// 主题容器色盖上去会变成死板的一块；按 on-surface 调透明度会跟着主题明暗
+// 自动"下沉"（浅色变灰、深色变亮），和玻璃底始终有层级差。具体比例见
+// panel.css（深色需要更高，否则边界会糊掉）。
 
 export interface PanelProps {
   title?: React.ReactNode
-  /** 标题右侧的补充说明（例如「仅本机」）：短到能塞进标题一行 */
-  hint?: React.ReactNode
   /** 标题右侧的操作按钮（上传、导入等），自动靠右 */
   action?: React.ReactNode
   children: React.ReactNode
   className?: string
 }
 
-export function Panel({
-  title,
-  hint,
-  action,
-  children,
-  className,
-}: PanelProps) {
-  const hasHeader = Boolean(title || hint || action)
+export function Panel({ title, action, children, className }: PanelProps) {
+  const hasHeader = Boolean(title || action)
   return (
     <section
       className={cn(
@@ -43,11 +36,6 @@ export function Panel({
             <h4 className="text-xs font-medium text-[var(--md-sys-color-on-surface)]">
               {title}
             </h4>
-          )}
-          {hint && (
-            <span className="text-[10px] text-[var(--md-sys-color-on-surface-variant)] opacity-60">
-              {hint}
-            </span>
           )}
           {action && (
             <div className="ml-auto flex items-center gap-1.5">{action}</div>
